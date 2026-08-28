@@ -94,6 +94,8 @@ Item {
   property int fileScanSerial: 0
   property string fileCopyFeedbackPath: ""
   property string fileCopyFeedback: ""
+  property bool actionPanelActive: false
+  property var actionPanelFile: null
 
   // Shared application engine (entries, hidden filters, icons, launch,
   // removal), owned by the shell and also used by the standalone launcher.
@@ -362,6 +364,8 @@ Item {
   }
 
   function leaveFileBrowser() {
+    root.actionPanelActive = false
+    root.actionPanelFile = null
     root.fileBrowserActive = false
     root.fileBrowserExtension = null
     root.fileBrowserPath = ""
@@ -392,7 +396,7 @@ Item {
       var feedback = entry.path === root.fileCopyFeedbackPath ? root.fileCopyFeedback : ""
       var description = feedback || (isDirectory ? entry.path : entry.path + "  ·  Ctrl+C to copy path")
       var item = root.normalizeItem("file." + (isDirectory ? "directory." : "item.") + i, {
-        icon: feedback === "Copied path" ? "✓" : (isDirectory ? "󰉋" : "󰈔"),
+        icon: feedback.indexOf("Copied") === 0 ? "✓" : (isDirectory ? "󰉋" : "󰈔"),
         label: entry.name,
         description: description,
         action: entry.path
@@ -407,13 +411,93 @@ Item {
     Qt.callLater(function() { if (displayModel.count > 0) root.revealCursor() })
   }
 
+  function rebuildActionPanel() {
+    displayModel.clear()
+    if (!root.actionPanelFile || !root.fileBrowserExtension) return
+    var actions = root.actionPanelFile.type === "directory"
+      ? [
+          { id: "open-files", icon: "󰉋", label: "Open in Files" },
+          { id: "open-terminal", icon: "", label: "Open in terminal" }
+        ]
+      : [{ id: "open", icon: "󰈔", label: "Open" }]
+    actions = actions.concat([
+      { id: "copy-path", icon: "󰆏", label: "Copy path" },
+      { id: "copy-file", icon: "󰆏", label: "Copy file to clipboard" }
+    ])
+    for (var i = 0; i < actions.length; i++) {
+      var action = actions[i]
+      var item = root.normalizeItem("file.action." + action.id, {
+        icon: action.icon,
+        label: action.label,
+        description: root.actionPanelFile.path,
+        action: action.id
+      })
+      var row = root.displayRow(item, root.actionPanelFile.path, i)
+      row.starred = false
+      displayModel.append(row)
+    }
+    root.layoutSerial += 1
+    root.selectedIndex = 0
+    root.cursorActive = true
+    Qt.callLater(function() { root.revealCursor() })
+  }
+
+  function openActionPanel() {
+    if (!root.fileBrowserActive || root.selectedIndex < 0 || root.selectedIndex >= displayModel.count) return
+    var row = displayModel.get(root.selectedIndex)
+    if (!row || row.itemId.indexOf("file.") !== 0 || row.itemId.indexOf("file.action.") === 0) return
+    root.actionPanelFile = {
+      index: root.selectedIndex,
+      path: row.action,
+      name: row.label,
+      type: row.itemId.indexOf("file.directory.") === 0 ? "directory" : "file"
+    }
+    root.actionPanelActive = true
+    root.rebuildActionPanel()
+  }
+
+  function closeActionPanel() {
+    var previousIndex = root.actionPanelFile ? root.actionPanelFile.index : 0
+    root.actionPanelActive = false
+    root.actionPanelFile = null
+    root.selectedIndex = previousIndex
+    root.rebuildFileDisplay()
+  }
+
+  function startFileCopy(path, command, successMessage) {
+    if (!path || !command || command.length === 0 || fileCopyProc.running) return
+    fileCopyProc.copyPath = path
+    fileCopyProc.successMessage = successMessage
+    fileCopyProc.command = root.commandArguments(command, { path: path })
+    fileCopyProc.running = true
+  }
+
   function copySelectedFilePath() {
     if (!root.fileBrowserActive || root.selectedIndex < 0 || root.selectedIndex >= displayModel.count) return
     var row = displayModel.get(root.selectedIndex)
-    if (!row || !root.fileBrowserExtension || fileCopyProc.running) return
-    fileCopyProc.copyPath = row.action
-    fileCopyProc.command = root.commandArguments(root.fileBrowserExtension.copyCommand, { path: row.action })
-    fileCopyProc.running = true
+    if (!row || !root.fileBrowserExtension) return
+    root.startFileCopy(row.action, root.fileBrowserExtension.copyCommand, "Copied path")
+  }
+
+  function activateFileAction(action) {
+    if (!root.actionPanelFile || !root.fileBrowserExtension) return
+    var path = root.actionPanelFile.path
+    if (action === "copy-path" || action === "copy-file") {
+      var command = action === "copy-path" ? root.fileBrowserExtension.copyCommand : root.fileBrowserExtension.copyFileCommand
+      var message = action === "copy-path" ? "Copied path" : "Copied file"
+      root.closeActionPanel()
+      root.startFileCopy(path, command, message)
+      return
+    }
+
+    var commandToRun = action === "open-terminal"
+      ? root.fileBrowserExtension.terminalCommand
+      : (action === "open-files" ? root.fileBrowserExtension.directoryCommand : root.fileBrowserExtension.command)
+    var shellAction = root.shellCommand(commandToRun, { path: path })
+    root.actionPanelActive = false
+    root.fileBrowserActive = false
+    root.opened = false
+    root.runAction(shellAction)
   }
 
   function normalizeItem(id, raw) {
@@ -758,6 +842,10 @@ Item {
   }
 
   function rebuildDisplay() {
+    if (root.actionPanelActive) {
+      root.rebuildActionPanel()
+      return
+    }
     if (root.fileBrowserActive) {
       root.rebuildFileDisplay()
       return
@@ -946,6 +1034,7 @@ Item {
   }
 
   function setFilter(nextFilter) {
+    if (root.actionPanelActive) return
     panel.freezeCardTop()
     root.filterText = nextFilter
     root.selectedIndex = 0
@@ -1007,6 +1096,10 @@ Item {
     if (index < 0 || index >= displayModel.count) return
 
     var row = displayModel.get(index)
+    if (root.actionPanelActive && row.itemId.indexOf("file.action.") === 0) {
+      root.activateFileAction(row.action)
+      return
+    }
     if (row.itemId.indexOf("extension.unavailable.") === 0) return
     if (row.itemId.indexOf("extension.prepare.") === 0) {
       var preparedExtension = root.extensionById(row.itemId.substring("extension.prepare.".length))
@@ -1099,6 +1192,8 @@ Item {
 
   function cancel() {
     if (root.dmenuActive) root.finishRequest(null)
+    root.actionPanelActive = false
+    root.actionPanelFile = null
     root.fileBrowserActive = false
     root.fileBrowserExtension = null
     root.fileBrowserPath = ""
@@ -1208,9 +1303,10 @@ Item {
   Process {
     id: fileCopyProc
     property string copyPath: ""
+    property string successMessage: "Copied path"
     onExited: function(exitCode) {
       root.fileCopyFeedbackPath = fileCopyProc.copyPath
-      root.fileCopyFeedback = exitCode === 0 ? "Copied path" : "Copy failed"
+      root.fileCopyFeedback = exitCode === 0 ? fileCopyProc.successMessage : "Copy failed"
       if (root.fileBrowserActive) root.rebuildFileDisplay()
       fileCopyFeedbackTimer.restart()
     }
@@ -1541,7 +1637,10 @@ Item {
             return
           }
 
-          if (root.fileBrowserActive && event.key === Qt.Key_C && (event.modifiers & Qt.ControlModifier)) {
+          if (root.fileBrowserActive && !root.actionPanelActive && event.key === Qt.Key_K && (event.modifiers & Qt.ControlModifier)) {
+            root.openActionPanel()
+            event.accepted = true
+          } else if (root.fileBrowserActive && !root.actionPanelActive && event.key === Qt.Key_C && (event.modifiers & Qt.ControlModifier)) {
             root.copySelectedFilePath()
             event.accepted = true
           } else if (!root.dmenuActive && event.key === Qt.Key_S && (event.modifiers & Qt.ControlModifier)) {
@@ -1551,7 +1650,8 @@ Item {
             root.requestDeleteSelected()
             event.accepted = true
           } else if (event.key === Qt.Key_Escape) {
-            if (root.filterText) root.setFilter("")
+            if (root.actionPanelActive) root.closeActionPanel()
+            else if (root.filterText) root.setFilter("")
             else if (root.fileBrowserActive) root.leaveFileBrowser()
             else root.cancel()
             event.accepted = true
@@ -1559,7 +1659,8 @@ Item {
             root.setFilter(Util.editedFilter(event, root.filterText))
             event.accepted = true
           } else if ((event.key === Qt.Key_Backspace || event.key === Qt.Key_Left) && !root.filterText) {
-            if (root.fileBrowserActive) {
+            if (root.actionPanelActive) root.closeActionPanel()
+            else if (root.fileBrowserActive) {
               if (root.fileBrowserPath === "/") root.leaveFileBrowser()
               else {
                 root.fileBrowserPath = root.parentPath(root.fileBrowserPath)
@@ -1633,8 +1734,10 @@ Item {
             anchors.right: starHint.left
             anchors.rightMargin: Style.space(8)
             anchors.verticalCenter: parent.verticalCenter
-            text: root.fileBrowserActive
-              ? (root.fileBrowserPath + (root.filterText ? "  ›  " + root.filterText : ""))
+            text: root.actionPanelActive
+              ? ("Actions for " + ((root.actionPanelFile && root.actionPanelFile.name) || "file"))
+              : root.fileBrowserActive
+                ? (root.fileBrowserPath + (root.filterText ? "  ›  " + root.filterText : ""))
               : (root.filterText || (root.dmenuActive ? (root.dmenuPrompt + "…") : ((root.item(root.activeMenu) ? (root.item(root.activeMenu).title || root.item(root.activeMenu).label) : "Go") + "…")))
             color: root.foreground
             opacity: root.filterText ? 1 : 0.58
@@ -1645,10 +1748,10 @@ Item {
 
           Text {
             id: starHint
-            visible: !root.dmenuActive && displayModel.count > 0 && root.cursorActive && root.selectedIndex >= 0 && root.selectedIndex < displayModel.count && (root.fileBrowserActive || (displayModel.get(root.selectedIndex).itemId !== "omarchy" && displayModel.get(root.selectedIndex).itemId !== "extension.result"))
+            visible: !root.actionPanelActive && !root.dmenuActive && displayModel.count > 0 && root.cursorActive && root.selectedIndex >= 0 && root.selectedIndex < displayModel.count && (root.fileBrowserActive || (displayModel.get(root.selectedIndex).itemId !== "omarchy" && displayModel.get(root.selectedIndex).itemId !== "extension.result"))
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
-            text: root.fileBrowserActive ? "Ctrl+C  Copy path" : (root.cursorActive && root.selectedIndex >= 0 && root.selectedIndex < displayModel.count && displayModel.get(root.selectedIndex).starred ? "Ctrl+S  Unstar" : "Ctrl+S  Star")
+            text: root.fileBrowserActive ? "Ctrl+K  Actions" : (root.cursorActive && root.selectedIndex >= 0 && root.selectedIndex < displayModel.count && displayModel.get(root.selectedIndex).starred ? "Ctrl+S  Unstar" : "Ctrl+S  Star")
             color: root.foreground
             opacity: 0.45
             font.family: root.fontFamily

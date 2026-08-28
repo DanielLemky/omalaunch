@@ -358,8 +358,12 @@ function normalizeExtension(raw) {
     if (extension.prefixes.length === 0) return null
     if (mode === "files") {
       extension.root = String(raw.root || "~")
+      extension.directoryCommand = stringArray(raw.directoryCommand)
+      if (extension.directoryCommand.length === 0) extension.directoryCommand = extension.command
+      extension.terminalCommand = stringArray(raw.terminalCommand)
       extension.copyCommand = stringArray(raw.copyCommand)
       if (extension.copyCommand.length === 0) extension.copyCommand = ["wl-copy", "--", "{path}"]
+      extension.copyFileCommand = stringArray(raw.copyFileCommand)
     }
   } else {
     var match = raw.match || {}

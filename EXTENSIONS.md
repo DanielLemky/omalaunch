@@ -66,13 +66,16 @@ File browser extensions provide navigation, recursive search, opening, and path 
   "label": "Files",
   "prefixes": ["files"],
   "root": "~",
-  "requires": ["fd", "fzf", "jq", "xdg-open", "wl-copy"],
+  "requires": ["fd", "fzf", "jq", "python", "xdg-open", "xdg-terminal-exec", "wl-copy"],
   "command": ["xdg-open", "{path}"],
-  "copyCommand": ["wl-copy", "--", "{path}"]
+  "directoryCommand": ["xdg-open", "{path}"],
+  "terminalCommand": ["xdg-terminal-exec", "--dir={path}"],
+  "copyCommand": ["wl-copy", "--", "{path}"],
+  "copyFileCommand": ["copy-file-uri", "{path}"]
 }
 ```
 
-`command` opens a selected file and `copyCommand` handles Ctrl+C. Both support `{path}`. The bundled implementation starts at the home directory, uses `fd` traversal and fzf path ranking, omits hidden and ignored paths, and limits each ranked result set to 100 entries.
+Ctrl+K opens the contextual Action Panel. `command` opens files, `directoryCommand` opens directories in the file manager, `terminalCommand` opens a terminal, `copyCommand` copies the path, and `copyFileCommand` places a file URI on the clipboard. All command fields support `{path}`. The bundled implementation starts at the home directory, uses `fd` traversal and fzf path ranking, omits hidden and ignored paths, and limits each ranked result set to 100 entries.
 
 ## Live-query extension
 

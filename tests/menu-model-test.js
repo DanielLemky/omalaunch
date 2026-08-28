@@ -42,11 +42,16 @@ const filesExtension = menu.parseExtensions(JSON.stringify([{
   prefixes: ['files'],
   root: '~',
   command: ['xdg-open', '{path}'],
-  copyCommand: ['wl-copy', '--', '{path}']
+  directoryCommand: ['xdg-open', '{path}'],
+  terminalCommand: ['xdg-terminal-exec', '--dir={path}'],
+  copyCommand: ['wl-copy', '--', '{path}'],
+  copyFileCommand: ['copy-file', '{path}']
 }]))
 assert(filesExtension.length === 1 && filesExtension[0].mode === 'files', 'file browser extensions are parsed')
 assert(menu.suggestExtensions(filesExtension, 'fil')[0].extension.id === 'files', 'file browser extensions appear in prefix suggestions')
-assert(filesExtension[0].copyCommand[2] === '{path}', 'file browser copy commands are retained')
+assert(filesExtension[0].copyCommand[2] === '{path}', 'file browser copy path commands are retained')
+assert(filesExtension[0].copyFileCommand[1] === '{path}', 'file browser copy file commands are retained')
+assert(filesExtension[0].terminalCommand[1] === '--dir={path}', 'file browser terminal commands are retained')
 
 const queryExtensions = menu.parseExtensions(JSON.stringify([
   {

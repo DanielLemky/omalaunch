@@ -51,7 +51,9 @@ Convert currencies inline using `qalc` exchange-rate data. Press Enter to copy t
 
 ## Files
 
-Type `files` and activate the **Files** result to browse from your home directory. Select folders to navigate, type to search recursively within the current folder, and select a file to open it with the default application. Press Ctrl+C to copy the selected path. Search uses `fd` with fzf's path-aware relevance ranking. Hidden and ignored files are excluded.
+Type `files` and activate the **Files** result to browse from your home directory. Select folders to navigate, type to search recursively within the current folder, and select a file to open it with the default application. Search uses `fd` with fzf's path-aware relevance ranking. Hidden and ignored files are excluded.
+
+Press Ctrl+K on a selected item to open its Action Panel. Directories can be opened in Files or a terminal; files can be opened with their default application. Every item supports copying its path or copying the item to the file clipboard. Ctrl+C remains a shortcut for copying the selected path.
 
 ## Requirements
 

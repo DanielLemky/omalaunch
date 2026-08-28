@@ -9,7 +9,10 @@
   "description": "Browse and search files",
   "priority": 10,
   "root": "~",
-  "requires": ["fd", "fzf", "jq", "xdg-open", "wl-copy"],
+  "requires": ["fd", "fzf", "jq", "python", "xdg-open", "xdg-terminal-exec", "wl-copy"],
   "command": ["xdg-open", "{path}"],
-  "copyCommand": ["wl-copy", "--", "{path}"]
+  "directoryCommand": ["xdg-open", "{path}"],
+  "terminalCommand": ["xdg-terminal-exec", "--dir={path}"],
+  "copyCommand": ["wl-copy", "--", "{path}"],
+  "copyFileCommand": ["python", "-c", "import pathlib, subprocess, sys; uri = pathlib.Path(sys.argv[1]).resolve().as_uri() + '\\r\\n'; subprocess.run(['wl-copy', '--type', 'text/uri-list'], input=uri, text=True, check=True)", "{path}"]
 }
