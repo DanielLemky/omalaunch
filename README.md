@@ -67,7 +67,7 @@ Omalaunch extensions are regular Omarchy plugins. An enabled plugin contributes 
 }
 ```
 
-See [EXTENSIONS.md](EXTENSIONS.md) for the complete provider contract and an example.
+Browse community integrations in the [Omalaunch Extension Directory](https://github.com/DanielLemky/omalaunch-extensions). See [EXTENSIONS.md](EXTENSIONS.md) for the complete provider contract and an example.
 
 ## Configuration
 
