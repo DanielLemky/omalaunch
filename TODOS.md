@@ -42,7 +42,7 @@
 
 ## Marketplace packaging
 
-- [x] Choose the permanent public plugin ID `omalaunch`.
+- [x] Choose the permanent public plugin ID `quantumfire.omalaunch`.
 - [x] Retain `omarchy.clonedFrom` so stock `omarchy-menu` keybindings route to Omalaunch.
 - [x] Add a public `README.md` with requirements, installation, usage, dependency setup, currency-rate behavior, configuration, and removal instructions.
 - [x] Add a license.

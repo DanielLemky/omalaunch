@@ -39,7 +39,7 @@ omarchy plugin add https://github.com/daniellemky/omalaunch --enable
 If needed, place the widget in the left bar section:
 
 ```bash
-omarchy plugin enable omalaunch --section left
+omarchy plugin enable quantumfire.omalaunch --section left
 ```
 
 Click the Omalaunch icon to open it. Right-clicking the icon opens a terminal.
@@ -84,13 +84,13 @@ Favorites and usage data are stored in the user's state directory. Currency refr
 ## Updating
 
 ```bash
-omarchy plugin update omalaunch
+omarchy plugin update quantumfire.omalaunch
 ```
 
 ## Removal
 
 ```bash
-omarchy plugin remove omalaunch
+omarchy plugin remove quantumfire.omalaunch
 ```
 
 Removing Omalaunch does not remove its optional extension plugins or system dependencies.

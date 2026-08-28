@@ -17,7 +17,7 @@ Item {
   property var manifest: null
 
   // Plugin lifecycle hooks. The host calls open(payloadJson) after
-  // `omarchy-shell shell summon omalaunch ...` and close() when hidden.
+  // `omarchy-shell shell summon quantumfire.omalaunch ...` and close() when hidden.
   property string pendingInitialMenu: "root"
 
   function open(payloadJson) {
@@ -1016,7 +1016,7 @@ Item {
   // ----------------------------------------------------------- route surface
   //
   // The menu is opened through the standard plugin lifecycle:
-  // `omarchy-shell shell summon omalaunch '{"menu":"system"}'`.
+  // `omarchy-shell shell summon quantumfire.omalaunch '{"menu":"system"}'`.
   // Callers may pass a real id (`system`, `setup.power`) or an alias declared
   // in JSONC (`power`, `reminder-set`). Unknown strings fall through to the
   // id-as-route behavior so misspellings still attempt to open the literal id.

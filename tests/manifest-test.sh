@@ -6,7 +6,7 @@ manifest="$root/manifest.json"
 
 jq -e '
   .schemaVersion == 1
-  and .id == "omalaunch"
+  and .id == "quantumfire.omalaunch"
   and (.name | type == "string" and length > 0)
   and (.version | type == "string" and length > 0)
   and (.author | type == "string" and length > 0)
