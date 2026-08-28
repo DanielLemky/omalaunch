@@ -21,5 +21,8 @@
     "category": "Compositor",
     "defaultSection": "left",
     "allowMultiple": false
+  },
+  "omarchy": {
+    "clonedFrom": "omarchy.menu"
   }
 }

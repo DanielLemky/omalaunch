@@ -13,7 +13,7 @@ jq -e '
   and .license == "MIT"
   and (.kinds | type == "array" and length > 0)
   and (.entryPoints | type == "object")
-  and (.omarchy.clonedFrom? == null)
+  and .omarchy.clonedFrom == "omarchy.menu"
 ' "$manifest" >/dev/null
 
 while IFS= read -r entry_point; do

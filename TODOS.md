@@ -43,7 +43,7 @@
 ## Marketplace packaging
 
 - [x] Choose the permanent public plugin ID `omalaunch`.
-- [x] Remove the development-only `omarchy.clonedFrom` field before publishing.
+- [x] Retain `omarchy.clonedFrom` so stock `omarchy-menu` keybindings route to Omalaunch.
 - [x] Add a public `README.md` with requirements, installation, usage, dependency setup, currency-rate behavior, configuration, and removal instructions.
 - [x] Add a license.
 - [x] Document every external dependency and privilege boundary as required by the Omarchy Plugins publishing guide.
