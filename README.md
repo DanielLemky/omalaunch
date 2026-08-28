@@ -55,6 +55,8 @@ Type `files` and activate the **Files** result to browse from your home director
 
 Press Ctrl+K on a selected item to open its Action Panel. Directories can be opened in Files or a terminal; files can be opened with their default application. Every item supports copying its path or copying the item to the file clipboard. Ctrl+C remains a shortcut for copying the selected path.
 
+![Browsing files and using the contextual Action Panel in Omalaunch](assets/files-action-panel.gif)
+
 ## Requirements
 
 - A current Omarchy installation with the manifest-based shell plugin system
