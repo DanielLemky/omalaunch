@@ -26,6 +26,7 @@ Click the Omalaunch icon to open it. Right-clicking the icon opens a terminal.
 - Pin favorites and rank frequently used results
 - Run arithmetic, unit conversions, and currency conversions with `qalc`
 - Copy calculation results directly to the clipboard
+- Browse, recursively search, open, and copy paths for local files
 - Accept dmenu-style select and input requests
 - Load extensions contributed by enabled Omarchy plugins
 - Launch agent prompts such as Pi and Codex through optional extensions
@@ -47,6 +48,10 @@ Evaluate arithmetic, units, and currency conversions without leaving the launche
 Convert currencies inline using `qalc` exchange-rate data. Press Enter to copy the result.
 
 ![Currency conversion in Omalaunch](assets/currency-conversion.png)
+
+## Files
+
+Type `files` and activate the **Files** result to browse from your home directory. Select folders to navigate, type to search recursively within the current folder, and select a file to open it with the default application. Press Ctrl+C to copy the selected path. Hidden files and directories are excluded.
 
 ## Requirements
 
@@ -73,6 +78,7 @@ Examples:
 25 * 4
 browser
 wifi
+files
 ```
 
 Calculation results appear first and are copied to the clipboard when activated.

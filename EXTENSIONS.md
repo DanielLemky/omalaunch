@@ -53,6 +53,27 @@ Prefix extensions turn a prefix and prompt into an action:
 
 Typing part of a prefix shows the extension as a result. Activating it completes the prefix and keeps Omalaunch focused for prompt entry.
 
+## File browser extension
+
+File browser extensions provide navigation, recursive search, opening, and path copying:
+
+```json
+{
+  "schemaVersion": 1,
+  "id": "example.files",
+  "capability": "files",
+  "mode": "files",
+  "label": "Files",
+  "prefixes": ["files"],
+  "root": "~",
+  "requires": ["find", "jq", "xdg-open", "wl-copy"],
+  "command": ["xdg-open", "{path}"],
+  "copyCommand": ["wl-copy", "--", "{path}"]
+}
+```
+
+`command` opens a selected file and `copyCommand` handles Ctrl+C. Both support `{path}`. The bundled implementation starts at the home directory, omits hidden paths, and limits each result set to 100 entries.
+
 ## Live-query extension
 
 Live-query extensions recognize input, run asynchronously, and display the command output:
@@ -99,7 +120,7 @@ The highest-priority matching live-query extension runs. Stale results are disca
 - `schemaVersion`: Extension format version; currently `1`.
 - `id`: Stable, unique extension identifier.
 - `capability`: Stable behavior being supplied or replaced; defaults to `id`.
-- `mode`: `prefix` or `query`; defaults to `prefix`.
+- `mode`: `prefix`, `query`, or `files`; defaults to `prefix`.
 - `label`, `icon`, `iconFont`, `description`: Result presentation.
 - `priority`: Selection priority; defaults to `0`.
 - `requires`: Executable names that must be available on `PATH`.

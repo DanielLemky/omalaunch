@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "id": "omalaunch.files",
+  "capability": "files",
+  "mode": "files",
+  "label": "Files",
+  "prefixes": ["files"],
+  "icon": "󰉋",
+  "description": "Browse and search files",
+  "priority": 10,
+  "root": "~",
+  "requires": ["find", "jq", "xdg-open", "wl-copy"],
+  "command": ["xdg-open", "{path}"],
+  "copyCommand": ["wl-copy", "--", "{path}"]
+}

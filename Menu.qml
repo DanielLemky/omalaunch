@@ -87,6 +87,11 @@ Item {
   property string extensionResult: ""
   property var resultExtension: null
   property int extensionQuerySerial: 0
+  property bool fileBrowserActive: false
+  property var fileBrowserExtension: null
+  property string fileBrowserPath: ""
+  property var fileEntries: []
+  property int fileScanSerial: 0
 
   // Shared application engine (entries, hidden filters, icons, launch,
   // removal), owned by the shell and also used by the standalone launcher.
@@ -334,6 +339,75 @@ Item {
     root.resultExtension = MenuModel.queryExtension(root.extensions, query)
     root.unavailableResultExtension = MenuModel.unavailableQueryExtension(root.extensions, query)
     if (root.resultExtension) extensionQueryTimer.start()
+  }
+
+  function extensionById(id) {
+    for (var i = 0; i < root.extensions.length; i++)
+      if (root.extensions[i].id === id) return root.extensions[i]
+    return null
+  }
+
+  function enterFileBrowser(extension) {
+    if (!extension || !extension.available) return
+    root.fileBrowserActive = true
+    root.fileBrowserExtension = extension
+    root.fileBrowserPath = extension.root === "~" ? Quickshell.env("HOME") : extension.root
+    root.filterText = ""
+    root.fileEntries = []
+    root.selectedIndex = 0
+    root.cursorActive = true
+    root.scheduleFileScan()
+  }
+
+  function leaveFileBrowser() {
+    root.fileBrowserActive = false
+    root.fileBrowserExtension = null
+    root.fileBrowserPath = ""
+    root.fileEntries = []
+    root.filterText = ""
+    root.rebuildDisplay()
+  }
+
+  function parentPath(path) {
+    var value = String(path || "").replace(/\/+$/, "")
+    if (!value || value === "/") return "/"
+    var slash = value.lastIndexOf("/")
+    return slash <= 0 ? "/" : value.substring(0, slash)
+  }
+
+  function scheduleFileScan() {
+    root.fileScanSerial += 1
+    fileScanTimer.restart()
+    if (fileScanProc.running) fileScanProc.running = false
+  }
+
+  function rebuildFileDisplay() {
+    displayModel.clear()
+    root.searchDivider = false
+    for (var i = 0; i < root.fileEntries.length; i++) {
+      var entry = root.fileEntries[i]
+      var isDirectory = entry.type === "directory"
+      var item = root.normalizeItem("file." + (isDirectory ? "directory." : "item.") + i, {
+        icon: isDirectory ? "󰉋" : "󰈔",
+        label: entry.name,
+        description: isDirectory ? entry.path : entry.path + "  ·  Ctrl+C to copy path",
+        action: entry.path
+      })
+      var row = root.displayRow(item, item.description, i)
+      row.starred = false
+      displayModel.append(row)
+    }
+    root.layoutSerial += 1
+    if (displayModel.count === 0) root.selectedIndex = 0
+    else if (root.selectedIndex >= displayModel.count) root.selectedIndex = displayModel.count - 1
+    Qt.callLater(function() { if (displayModel.count > 0) root.revealCursor() })
+  }
+
+  function copySelectedFilePath() {
+    if (!root.fileBrowserActive || root.selectedIndex < 0 || root.selectedIndex >= displayModel.count) return
+    var row = displayModel.get(root.selectedIndex)
+    if (!row || !root.fileBrowserExtension) return
+    root.runAction(root.shellCommand(root.fileBrowserExtension.copyCommand, { path: row.action }))
   }
 
   function normalizeItem(id, raw) {
@@ -678,6 +752,10 @@ Item {
   }
 
   function rebuildDisplay() {
+    if (root.fileBrowserActive) {
+      root.rebuildFileDisplay()
+      return
+    }
     if (root.dmenuActive) {
       root.rebuildDmenuDisplay()
       return
@@ -867,6 +945,11 @@ Item {
     root.selectedIndex = 0
     root.cursorActive = root.mode !== "input"
     root.disarmPointer()
+    if (root.fileBrowserActive) {
+      root.rebuildFileDisplay()
+      root.scheduleFileScan()
+      return
+    }
     if (!root.dmenuActive && root.filterText.trim()) root.loadProvidersForSearch()
     root.rebuildDisplay()
     root.scheduleExtensionQuery()
@@ -920,8 +1003,27 @@ Item {
     var row = displayModel.get(index)
     if (row.itemId.indexOf("extension.unavailable.") === 0) return
     if (row.itemId.indexOf("extension.prepare.") === 0) {
-      root.setFilter(row.action)
+      var preparedExtension = root.extensionById(row.itemId.substring("extension.prepare.".length))
+      if (preparedExtension && preparedExtension.mode === "files") root.enterFileBrowser(preparedExtension)
+      else root.setFilter(row.action)
       Qt.callLater(function() { keyCatcher.forceActiveFocus() })
+      return
+    }
+    if (root.fileBrowserActive && row.itemId.indexOf("file.") === 0) {
+      if (row.itemId.indexOf("file.directory.") === 0) {
+        root.fileBrowserPath = row.action
+        root.filterText = ""
+        root.fileEntries = []
+        root.selectedIndex = 0
+        root.scheduleFileScan()
+      } else {
+        var openCommand = root.shellCommand(root.fileBrowserExtension.command, { path: row.action })
+        root.fileBrowserActive = false
+        root.fileBrowserExtension = null
+        root.applySerial = root.requestSerial
+        root.opened = false
+        root.runAction(openCommand)
+      }
       return
     }
     if (row.itemId !== "extension.result") usage.record(row.itemId)
@@ -940,7 +1042,7 @@ Item {
   }
 
   function toggleSelectedStar() {
-    if (root.dmenuActive || !root.cursorActive || root.selectedIndex < 0 || root.selectedIndex >= displayModel.count) return
+    if (root.dmenuActive || root.fileBrowserActive || !root.cursorActive || root.selectedIndex < 0 || root.selectedIndex >= displayModel.count) return
     var row = displayModel.get(root.selectedIndex)
     if (!row || row.itemId === "omarchy" || row.itemId === "extension.result" || !favorites.loaded) return
     root.pendingStarSelectionId = row.itemId
@@ -991,6 +1093,10 @@ Item {
 
   function cancel() {
     if (root.dmenuActive) root.finishRequest(null)
+    root.fileBrowserActive = false
+    root.fileBrowserExtension = null
+    root.fileBrowserPath = ""
+    root.fileEntries = []
     opened = false
     filterText = ""
   }
@@ -1080,6 +1186,58 @@ Item {
     if (!pointerGate.moved(item, mouse)) return
     root.cursorActive = true
     root.selectedIndex = index
+  }
+
+  Timer {
+    id: fileScanTimer
+    interval: 120
+    repeat: false
+    onTriggered: {
+      if (!root.fileBrowserActive || !root.fileBrowserPath) return
+      var base = root.fileBrowserPath
+      var needle = root.filterText.trim()
+      var findArgs = needle
+        ? "find -- \"$base\" -mindepth 1 ! -path '*/.*' -iname \"*$needle*\" -print0"
+        : "find -- \"$base\" -mindepth 1 -maxdepth 1 ! -path '*/.*' -print0"
+      var script = "base=" + root.shellQuote(base) + "; needle=" + root.shellQuote(needle) + "; count=0; "
+        + "while IFS= read -r -d '' entry && (( count < 100 )); do "
+        + "[[ -d $entry ]] && type=directory || type=file; name=${entry##*/}; "
+        + "jq -cn --arg path \"$entry\" --arg name \"$name\" --arg type \"$type\" '{path:$path,name:$name,type:$type}'; "
+        + "count=$((count + 1)); done < <(" + findArgs + ")"
+      fileScanProc.revision = root.fileScanSerial
+      fileScanProc.scanPath = base
+      fileScanProc.query = needle
+      fileScanProc.collected = ""
+      fileScanProc.command = ["bash", "-lc", script]
+      fileScanProc.running = true
+    }
+  }
+
+  Process {
+    id: fileScanProc
+    property int revision: 0
+    property string scanPath: ""
+    property string query: ""
+    property string collected: ""
+    stdout: SplitParser { onRead: function(data) { fileScanProc.collected += data + "\n" } }
+    onExited: function(exitCode) {
+      if (fileScanProc.revision !== root.fileScanSerial || !root.fileBrowserActive) return
+      if (fileScanProc.scanPath !== root.fileBrowserPath || fileScanProc.query !== root.filterText.trim()) return
+      var entries = []
+      if (exitCode === 0) {
+        var lines = fileScanProc.collected.split("\n")
+        for (var i = 0; i < lines.length; i++) {
+          if (!lines[i].trim()) continue
+          try { entries.push(JSON.parse(lines[i])) } catch (e) {}
+        }
+      }
+      entries.sort(function(a, b) {
+        if (a.type !== b.type) return a.type === "directory" ? -1 : 1
+        return a.name.toLowerCase().localeCompare(b.name.toLowerCase())
+      })
+      root.fileEntries = entries
+      root.rebuildFileDisplay()
+    }
   }
 
   Timer {
@@ -1355,7 +1513,10 @@ Item {
             return
           }
 
-          if (!root.dmenuActive && event.key === Qt.Key_S && (event.modifiers & Qt.ControlModifier)) {
+          if (root.fileBrowserActive && event.key === Qt.Key_C && (event.modifiers & Qt.ControlModifier)) {
+            root.copySelectedFilePath()
+            event.accepted = true
+          } else if (!root.dmenuActive && event.key === Qt.Key_S && (event.modifiers & Qt.ControlModifier)) {
             root.toggleSelectedStar()
             event.accepted = true
           } else if (event.key === Qt.Key_Delete) {
@@ -1363,13 +1524,22 @@ Item {
             event.accepted = true
           } else if (event.key === Qt.Key_Escape) {
             if (root.filterText) root.setFilter("")
+            else if (root.fileBrowserActive) root.leaveFileBrowser()
             else root.cancel()
             event.accepted = true
           } else if (Util.editsFilter(event, root.filterText)) {
             root.setFilter(Util.editedFilter(event, root.filterText))
             event.accepted = true
           } else if ((event.key === Qt.Key_Backspace || event.key === Qt.Key_Left) && !root.filterText) {
-            root.goBack()
+            if (root.fileBrowserActive) {
+              if (root.fileBrowserPath === "/") root.leaveFileBrowser()
+              else {
+                root.fileBrowserPath = root.parentPath(root.fileBrowserPath)
+                root.fileEntries = []
+                root.selectedIndex = 0
+                root.scheduleFileScan()
+              }
+            } else root.goBack()
             event.accepted = true
           } else if (event.key === Qt.Key_Up) {
             root.select(-1)
@@ -1435,7 +1605,9 @@ Item {
             anchors.right: starHint.left
             anchors.rightMargin: Style.space(8)
             anchors.verticalCenter: parent.verticalCenter
-            text: root.filterText || (root.dmenuActive ? (root.dmenuPrompt + "…") : ((root.item(root.activeMenu) ? (root.item(root.activeMenu).title || root.item(root.activeMenu).label) : "Go") + "…"))
+            text: root.fileBrowserActive
+              ? (root.fileBrowserPath + (root.filterText ? "  ›  " + root.filterText : ""))
+              : (root.filterText || (root.dmenuActive ? (root.dmenuPrompt + "…") : ((root.item(root.activeMenu) ? (root.item(root.activeMenu).title || root.item(root.activeMenu).label) : "Go") + "…")))
             color: root.foreground
             opacity: root.filterText ? 1 : 0.58
             font.family: root.fontFamily
@@ -1445,10 +1617,10 @@ Item {
 
           Text {
             id: starHint
-            visible: !root.dmenuActive && displayModel.count > 0 && root.cursorActive && root.selectedIndex >= 0 && root.selectedIndex < displayModel.count && displayModel.get(root.selectedIndex).itemId !== "omarchy" && displayModel.get(root.selectedIndex).itemId !== "extension.result"
+            visible: !root.dmenuActive && displayModel.count > 0 && root.cursorActive && root.selectedIndex >= 0 && root.selectedIndex < displayModel.count && (root.fileBrowserActive || (displayModel.get(root.selectedIndex).itemId !== "omarchy" && displayModel.get(root.selectedIndex).itemId !== "extension.result"))
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
-            text: root.cursorActive && root.selectedIndex >= 0 && root.selectedIndex < displayModel.count && displayModel.get(root.selectedIndex).starred ? "Ctrl+S  Unstar" : "Ctrl+S  Star"
+            text: root.fileBrowserActive ? "Ctrl+C  Copy path" : (root.cursorActive && root.selectedIndex >= 0 && root.selectedIndex < displayModel.count && displayModel.get(root.selectedIndex).starred ? "Ctrl+S  Unstar" : "Ctrl+S  Star")
             color: root.foreground
             opacity: 0.45
             font.family: root.fontFamily

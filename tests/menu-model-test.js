@@ -33,6 +33,21 @@ assert(menu.matchExtensions(extensions, 'PI   fix the tests  ')[0].prompt === 'f
 assert(menu.matchExtensions(extensions, 'pi').length === 0, 'a prefix without a prompt does not match')
 assert(menu.matchExtensions(extensions, 'pilot a plane').length === 0, 'extension prefixes must be standalone')
 
+const filesExtension = menu.parseExtensions(JSON.stringify([{
+  schemaVersion: 1,
+  id: 'files',
+  capability: 'files',
+  mode: 'files',
+  label: 'Files',
+  prefixes: ['files'],
+  root: '~',
+  command: ['xdg-open', '{path}'],
+  copyCommand: ['wl-copy', '--', '{path}']
+}]))
+assert(filesExtension.length === 1 && filesExtension[0].mode === 'files', 'file browser extensions are parsed')
+assert(menu.suggestExtensions(filesExtension, 'fil')[0].extension.id === 'files', 'file browser extensions appear in prefix suggestions')
+assert(filesExtension[0].copyCommand[2] === '{path}', 'file browser copy commands are retained')
+
 const queryExtensions = menu.parseExtensions(JSON.stringify([
   {
     schemaVersion: 1,

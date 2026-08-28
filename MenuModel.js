@@ -331,7 +331,7 @@ function normalizeExtension(raw) {
   var label = String(raw.label || "").trim()
   var mode = String(raw.mode || "prefix")
   var command = stringArray(raw.command)
-  if (!id || !label || command.length === 0 || ["prefix", "query"].indexOf(mode) < 0) return null
+  if (!id || !label || command.length === 0 || ["prefix", "query", "files"].indexOf(mode) < 0) return null
 
   var extension = {
     id: id,
@@ -348,7 +348,7 @@ function normalizeExtension(raw) {
     missingRequires: stringArray(raw._missingRequires)
   }
 
-  if (mode === "prefix") {
+  if (mode === "prefix" || mode === "files") {
     var sourcePrefixes = Array.isArray(raw.prefixes) ? raw.prefixes : [raw.prefix]
     extension.prefixes = []
     for (var i = 0; i < sourcePrefixes.length; i++) {
@@ -356,6 +356,11 @@ function normalizeExtension(raw) {
       if (prefix && extension.prefixes.indexOf(prefix) < 0) extension.prefixes.push(prefix)
     }
     if (extension.prefixes.length === 0) return null
+    if (mode === "files") {
+      extension.root = String(raw.root || "~")
+      extension.copyCommand = stringArray(raw.copyCommand)
+      if (extension.copyCommand.length === 0) extension.copyCommand = ["wl-copy", "--", "{path}"]
+    }
   } else {
     var match = raw.match || {}
     extension.matchAll = stringArray(match.all)
@@ -479,7 +484,7 @@ function suggestExtensions(extensions, query) {
   var values = Array.isArray(extensions) ? extensions : []
   for (var i = 0; i < values.length; i++) {
     var extension = values[i]
-    if (extension.mode !== "prefix") continue
+    if (extension.mode !== "prefix" && extension.mode !== "files") continue
     for (var j = 0; j < extension.prefixes.length; j++) {
       if (extension.prefixes[j].indexOf(input) !== 0) continue
       suggestions.push({ extension: extension, prefix: extension.prefixes[j] })
