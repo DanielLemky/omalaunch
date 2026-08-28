@@ -1,0 +1,28 @@
+name: Test
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes jq qalc
+
+      - name: Validate manifest
+        run: bash tests/manifest-test.sh
+
+      - name: Run model tests
+        run: node tests/menu-model-test.js
+
+      - name: Run qalc integration tests
+        run: bash tests/qalc-integration-test.sh
