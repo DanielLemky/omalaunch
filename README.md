@@ -4,6 +4,8 @@ An extensible command launcher for [Omarchy](https://omarchy.org/).
 
 Omalaunch keeps the familiar Omarchy command tree while adding fast global search, application results, favorites, usage-aware ranking, calculations and conversions, and independently installable extensions.
 
+![Omalaunch demo](assets/omalaunch-demo.gif)
+
 ## Features
 
 - Search the complete Omarchy command tree and installed applications
