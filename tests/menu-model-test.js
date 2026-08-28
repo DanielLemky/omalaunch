@@ -1,6 +1,8 @@
 const fs = require('fs')
 const vm = require('vm')
 const path = require('path')
+const os = require('os')
+const childProcess = require('child_process')
 
 function assert(condition, message) {
   if (!condition) throw new Error(message)
@@ -25,6 +27,17 @@ const extensions = menu.parseExtensions(JSON.stringify([{
 assert(extensions.length === 1, 'valid extension manifests are parsed')
 assert(menu.parseExtensions('{bad json').length === 0, 'invalid extension manifests are ignored')
 assert(menu.parseExtensions('[{"id":"missing-fields"}]').length === 0, 'incomplete extension manifests are ignored')
+assert(!menu.safeExtensionPattern('(a+)+$'), 'nested quantified extension regexes are rejected')
+assert(!menu.safeExtensionPattern('a'.repeat(257)), 'oversized extension regexes are rejected')
+assert(menu.safeExtensionPattern('^\\s*\\d+(?: km)?$'), 'ordinary extension regexes remain accepted')
+assert(menu.parseExtensions(JSON.stringify([{
+  schemaVersion: 1,
+  id: 'unsafe-regex',
+  mode: 'query',
+  label: 'Unsafe',
+  command: ['printf', 'x'],
+  match: { all: ['(a+)+$'] }
+}])).length === 0, 'extensions with unsafe regexes are ignored')
 assert(menu.suggestExtensions(extensions, 'p')[0].prefix === 'pi', 'partial prefixes suggest extensions')
 assert(menu.suggestExtensions(extensions, 'PI')[0].prefix === 'pi', 'extension suggestions ignore case')
 assert(menu.suggestExtensions(extensions, 'pi explain').length === 0, 'extension suggestions stop after prompt entry begins')
@@ -176,3 +189,12 @@ assert(menu.compareSearchRows(
   { matchPriority: 0, starred: false, usageCount: 0, lastUsedAt: 0, score: 0, path: 'B' },
   false
 ) > 0, 'queries shorter than three characters ignore usage history')
+
+const marker = path.join(os.tmpdir(), `omalaunch-guard-${process.pid}`)
+const hostileId = `row; touch ${marker}; #`
+const guardRun = childProcess.spawnSync('bash', ['-c', menu.guardScript({
+  [hostileId]: { id: hostileId, when: 'true' }
+})], { encoding: 'utf8' })
+assert(guardRun.status === 0, 'guard scripts remain valid for shell metacharacters in ids')
+assert(guardRun.stdout.trim() === `${hostileId}:w:1`, 'guard ids round-trip without shell interpretation')
+assert(!fs.existsSync(marker), 'guard ids cannot inject shell commands')
