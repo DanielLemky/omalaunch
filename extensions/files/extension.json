@@ -9,7 +9,7 @@
   "description": "Browse and search files",
   "priority": 10,
   "root": "~",
-  "requires": ["find", "jq", "xdg-open", "wl-copy"],
+  "requires": ["fd", "fzf", "jq", "xdg-open", "wl-copy"],
   "command": ["xdg-open", "{path}"],
   "copyCommand": ["wl-copy", "--", "{path}"]
 }

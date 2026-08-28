@@ -51,13 +51,13 @@ Convert currencies inline using `qalc` exchange-rate data. Press Enter to copy t
 
 ## Files
 
-Type `files` and activate the **Files** result to browse from your home directory. Select folders to navigate, type to search recursively within the current folder, and select a file to open it with the default application. Press Ctrl+C to copy the selected path. Hidden files and directories are excluded.
+Type `files` and activate the **Files** result to browse from your home directory. Select folders to navigate, type to search recursively within the current folder, and select a file to open it with the default application. Press Ctrl+C to copy the selected path. Search uses `fd` with fzf's path-aware relevance ranking. Hidden and ignored files are excluded.
 
 ## Requirements
 
 - A current Omarchy installation with the manifest-based shell plugin system
 - [`libqalculate`](https://qalculate.github.io/) (`qalc`) for calculations and conversions
-- `jq`, Bash, and `wl-clipboard` (provided by a standard Omarchy installation)
+- `fd`, `fzf`, `jq`, Bash, and `wl-clipboard` (provided by a standard Omarchy installation)
 
 Install the calculation dependency through Omarchy:
 

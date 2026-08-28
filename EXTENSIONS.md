@@ -66,13 +66,13 @@ File browser extensions provide navigation, recursive search, opening, and path 
   "label": "Files",
   "prefixes": ["files"],
   "root": "~",
-  "requires": ["find", "jq", "xdg-open", "wl-copy"],
+  "requires": ["fd", "fzf", "jq", "xdg-open", "wl-copy"],
   "command": ["xdg-open", "{path}"],
   "copyCommand": ["wl-copy", "--", "{path}"]
 }
 ```
 
-`command` opens a selected file and `copyCommand` handles Ctrl+C. Both support `{path}`. The bundled implementation starts at the home directory, omits hidden paths, and limits each result set to 100 entries.
+`command` opens a selected file and `copyCommand` handles Ctrl+C. Both support `{path}`. The bundled implementation starts at the home directory, uses `fd` traversal and fzf path ranking, omits hidden and ignored paths, and limits each ranked result set to 100 entries.
 
 ## Live-query extension
 

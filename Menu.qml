@@ -1196,14 +1196,14 @@ Item {
       if (!root.fileBrowserActive || !root.fileBrowserPath) return
       var base = root.fileBrowserPath
       var needle = root.filterText.trim()
-      var findArgs = needle
-        ? "find -- \"$base\" -mindepth 1 ! -path '*/.*' -iname \"*$needle*\" -print0"
-        : "find -- \"$base\" -mindepth 1 -maxdepth 1 ! -path '*/.*' -print0"
+      var sourceCommand = needle
+        ? "fd --color never --absolute-path --print0 --type file --type directory . \"$base\" 2>/dev/null | fzf --read0 --print0 --filter=\"$needle\" --scheme=path --tiebreak=begin,length --no-multi-line"
+        : "fd --color never --absolute-path --print0 --type file --type directory --max-depth 1 . \"$base\" 2>/dev/null"
       var script = "base=" + root.shellQuote(base) + "; needle=" + root.shellQuote(needle) + "; count=0; "
         + "while IFS= read -r -d '' entry && (( count < 100 )); do "
-        + "[[ -d $entry ]] && type=directory || type=file; name=${entry##*/}; "
-        + "jq -cn --arg path \"$entry\" --arg name \"$name\" --arg type \"$type\" '{path:$path,name:$name,type:$type}'; "
-        + "count=$((count + 1)); done < <(" + findArgs + ")"
+        + "clean=${entry%/}; [[ -d $clean ]] && type=directory || type=file; name=${clean##*/}; "
+        + "jq -cn --arg path \"$clean\" --arg name \"$name\" --arg type \"$type\" '{path:$path,name:$name,type:$type}'; "
+        + "count=$((count + 1)); done < <(" + sourceCommand + ")"
       fileScanProc.revision = root.fileScanSerial
       fileScanProc.scanPath = base
       fileScanProc.query = needle
@@ -1231,7 +1231,7 @@ Item {
           try { entries.push(JSON.parse(lines[i])) } catch (e) {}
         }
       }
-      entries.sort(function(a, b) {
+      if (!fileScanProc.query) entries.sort(function(a, b) {
         if (a.type !== b.type) return a.type === "directory" ? -1 : 1
         return a.name.toLowerCase().localeCompare(b.name.toLowerCase())
       })
