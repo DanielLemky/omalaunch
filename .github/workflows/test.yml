@@ -26,3 +26,6 @@ jobs:
 
       - name: Run qalc integration tests
         run: bash tests/qalc-integration-test.sh
+
+      - name: Run timezone integration tests
+        run: bash tests/timezone-integration-test.sh

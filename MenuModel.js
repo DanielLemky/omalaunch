@@ -356,6 +356,7 @@ function normalizeExtension(raw) {
     command: command,
     priority: Number(raw.priority) || 0,
     bundled: raw._bundled === true,
+    sourceDir: String(raw._sourceDir || ""),
     requires: stringArray(raw.requires),
     missingRequires: stringArray(raw._missingRequires)
   }
@@ -378,6 +379,12 @@ function normalizeExtension(raw) {
       extension.copyFileCommand = stringArray(raw.copyFileCommand)
     }
   } else {
+    extension.prefixes = []
+    var queryPrefixes = Array.isArray(raw.prefixes) ? raw.prefixes : (raw.prefix ? [raw.prefix] : [])
+    for (var p = 0; p < queryPrefixes.length; p++) {
+      var queryPrefix = String(queryPrefixes[p] || "").toLowerCase().trim()
+      if (queryPrefix && extension.prefixes.indexOf(queryPrefix) < 0) extension.prefixes.push(queryPrefix)
+    }
     var match = raw.match || {}
     extension.matchAll = stringArray(match.all)
     extension.matchAny = stringArray(match.any)
@@ -451,7 +458,7 @@ function parseExtensionCatalog(text) {
   var prefixes = ({})
   for (var j = 0; j < resolved.length; j++) {
     var current = resolved[j]
-    if (current.mode !== "prefix") continue
+    if (!current.prefixes || current.prefixes.length === 0) continue
     for (var k = 0; k < current.prefixes.length; k++) {
       var prefix = current.prefixes[k]
       if (prefixes[prefix]) diagnostics.push("Duplicate extension prefix '" + prefix + "': " + prefixes[prefix] + ", " + current.id)
@@ -510,7 +517,7 @@ function suggestExtensions(extensions, query) {
   var values = Array.isArray(extensions) ? extensions : []
   for (var i = 0; i < values.length; i++) {
     var extension = values[i]
-    if (extension.mode !== "prefix" && extension.mode !== "files") continue
+    if (!extension.prefixes || extension.prefixes.length === 0) continue
     for (var j = 0; j < extension.prefixes.length; j++) {
       if (extension.prefixes[j].indexOf(input) !== 0) continue
       suggestions.push({ extension: extension, prefix: extension.prefixes[j] })
