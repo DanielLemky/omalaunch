@@ -76,6 +76,8 @@ Item {
   property bool cursorActive: false
   property int requestSerial: 0
   property int applySerial: 0
+  property var resultQueue: []
+  readonly property int maxProcessOutputBytes: 1024 * 1024
   property var items: ({})
   property var itemOrder: []
   property var searchExcludedRoots: ["setup.default"]
@@ -153,18 +155,47 @@ Item {
       return
     }
 
-    var activeSelectionFile = root.selectionFile
-    var activeDoneFile = root.doneFile
+    var completion = {
+      requestId: root.requestSerial,
+      selectionFile: root.selectionFile,
+      doneFile: root.doneFile,
+      selection: selection
+    }
     root.requestActive = false
     root.selectionFile = ""
     root.doneFile = ""
+    root.resultQueue = root.resultQueue.concat([completion])
+    root.startResultWrite()
+  }
 
-    if (selection === null || selection === undefined) {
-      resultProc.command = ["bash", "-c", ": > " + Util.shellQuote(activeDoneFile)]
+  // Completion files are a protocol: every accepted request must produce its
+  // own done file. Serialize writes so a quick second request cannot replace
+  // the command of a Process that is still completing the first one.
+  function startResultWrite() {
+    if (resultProc.running || root.resultQueue.length === 0) return
+    var completion = root.resultQueue[0]
+    root.resultQueue = root.resultQueue.slice(1)
+    resultProc.requestId = completion.requestId
+    if (completion.selection === null || completion.selection === undefined) {
+      resultProc.command = ["bash", "-c", ": > " + Util.shellQuote(completion.doneFile)]
+    } else if (completion.selectionFile) {
+      resultProc.command = ["bash", "-c", "printf '%s\\n' " + Util.shellQuote(completion.selection) + " > " + Util.shellQuote(completion.selectionFile) + "; : > " + Util.shellQuote(completion.doneFile)]
     } else {
-      resultProc.command = ["bash", "-c", "printf '%s\\n' " + Util.shellQuote(selection) + " > " + Util.shellQuote(activeSelectionFile) + "; : > " + Util.shellQuote(activeDoneFile)]
+      resultProc.command = ["bash", "-c", ": > " + Util.shellQuote(completion.doneFile)]
     }
     resultProc.running = true
+  }
+
+  function collectBounded(proc, data) {
+    if (proc.outputOverflow) return
+    var next = proc.collected + data + "\n"
+    if (next.length > root.maxProcessOutputBytes) {
+      proc.outputOverflow = true
+      proc.collected = ""
+      proc.running = false
+      return
+    }
+    proc.collected = next
   }
 
   function runAction(action) {
@@ -298,6 +329,7 @@ Item {
     }
     root.extensionsReloadPending = false
     extensionProc.collected = ""
+    extensionProc.outputOverflow = false
     var script = "emit_extension() { "
       + "local file=$1 bundled=$2 raw requirement missing_json; local -a missing=(); "
       + "raw=$(jq -c '.' \"$file\" 2>/dev/null) || return; "
@@ -535,6 +567,7 @@ Item {
     providerProc.providerKey = entry.provider
     providerProc.revision = root.providerRevision
     providerProc.collected = ""
+    providerProc.outputOverflow = false
     providerProc.command = ["bash", "-lc", spec.script]
     providerProc.running = true
   }
@@ -1253,9 +1286,18 @@ Item {
       extensionQueryProc.extensionId = extension.id
       extensionQueryProc.revision = root.extensionQuerySerial
       extensionQueryProc.collected = ""
+      extensionQueryProc.outputOverflow = false
       extensionQueryProc.command = root.commandArguments(extension.command, { query: query })
       extensionQueryProc.running = true
+      extensionQueryTimeout.restart()
     }
+  }
+
+  Timer {
+    id: extensionQueryTimeout
+    interval: 5000
+    repeat: false
+    onTriggered: if (extensionQueryProc.running) extensionQueryProc.running = false
   }
 
   Process {
@@ -1263,15 +1305,17 @@ Item {
     property string query: ""
     property string extensionId: ""
     property string collected: ""
+    property bool outputOverflow: false
     property int revision: 0
     stdout: SplitParser {
-      onRead: function(data) { extensionQueryProc.collected += data + "\n" }
+      onRead: function(data) { root.collectBounded(extensionQueryProc, data) }
     }
     onExited: function(exitCode) {
+      extensionQueryTimeout.stop()
       if (extensionQueryProc.revision !== root.extensionQuerySerial || extensionQueryProc.query !== root.filterText.trim()) return
       if (!root.resultExtension || extensionQueryProc.extensionId !== root.resultExtension.id) return
       root.extensionQuery = extensionQueryProc.query
-      root.extensionResult = exitCode === 0 ? extensionQueryProc.collected.trim() : ""
+      root.extensionResult = exitCode === 0 && !extensionQueryProc.outputOverflow ? extensionQueryProc.collected.trim() : ""
       root.rebuildDisplay()
       if (root.extensionResult && root.resultExtension.capability === "currency") currencyRates.refreshIfStale()
     }
@@ -1280,13 +1324,14 @@ Item {
   Process {
     id: extensionProc
     property string collected: ""
+    property bool outputOverflow: false
     stdout: SplitParser {
-      onRead: function(data) { extensionProc.collected += data + "\n" }
+      onRead: function(data) { root.collectBounded(extensionProc, data) }
     }
     onExited: function(exitCode) {
-      var catalog = exitCode === 0
+      var catalog = exitCode === 0 && !extensionProc.outputOverflow
         ? MenuModel.parseExtensionCatalog(extensionProc.collected)
-        : { extensions: [], diagnostics: ["Extension loader exited with code " + exitCode] }
+        : { extensions: [], diagnostics: [extensionProc.outputOverflow ? "Extension catalog exceeded the output limit" : "Extension loader exited with code " + exitCode] }
       root.extensions = catalog.extensions
       root.extensionDiagnostics = catalog.diagnostics
       for (var i = 0; i < catalog.diagnostics.length; i++) console.warn("Omalaunch: " + catalog.diagnostics[i])
@@ -1303,12 +1348,13 @@ Item {
     property string menuId: ""
     property string providerKey: ""
     property string collected: ""
+    property bool outputOverflow: false
     property int revision: 0
     stdout: SplitParser {
-      onRead: function(data) { providerProc.collected += data + "\n" }
+      onRead: function(data) { root.collectBounded(providerProc, data) }
     }
     onExited: {
-      if (providerProc.revision === root.providerRevision) {
+      if (!providerProc.outputOverflow && providerProc.revision === root.providerRevision) {
         root.mergeProviderRows(providerProc.collected, providerProc.menuId, providerProc.providerKey)
         if (root.filterText.trim()) root.loadProvidersForSearch()
       }
@@ -1318,10 +1364,8 @@ Item {
 
   Process {
     id: resultProc
-    onExited: {
-      if (root.applySerial === root.requestSerial)
-        root.opened = false
-    }
+    property int requestId: 0
+    onExited: root.startResultWrite()
   }
 
   PointerMoveGate {

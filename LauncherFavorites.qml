@@ -52,7 +52,7 @@ Item {
 
   Process {
     id: initDir
-    command: ["mkdir", "-p", root.stateDir]
+    command: ["install", "-d", "-m", "0700", root.stateDir]
     onExited: root.directoryReady = true
   }
 

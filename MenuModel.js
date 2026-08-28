@@ -324,6 +324,18 @@ function stringArray(value) {
   return result
 }
 
+// Extension matchers run on the QML UI thread. Reject oversized patterns and
+// the most common nested-quantifier shapes, which can otherwise backtrack for
+// seconds on a short launcher query. This deliberately accepts a conservative
+// regex subset rather than trying to prove arbitrary JavaScript regexes safe.
+function safeExtensionPattern(pattern) {
+  var value = String(pattern || "")
+  if (!value || value.length > 256) return false
+  if (/\\[1-9]/.test(value)) return false
+  if (/\((?:[^()\\]|\\.)*[+*{](?:[^()\\]|\\.)*\)\s*[+*{]/.test(value)) return false
+  return true
+}
+
 function normalizeExtension(raw) {
   if (!raw || typeof raw !== "object" || raw.schemaVersion !== 1) return null
 
@@ -370,9 +382,18 @@ function normalizeExtension(raw) {
     if (extension.resultCommand.length === 0) extension.resultCommand = ["wl-copy", "--", "{result}"]
     if (extension.matchAll.length === 0 && extension.matchAny.length === 0) return null
     try {
-      for (var j = 0; j < extension.matchAll.length; j++) new RegExp(extension.matchAll[j], "i")
-      for (var k = 0; k < extension.matchAny.length; k++) new RegExp(extension.matchAny[k], "i")
-      for (var n = 0; n < extension.matchNone.length; n++) new RegExp(extension.matchNone[n], "i")
+      for (var j = 0; j < extension.matchAll.length; j++) {
+        if (!safeExtensionPattern(extension.matchAll[j])) return null
+        new RegExp(extension.matchAll[j], "i")
+      }
+      for (var k = 0; k < extension.matchAny.length; k++) {
+        if (!safeExtensionPattern(extension.matchAny[k])) return null
+        new RegExp(extension.matchAny[k], "i")
+      }
+      for (var n = 0; n < extension.matchNone.length; n++) {
+        if (!safeExtensionPattern(extension.matchNone[n])) return null
+        new RegExp(extension.matchNone[n], "i")
+      }
     } catch (e) { return null }
   }
   extension.available = extension.missingRequires.length === 0
@@ -442,6 +463,7 @@ function parseExtensions(text) {
 
 function matchesRules(extension, query) {
   var input = String(query || "").trim()
+  if (input.length > 4096) return false
   for (var i = 0; i < extension.matchAll.length; i++)
     if (!(new RegExp(extension.matchAll[i], "i")).test(input)) return false
   if (extension.matchAny.length > 0) {
@@ -698,9 +720,15 @@ function substituteGuardReaders(expression) {
   return expression
 }
 
+function shellSingleQuote(value) {
+  return "'" + String(value || "").replace(/'/g, "'\\''") + "'"
+}
+
 function guardLine(id, tag, expression) {
-  return "if { " + substituteGuardReaders(expression) + "; } >/dev/null 2>&1; then echo "
-    + id + ":" + tag + ":1; else echo " + id + ":" + tag + ":0; fi\n"
+  var success = shellSingleQuote(id + ":" + tag + ":1")
+  var failure = shellSingleQuote(id + ":" + tag + ":0")
+  return "if { " + substituteGuardReaders(expression) + "; } >/dev/null 2>&1; then printf '%s\\n' "
+    + success + "; else printf '%s\\n' " + failure + "; fi\n"
 }
 
 // One bash script for every `when:` and `checked:` in the menu, reporting
@@ -748,6 +776,7 @@ if (typeof module !== "undefined") {
     nameSearchText: nameSearchText,
     termInSearchWords: termInSearchWords,
     descriptionTextMatches: descriptionTextMatches,
+    safeExtensionPattern: safeExtensionPattern,
     normalizeExtension: normalizeExtension,
     resolveExtensions: resolveExtensions,
     parseExtensionCatalog: parseExtensionCatalog,
