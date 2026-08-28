@@ -317,32 +317,73 @@ function descriptionTextMatches(query, text) {
   return true
 }
 
+function stringArray(value) {
+  if (!Array.isArray(value)) return []
+  var result = []
+  for (var i = 0; i < value.length; i++) result.push(String(value[i]))
+  return result
+}
+
 function normalizeExtension(raw) {
-  if (!raw || typeof raw !== "object") return null
+  if (!raw || typeof raw !== "object" || raw.schemaVersion !== 1) return null
 
   var id = String(raw.id || "").trim()
   var label = String(raw.label || "").trim()
-  var command = Array.isArray(raw.command) ? raw.command : []
-  var sourcePrefixes = Array.isArray(raw.prefixes) ? raw.prefixes : [raw.prefix]
-  var prefixes = []
-  for (var i = 0; i < sourcePrefixes.length; i++) {
-    var prefix = String(sourcePrefixes[i] || "").toLowerCase().trim()
-    if (prefix && prefixes.indexOf(prefix) < 0) prefixes.push(prefix)
-  }
+  var mode = String(raw.mode || "prefix")
+  var command = stringArray(raw.command)
+  if (!id || !label || command.length === 0 || ["prefix", "query"].indexOf(mode) < 0) return null
 
-  if (!id || !label || prefixes.length === 0 || command.length === 0) return null
-
-  var normalizedCommand = []
-  for (var j = 0; j < command.length; j++) normalizedCommand.push(String(command[j]))
-  return {
+  var extension = {
     id: id,
+    capability: String(raw.capability || id).trim(),
+    mode: mode,
     label: label,
-    prefixes: prefixes,
     icon: String(raw.icon || ""),
     iconFont: String(raw.iconFont || ""),
-    description: String(raw.description || "Start new session"),
-    command: normalizedCommand
+    description: String(raw.description || (mode === "prefix" ? "Start new session" : "Press Enter to copy")),
+    command: command,
+    priority: Number(raw.priority) || 0,
+    bundled: raw._bundled === true
   }
+
+  if (mode === "prefix") {
+    var sourcePrefixes = Array.isArray(raw.prefixes) ? raw.prefixes : [raw.prefix]
+    extension.prefixes = []
+    for (var i = 0; i < sourcePrefixes.length; i++) {
+      var prefix = String(sourcePrefixes[i] || "").toLowerCase().trim()
+      if (prefix && extension.prefixes.indexOf(prefix) < 0) extension.prefixes.push(prefix)
+    }
+    if (extension.prefixes.length === 0) return null
+  } else {
+    var match = raw.match || {}
+    extension.matchAll = stringArray(match.all)
+    extension.matchAny = stringArray(match.any)
+    extension.matchNone = stringArray(match.none)
+    extension.resultCommand = stringArray(raw.resultCommand)
+    if (extension.resultCommand.length === 0) extension.resultCommand = ["wl-copy", "--", "{result}"]
+    if (extension.matchAll.length === 0 && extension.matchAny.length === 0) return null
+    try {
+      for (var j = 0; j < extension.matchAll.length; j++) new RegExp(extension.matchAll[j], "i")
+      for (var k = 0; k < extension.matchAny.length; k++) new RegExp(extension.matchAny[k], "i")
+      for (var n = 0; n < extension.matchNone.length; n++) new RegExp(extension.matchNone[n], "i")
+    } catch (e) { return null }
+  }
+  return extension
+}
+
+function resolveExtensions(extensions) {
+  var selected = ({})
+  var values = Array.isArray(extensions) ? extensions : []
+  for (var i = 0; i < values.length; i++) {
+    var extension = values[i]
+    var current = selected[extension.capability]
+    if (!current || extension.priority > current.priority
+        || (extension.priority === current.priority && current.bundled && !extension.bundled))
+      selected[extension.capability] = extension
+  }
+  var result = []
+  for (var capability in selected) result.push(selected[capability])
+  return result
 }
 
 function parseExtensions(text) {
@@ -355,7 +396,32 @@ function parseExtensions(text) {
     var extension = normalizeExtension(values[i])
     if (extension) extensions.push(extension)
   }
-  return extensions
+  return resolveExtensions(extensions)
+}
+
+function matchesRules(extension, query) {
+  var input = String(query || "").trim()
+  for (var i = 0; i < extension.matchAll.length; i++)
+    if (!(new RegExp(extension.matchAll[i], "i")).test(input)) return false
+  if (extension.matchAny.length > 0) {
+    var any = false
+    for (var j = 0; j < extension.matchAny.length; j++)
+      if ((new RegExp(extension.matchAny[j], "i")).test(input)) { any = true; break }
+    if (!any) return false
+  }
+  for (var k = 0; k < extension.matchNone.length; k++)
+    if ((new RegExp(extension.matchNone[k], "i")).test(input)) return false
+  return true
+}
+
+function queryExtension(extensions, query) {
+  var matches = []
+  var values = Array.isArray(extensions) ? extensions : []
+  for (var i = 0; i < values.length; i++) {
+    if (values[i].mode === "query" && matchesRules(values[i], query)) matches.push(values[i])
+  }
+  matches.sort(function(a, b) { return b.priority - a.priority })
+  return matches.length > 0 ? matches[0] : null
 }
 
 function suggestExtensions(extensions, query) {
@@ -366,6 +432,7 @@ function suggestExtensions(extensions, query) {
   var values = Array.isArray(extensions) ? extensions : []
   for (var i = 0; i < values.length; i++) {
     var extension = values[i]
+    if (extension.mode !== "prefix") continue
     for (var j = 0; j < extension.prefixes.length; j++) {
       if (extension.prefixes[j].indexOf(input) !== 0) continue
       suggestions.push({ extension: extension, prefix: extension.prefixes[j] })
@@ -388,7 +455,7 @@ function matchExtensions(extensions, query) {
   var values = Array.isArray(extensions) ? extensions : []
   for (var i = 0; i < values.length; i++) {
     var extension = values[i]
-    if (extension.prefixes.indexOf(prefix) >= 0)
+    if (extension.mode === "prefix" && extension.prefixes.indexOf(prefix) >= 0)
       matches.push({ extension: extension, prompt: prompt })
   }
   return matches
@@ -630,7 +697,10 @@ if (typeof module !== "undefined") {
     termInSearchWords: termInSearchWords,
     descriptionTextMatches: descriptionTextMatches,
     normalizeExtension: normalizeExtension,
+    resolveExtensions: resolveExtensions,
     parseExtensions: parseExtensions,
+    matchesRules: matchesRules,
+    queryExtension: queryExtension,
     suggestExtensions: suggestExtensions,
     matchExtensions: matchExtensions,
     matchesQuery: matchesQuery,

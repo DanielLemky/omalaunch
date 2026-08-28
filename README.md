@@ -2,7 +2,7 @@
 
 An extensible command launcher for [Omarchy](https://omarchy.org/).
 
-Omalaunch keeps the familiar Omarchy command tree while adding fast global search, application results, favorites, usage-aware ranking, calculations and conversions, and independently installable query-provider extensions.
+Omalaunch keeps the familiar Omarchy command tree while adding fast global search, application results, favorites, usage-aware ranking, calculations and conversions, and independently installable extensions.
 
 ## Features
 
@@ -11,7 +11,7 @@ Omalaunch keeps the familiar Omarchy command tree while adding fast global searc
 - Run arithmetic, unit conversions, and currency conversions with `qalc`
 - Copy calculation results directly to the clipboard
 - Accept dmenu-style select and input requests
-- Load query providers contributed by enabled Omarchy plugins
+- Load extensions contributed by enabled Omarchy plugins
 - Launch agent prompts such as Pi and Codex through optional extensions
 
 ## Requirements
@@ -57,17 +57,17 @@ wifi
 
 Calculation results appear first and are copied to the clipboard when activated.
 
-### Query-provider extensions
+### Extensions
 
-Omalaunch extensions are regular Omarchy plugins. An enabled plugin contributes provider files through its manifest:
+Omalaunch includes replaceable bundled extensions and also loads extensions from enabled Omarchy plugins:
 
 ```json
 "omalaunch": {
-  "queryProviders": ["omalaunch.json"]
+  "extensions": ["omalaunch.json"]
 }
 ```
 
-Browse community integrations in the [Omalaunch Extension Directory](https://github.com/DanielLemky/omalaunch-extensions). See [EXTENSIONS.md](EXTENSIONS.md) for the complete provider contract and an example.
+Browse community integrations in the [Omalaunch Extension Directory](https://github.com/DanielLemky/omalaunch-extensions). See [EXTENSIONS.md](EXTENSIONS.md) for the complete extension contract and examples.
 
 ## Configuration
 
@@ -97,7 +97,7 @@ Removing Omalaunch does not remove its optional extension plugins or system depe
 
 Omarchy plugins are unsandboxed and run with the current user's permissions. Install plugins only from sources you trust.
 
-Omalaunch executes commands supplied by the stock menu, user menu configuration, and enabled query-provider plugins. Provider commands are represented as argument arrays; Omalaunch substitutes the prompt and shell-quotes each argument. Dependency installation is never performed silently.
+Omalaunch executes commands supplied by the stock menu, user menu configuration, and enabled extension plugins. Extension commands are represented as argument arrays; Omalaunch substitutes the prompt and shell-quotes each argument. Dependency installation is never performed silently.
 
 Currency conversion may cause `qalc` to retrieve updated exchange-rate data from its configured upstream source.
 

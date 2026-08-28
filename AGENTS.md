@@ -6,4 +6,4 @@
 # Extensions
 
 - Read [`EXTENSIONS.md`](EXTENSIONS.md) before adding or changing launcher extensions.
-- Optional extensions are independent Omarchy plugins that contribute query providers through their manifests; they must not be bundled with Omalaunch.
+- Optional extensions are independent Omarchy plugins that contribute extension definitions through their manifests; they must not be bundled with Omalaunch.

@@ -5,12 +5,14 @@ import QtQuick
 import qs.Commons
 import qs.Ui
 import "MenuModel.js" as MenuModel
+import "extensions/currency" as CurrencyExtension
 
 Item {
   id: root
 
   // Injected by omarchy-shell when this plugin is summoned.
   property string omarchyPath: Quickshell.env("OMARCHY_PATH")
+  readonly property string pluginPath: root.manifest && root.manifest.__sourceDir ? String(root.manifest.__sourceDir) : ""
   property var shell: null
   property var manifest: null
 
@@ -79,9 +81,10 @@ Item {
   property var providersLoaded: ({})
   property var providerQueue: []
   property int providerRevision: 0
-  property string calculatorQuery: ""
-  property string calculatorResult: ""
-  property int calculatorSerial: 0
+  property string extensionQuery: ""
+  property string extensionResult: ""
+  property var resultExtension: null
+  property int extensionQuerySerial: 0
 
   // Shared application engine (entries, hidden filters, icons, launch,
   // removal), owned by the shell and also used by the standalone launcher.
@@ -95,14 +98,14 @@ Item {
   // singleton), so consumers can drop them straight into a Rectangle.
   LauncherFavorites { id: favorites }
   LauncherUsage { id: usage }
-  CurrencyRates { id: currencyRates }
+  CurrencyExtension.CurrencyRates { id: currencyRates }
 
   Connections {
     target: currencyRates
     function onRefreshed() {
-      if (!root.isCurrencyQuery(root.filterText)) return
-      root.calculatorSerial += 1
-      calculatorTimer.restart()
+      if (!root.resultExtension || root.resultExtension.capability !== "currency") return
+      root.extensionQuerySerial += 1
+      extensionQueryTimer.restart()
     }
   }
 
@@ -259,13 +262,26 @@ Item {
     return "'" + String(value || "").replace(/'/g, "'\\''") + "'"
   }
 
-  function extensionAction(extension, prompt) {
+  function commandArguments(command, replacements) {
     var parts = []
-    for (var i = 0; i < extension.command.length; i++) {
-      var argument = String(extension.command[i]).replace(/\{prompt\}/g, prompt)
-      parts.push(root.shellQuote(argument))
+    for (var i = 0; i < command.length; i++) {
+      var argument = String(command[i])
+      for (var key in replacements)
+        argument = argument.replace(new RegExp("\\{" + key + "\\}", "g"), String(replacements[key]))
+      parts.push(argument)
     }
+    return parts
+  }
+
+  function shellCommand(command, replacements) {
+    var arguments = root.commandArguments(command, replacements)
+    var parts = []
+    for (var i = 0; i < arguments.length; i++) parts.push(root.shellQuote(arguments[i]))
     return parts.join(" ")
+  }
+
+  function extensionAction(extension, prompt) {
+    return root.shellCommand(extension.command, { prompt: prompt })
   }
 
   function loadExtensions() {
@@ -275,7 +291,9 @@ Item {
     }
     root.extensionsReloadPending = false
     extensionProc.collected = ""
-    var script = "declare -A enabled=(); "
+    var script = "{ shopt -s nullglob; "
+      + "for bundled in " + root.shellQuote(root.pluginPath) + "/extensions/*/extension.json; do jq -c '. + {_bundled:true}' \"$bundled\" 2>/dev/null || true; done; "
+      + "declare -A enabled=(); "
       + "while IFS= read -r id; do enabled[\"$id\"]=1; done < <(omarchy plugin list --json | jq -r '.[] | select(.enabled == true) | .id'); "
       + "shopt -s nullglob; "
       + "for manifest in " + root.shellQuote(root.omarchyPath) + "/shell/plugins/*/manifest.json \"$HOME\"/.config/omarchy/plugins/*/manifest.json; do "
@@ -283,38 +301,29 @@ Item {
       + "dir=${manifest%/manifest.json}; "
       + "while IFS= read -r provider; do "
       + "[[ $provider && $provider != /* && $provider != *..* ]] || continue; "
-      + "file=$dir/$provider; [[ -f $file ]] && jq -c '.' \"$file\" 2>/dev/null || true; "
-      + "done < <(jq -r '.omalaunch.queryProviders[]? // empty' \"$manifest\" 2>/dev/null); "
-      + "done | jq -s '.'"
+      + "file=$dir/$provider; [[ -f $file ]] && jq -c '. + {_bundled:false}' \"$file\" 2>/dev/null || true; "
+      + "done < <(jq -r '((.omalaunch.extensions // []) + (.omalaunch.queryProviders // []))[]? // empty' \"$manifest\" 2>/dev/null); "
+      + "done; } | jq -s '.'"
     extensionProc.command = ["bash", "-lc", script]
     extensionProc.running = true
   }
 
-  function isPotentialCalculationQuery(value) {
+  function isPotentialExtensionQuery(value) {
     return /^\s*[+-]?(?:\d|\.\d)/.test(String(value || ""))
   }
 
-  function isCalculationQuery(value) {
-    var query = String(value || "").trim()
-    if (!/\d/.test(query)) return false
-    if (/\b(to|in)\b/i.test(query)) return true
-    if (!/[+\-*\/%^]/.test(query)) return false
-    return !/[+\-*\/%^(]\s*$/.test(query)
-  }
+  function scheduleExtensionQuery() {
+    root.extensionQuerySerial += 1
+    root.extensionQuery = ""
+    root.extensionResult = ""
+    root.resultExtension = null
+    extensionQueryTimer.stop()
+    if (extensionQueryProc.running) extensionQueryProc.running = false
+    if (root.dmenuActive) return
 
-  function isCurrencyQuery(value) {
-    var query = String(value || "").trim()
-    return /\b[A-Za-z]{3}\b.*\b(to|in)\b.*\b[A-Za-z]{3}\b/i.test(query)
-  }
-
-  function scheduleCalculation() {
-    root.calculatorSerial += 1
-    root.calculatorQuery = ""
-    root.calculatorResult = ""
-    calculatorTimer.stop()
-    if (calculatorProc.running) calculatorProc.running = false
     var query = root.filterText.trim()
-    if (!root.dmenuActive && root.isCalculationQuery(query)) calculatorTimer.start()
+    root.resultExtension = MenuModel.queryExtension(root.extensions, query)
+    if (root.resultExtension) extensionQueryTimer.start()
   }
 
   function normalizeItem(id, raw) {
@@ -675,7 +684,7 @@ Item {
     root.searchDivider = false
 
     if (query) {
-      var calculatorResult = root.calculatorQuery === query ? root.calculatorResult : ""
+      var liveResult = root.extensionQuery === query ? root.extensionResult : ""
       for (var i = 0; i < root.itemOrder.length; i++) {
         var entry = root.item(root.itemOrder[i])
         if (!entry || entry.id === "root") continue
@@ -724,14 +733,15 @@ Item {
         rows.unshift(root.displayRow(extensionItem, extension.description, -2))
       }
 
-      if (calculatorResult) {
-        var calculatorItem = root.normalizeItem("calculator.result", {
-          icon: "󰃬",
-          label: "= " + calculatorResult,
-          description: "Press Enter to copy",
-          action: "printf %s " + root.shellQuote(calculatorResult) + " | wl-copy"
+      if (liveResult && root.resultExtension) {
+        var resultItem = root.normalizeItem("extension.result", {
+          icon: root.resultExtension.icon,
+          iconFont: root.resultExtension.iconFont,
+          label: "= " + liveResult,
+          description: root.resultExtension.description,
+          action: root.shellCommand(root.resultExtension.resultCommand, { result: liveResult, query: query })
         })
-        rows.unshift(root.displayRow(calculatorItem, "Press Enter to copy", -1))
+        rows.unshift(root.displayRow(resultItem, root.resultExtension.description, -1))
       }
     } else {
       for (var j = 0; j < root.itemOrder.length; j++) {
@@ -830,7 +840,7 @@ Item {
     root.disarmPointer()
     if (!root.dmenuActive && root.filterText.trim()) root.loadProvidersForSearch()
     root.rebuildDisplay()
-    root.scheduleCalculation()
+    root.scheduleExtensionQuery()
   }
 
   function setActiveMenu(id, pushHistory, fromPointer) {
@@ -884,7 +894,7 @@ Item {
       Qt.callLater(function() { keyCatcher.forceActiveFocus() })
       return
     }
-    if (row.itemId !== "calculator.result") usage.record(row.itemId)
+    if (row.itemId !== "extension.result") usage.record(row.itemId)
     if (row.kind === "menu" || row.kind === "link") {
       root.setActiveMenu(row.target || row.itemId, true, fromPointer)
     } else if (row.kind === "app") {
@@ -902,7 +912,7 @@ Item {
   function toggleSelectedStar() {
     if (root.dmenuActive || !root.cursorActive || root.selectedIndex < 0 || root.selectedIndex >= displayModel.count) return
     var row = displayModel.get(root.selectedIndex)
-    if (!row || row.itemId === "omarchy" || row.itemId === "calculator.result" || !favorites.loaded) return
+    if (!row || row.itemId === "omarchy" || row.itemId === "extension.result" || !favorites.loaded) return
     root.pendingStarSelectionId = row.itemId
     favorites.toggle(row.itemId)
   }
@@ -1043,35 +1053,39 @@ Item {
   }
 
   Timer {
-    id: calculatorTimer
+    id: extensionQueryTimer
     interval: 140
     repeat: false
     onTriggered: {
       var query = root.filterText.trim()
-      if (!root.isCalculationQuery(query)) return
-      calculatorProc.query = query
-      calculatorProc.revision = root.calculatorSerial
-      calculatorProc.collected = ""
-      calculatorProc.command = ["qalc", "-t", "-m", "1500", query]
-      calculatorProc.running = true
+      var extension = MenuModel.queryExtension(root.extensions, query)
+      if (!extension) return
+      root.resultExtension = extension
+      extensionQueryProc.query = query
+      extensionQueryProc.extensionId = extension.id
+      extensionQueryProc.revision = root.extensionQuerySerial
+      extensionQueryProc.collected = ""
+      extensionQueryProc.command = root.commandArguments(extension.command, { query: query })
+      extensionQueryProc.running = true
     }
   }
 
   Process {
-    id: calculatorProc
+    id: extensionQueryProc
     property string query: ""
+    property string extensionId: ""
     property string collected: ""
     property int revision: 0
     stdout: SplitParser {
-      onRead: function(data) { calculatorProc.collected += data + "\n" }
+      onRead: function(data) { extensionQueryProc.collected += data + "\n" }
     }
     onExited: function(exitCode) {
-      if (calculatorProc.revision !== root.calculatorSerial || calculatorProc.query !== root.filterText.trim()) return
-      root.calculatorQuery = calculatorProc.query
-      root.calculatorResult = exitCode === 0 ? calculatorProc.collected.trim() : ""
+      if (extensionQueryProc.revision !== root.extensionQuerySerial || extensionQueryProc.query !== root.filterText.trim()) return
+      if (!root.resultExtension || extensionQueryProc.extensionId !== root.resultExtension.id) return
+      root.extensionQuery = extensionQueryProc.query
+      root.extensionResult = exitCode === 0 ? extensionQueryProc.collected.trim() : ""
       root.rebuildDisplay()
-      if (/^[A-Z]{3}\s/.test(root.calculatorResult) && root.isCurrencyQuery(calculatorProc.query))
-        currencyRates.refreshIfStale()
+      if (root.extensionResult && root.resultExtension.capability === "currency") currencyRates.refreshIfStale()
     }
   }
 
@@ -1083,7 +1097,10 @@ Item {
     }
     onExited: function(exitCode) {
       root.extensions = exitCode === 0 ? MenuModel.parseExtensions(extensionProc.collected) : []
-      if (root.opened && !root.dmenuActive) root.rebuildDisplay()
+      if (root.opened && !root.dmenuActive) {
+        root.scheduleExtensionQuery()
+        root.rebuildDisplay()
+      }
       if (root.extensionsReloadPending) root.loadExtensions()
     }
   }
@@ -1393,7 +1410,7 @@ Item {
 
           Text {
             id: starHint
-            visible: !root.dmenuActive && displayModel.count > 0 && root.cursorActive && root.selectedIndex >= 0 && root.selectedIndex < displayModel.count && displayModel.get(root.selectedIndex).itemId !== "omarchy" && displayModel.get(root.selectedIndex).itemId !== "calculator.result"
+            visible: !root.dmenuActive && displayModel.count > 0 && root.cursorActive && root.selectedIndex >= 0 && root.selectedIndex < displayModel.count && displayModel.get(root.selectedIndex).itemId !== "omarchy" && displayModel.get(root.selectedIndex).itemId !== "extension.result"
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
             text: root.cursorActive && root.selectedIndex >= 0 && root.selectedIndex < displayModel.count && displayModel.get(root.selectedIndex).starred ? "Ctrl+S  Unstar" : "Ctrl+S  Star"
@@ -1628,7 +1645,7 @@ Item {
           Column {
             anchors.centerIn: parent
             spacing: Style.space(8)
-            visible: displayModel.count === 0 && root.mode !== "input" && (root.filterText || root.activeMenu !== "root") && !root.isPotentialCalculationQuery(root.filterText)
+            visible: displayModel.count === 0 && root.mode !== "input" && (root.filterText || root.activeMenu !== "root") && !root.isPotentialExtensionQuery(root.filterText)
 
             Text {
               text: "󰈉"

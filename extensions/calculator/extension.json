@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "id": "omalaunch.calculator",
+  "capability": "calculator",
+  "mode": "query",
+  "label": "Calculator",
+  "icon": "󰃬",
+  "description": "Press Enter to copy",
+  "priority": 10,
+  "match": {
+    "all": ["^\\s*[+-]?(?:\\d|\\.\\d)", "\\d"],
+    "any": ["\\b(to|in)\\b", "[+\\-*\\/%^]"],
+    "none": ["[+\\-*\\/%^(]\\s*$"]
+  },
+  "command": ["qalc", "-t", "-m", "1500", "{query}"],
+  "resultCommand": ["wl-copy", "--", "{result}"]
+}

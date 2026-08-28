@@ -13,6 +13,7 @@ vm.runInNewContext(source, context)
 const menu = context.module.exports
 
 const extensions = menu.parseExtensions(JSON.stringify([{
+  schemaVersion: 1,
   id: 'pi-agent',
   label: 'Pi Agent',
   prefixes: ['pi'],
@@ -31,6 +32,40 @@ assert(menu.matchExtensions(extensions, 'pi explain this code')[0].prompt === 'e
 assert(menu.matchExtensions(extensions, 'PI   fix the tests  ')[0].prompt === 'fix the tests', 'extension matching ignores prefix case and surrounding whitespace')
 assert(menu.matchExtensions(extensions, 'pi').length === 0, 'a prefix without a prompt does not match')
 assert(menu.matchExtensions(extensions, 'pilot a plane').length === 0, 'extension prefixes must be standalone')
+
+const queryExtensions = menu.parseExtensions(JSON.stringify([
+  {
+    schemaVersion: 1,
+    id: 'bundled-calculator',
+    capability: 'calculator',
+    mode: 'query',
+    label: 'Calculator',
+    command: ['qalc', '{query}'],
+    match: { all: ['^\\d'], any: ['[+]'] },
+    _bundled: true
+  },
+  {
+    schemaVersion: 1,
+    id: 'replacement-calculator',
+    capability: 'calculator',
+    mode: 'query',
+    label: 'Replacement',
+    command: ['other-calc', '{query}'],
+    match: { all: ['^\\d'], any: ['[+]'] },
+    _bundled: false
+  }
+]))
+assert(queryExtensions.length === 1 && queryExtensions[0].id === 'replacement-calculator', 'external extensions replace bundled capabilities')
+assert(menu.queryExtension(queryExtensions, '2+2').id === 'replacement-calculator', 'query extensions match live input')
+assert(menu.queryExtension(queryExtensions, 'hello') === null, 'query extensions ignore unrelated input')
+
+const bundledExtensions = menu.parseExtensions(JSON.stringify([
+  { ...JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'extensions', 'calculator', 'extension.json'), 'utf8')), _bundled: true },
+  { ...JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'extensions', 'currency', 'extension.json'), 'utf8')), _bundled: true }
+]))
+assert(menu.queryExtension(bundledExtensions, '2 + 2').capability === 'calculator', 'bundled calculator matches arithmetic')
+assert(menu.queryExtension(bundledExtensions, '10 USD to CAD').capability === 'currency', 'bundled currency extension outranks general conversions')
+assert(menu.queryExtension(bundledExtensions, 'hello') === null, 'bundled extensions ignore ordinary searches')
 
 const searchTree = {
   setup: { id: 'setup', parent: 'root' },

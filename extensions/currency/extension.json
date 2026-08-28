@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "id": "omalaunch.currency",
+  "capability": "currency",
+  "mode": "query",
+  "label": "Currency conversion",
+  "icon": "󰃬",
+  "description": "Press Enter to copy",
+  "priority": 20,
+  "match": {
+    "all": ["^\\s*[+-]?(?:\\d|\\.\\d)", "\\b[A-Za-z]{3}\\b.*\\b(to|in)\\b.*\\b[A-Za-z]{3}\\b"]
+  },
+  "command": ["qalc", "-t", "-m", "1500", "{query}"],
+  "resultCommand": ["wl-copy", "--", "{result}"]
+}

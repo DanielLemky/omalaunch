@@ -1,10 +1,15 @@
 # Omalaunch extensions
 
-Omalaunch extensions are standard Omarchy plugins. Omalaunch reads query-provider contributions from enabled plugin manifests; it does not maintain a separate extension directory or installation mechanism.
+Every optional launcher feature is an **extension**. Omalaunch supports two delivery methods:
 
-## Plugin manifest
+- **Bundled extensions** ship with Omalaunch and are enabled by default.
+- **External extensions** are independent, enabled Omarchy plugins.
 
-Declare provider files under the `omalaunch.queryProviders` field in `manifest.json`:
+Both use the same extension format. An external extension with the same `capability` replaces a bundled extension; disabling or removing it restores the bundled extension.
+
+## External plugin manifest
+
+An Omarchy plugin declares its extension files in `manifest.json`:
 
 ```json
 {
@@ -17,23 +22,25 @@ Declare provider files under the `omalaunch.queryProviders` field in `manifest.j
   "kinds": ["extension"],
   "entryPoints": {},
   "omalaunch": {
-    "queryProviders": ["omalaunch.json"]
+    "extensions": ["omalaunch.json"]
   }
 }
 ```
 
-Provider paths must be relative to the plugin directory and may not contain `..`. A plugin can contribute more than one provider file.
+Paths must be relative to the plugin directory and may not contain `..`. Omalaunch only loads contributions from plugins reported as enabled by `omarchy plugin list --json`.
 
-Install and enable the plugin through Omarchy's normal plugin workflow. Omalaunch only loads contributions from plugins reported as enabled by `omarchy plugin list --json`.
+The original `omalaunch.queryProviders` manifest field remains accepted as an alias for compatibility.
 
-## Query provider
+## Prefix extension
 
-Each provider file contains one JSON object:
+Prefix extensions turn a prefix and prompt into an action:
 
 ```json
 {
   "schemaVersion": 1,
   "id": "pi-agent",
+  "capability": "pi-agent",
+  "mode": "prefix",
   "label": "Pi Agent",
   "prefixes": ["pi"],
   "icon": "",
@@ -43,26 +50,58 @@ Each provider file contains one JSON object:
 }
 ```
 
-Typing part of a prefix shows the extension as a launcher result. Activating that result fills in the complete prefix and keeps the launcher focused for prompt entry.
+Typing part of a prefix shows the extension as a result. Activating it completes the prefix and keeps Omalaunch focused for prompt entry.
 
-Typing `pi explain this code` produces:
+## Live-query extension
 
-```text
-Pi Agent: explain this code
-Start new session
+Live-query extensions recognize input, run asynchronously, and display the command output:
+
+```json
+{
+  "schemaVersion": 1,
+  "id": "example.calculator",
+  "capability": "calculator",
+  "mode": "query",
+  "label": "Calculator",
+  "icon": "󰃬",
+  "description": "Press Enter to copy",
+  "priority": 10,
+  "match": {
+    "all": ["^\\s*\\d"],
+    "any": ["[+\\-*/%]"] ,
+    "none": ["[+\\-*/%(]\\s*$"]
+  },
+  "command": ["example-calculator", "{query}"],
+  "resultCommand": ["wl-copy", "--", "{result}"]
+}
 ```
 
-The command is represented as an argument array. Omalaunch replaces `{prompt}` in each argument and shell-quotes every argument before launching it. Do not put shell syntax such as pipes or redirects in `command`.
+Match rules are case-insensitive regular expressions:
 
-## Provider fields
+- Every expression in `all` must match.
+- At least one expression in `any` must match when `any` is present.
+- No expression in `none` may match.
 
-- `schemaVersion`: Provider format version. Currently `1`.
-- `id`: Stable, unique provider identifier.
-- `label`: Text shown before the prompt.
-- `prefixes`: One or more case-insensitive query prefixes.
-- `icon`: Optional icon glyph.
-- `iconFont`: Optional font family for the icon.
-- `description`: Optional secondary text; defaults to `Start new session`.
-- `command`: Required command argument array. Use `{prompt}` where the entered prompt belongs.
+The highest-priority matching live-query extension runs. Stale results are discarded as the query changes.
 
-Malformed or incomplete providers are ignored. Omarchy plugins are trusted local software and provider commands run as the current user.
+## Replacement
+
+`capability` identifies interchangeable behavior. For each capability Omalaunch selects one extension:
+
+1. Higher `priority` wins.
+2. At equal priority, an external extension wins over a bundled extension.
+3. If the external extension is disabled, the bundled extension becomes active again.
+
+## Common fields
+
+- `schemaVersion`: Extension format version; currently `1`.
+- `id`: Stable, unique extension identifier.
+- `capability`: Stable behavior being supplied or replaced; defaults to `id`.
+- `mode`: `prefix` or `query`; defaults to `prefix`.
+- `label`, `icon`, `iconFont`, `description`: Result presentation.
+- `priority`: Selection priority; defaults to `0`.
+- `command`: Argument array. Prefix mode supports `{prompt}`; query mode supports `{query}`.
+
+Commands are argument arrays. Omalaunch substitutes placeholders and shell-quotes action arguments. Do not embed pipes, redirects, or other shell syntax.
+
+Malformed extensions are ignored. Omarchy plugins are trusted local software and extension commands run as the current user.
