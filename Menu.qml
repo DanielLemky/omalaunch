@@ -92,6 +92,8 @@ Item {
   property string fileBrowserPath: ""
   property var fileEntries: []
   property int fileScanSerial: 0
+  property string fileCopyFeedbackPath: ""
+  property string fileCopyFeedback: ""
 
   // Shared application engine (entries, hidden filters, icons, launch,
   // removal), owned by the shell and also used by the standalone launcher.
@@ -387,10 +389,12 @@ Item {
     for (var i = 0; i < root.fileEntries.length; i++) {
       var entry = root.fileEntries[i]
       var isDirectory = entry.type === "directory"
+      var feedback = entry.path === root.fileCopyFeedbackPath ? root.fileCopyFeedback : ""
+      var description = feedback || (isDirectory ? entry.path : entry.path + "  ·  Ctrl+C to copy path")
       var item = root.normalizeItem("file." + (isDirectory ? "directory." : "item.") + i, {
-        icon: isDirectory ? "󰉋" : "󰈔",
+        icon: feedback === "Copied path" ? "✓" : (isDirectory ? "󰉋" : "󰈔"),
         label: entry.name,
-        description: isDirectory ? entry.path : entry.path + "  ·  Ctrl+C to copy path",
+        description: description,
         action: entry.path
       })
       var row = root.displayRow(item, item.description, i)
@@ -406,8 +410,10 @@ Item {
   function copySelectedFilePath() {
     if (!root.fileBrowserActive || root.selectedIndex < 0 || root.selectedIndex >= displayModel.count) return
     var row = displayModel.get(root.selectedIndex)
-    if (!row || !root.fileBrowserExtension) return
-    root.runAction(root.shellCommand(root.fileBrowserExtension.copyCommand, { path: row.action }))
+    if (!row || !root.fileBrowserExtension || fileCopyProc.running) return
+    fileCopyProc.copyPath = row.action
+    fileCopyProc.command = root.commandArguments(root.fileBrowserExtension.copyCommand, { path: row.action })
+    fileCopyProc.running = true
   }
 
   function normalizeItem(id, raw) {
@@ -1186,6 +1192,28 @@ Item {
     if (!pointerGate.moved(item, mouse)) return
     root.cursorActive = true
     root.selectedIndex = index
+  }
+
+  Timer {
+    id: fileCopyFeedbackTimer
+    interval: 1600
+    repeat: false
+    onTriggered: {
+      root.fileCopyFeedbackPath = ""
+      root.fileCopyFeedback = ""
+      if (root.fileBrowserActive) root.rebuildFileDisplay()
+    }
+  }
+
+  Process {
+    id: fileCopyProc
+    property string copyPath: ""
+    onExited: function(exitCode) {
+      root.fileCopyFeedbackPath = fileCopyProc.copyPath
+      root.fileCopyFeedback = exitCode === 0 ? "Copied path" : "Copy failed"
+      if (root.fileBrowserActive) root.rebuildFileDisplay()
+      fileCopyFeedbackTimer.restart()
+    }
   }
 
   Timer {
