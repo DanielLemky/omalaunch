@@ -46,6 +46,7 @@ Prefix extensions turn a prefix and prompt into an action:
   "icon": "",
   "iconFont": "omarchy",
   "description": "Start new session",
+  "requires": ["pi"],
   "command": ["omarchy-launch-terminal", "pi", "--", "{prompt}"]
 }
 ```
@@ -66,6 +67,7 @@ Live-query extensions recognize input, run asynchronously, and display the comma
   "icon": "󰃬",
   "description": "Press Enter to copy",
   "priority": 10,
+  "requires": ["example-calculator", "wl-copy"],
   "match": {
     "all": ["^\\s*\\d"],
     "any": ["[+\\-*/%]"] ,
@@ -100,8 +102,11 @@ The highest-priority matching live-query extension runs. Stale results are disca
 - `mode`: `prefix` or `query`; defaults to `prefix`.
 - `label`, `icon`, `iconFont`, `description`: Result presentation.
 - `priority`: Selection priority; defaults to `0`.
+- `requires`: Executable names that must be available on `PATH`.
 - `command`: Argument array. Prefix mode supports `{prompt}`; query mode supports `{query}`.
 
 Commands are argument arrays. Omalaunch substitutes placeholders and shell-quotes action arguments. Do not embed pipes, redirects, or other shell syntax.
+
+Missing dependencies leave an extension visible but unavailable with a clear message; its command cannot be activated. Omalaunch logs diagnostics for malformed definitions, unsupported schemas, duplicate IDs or prefixes, invalid regular expressions, and missing dependencies.
 
 Malformed extensions are ignored. Omarchy plugins are trusted local software and extension commands run as the current user.

@@ -67,6 +67,30 @@ assert(menu.queryExtension(bundledExtensions, '2 + 2').capability === 'calculato
 assert(menu.queryExtension(bundledExtensions, '10 USD to CAD').capability === 'currency', 'bundled currency extension outranks general conversions')
 assert(menu.queryExtension(bundledExtensions, 'hello') === null, 'bundled extensions ignore ordinary searches')
 
+const unavailableCatalog = menu.parseExtensionCatalog(JSON.stringify([
+  {
+    schemaVersion: 1,
+    id: 'needs-tool',
+    mode: 'prefix',
+    label: 'Needs Tool',
+    prefixes: ['needs'],
+    command: ['missing-tool', '{prompt}'],
+    requires: ['missing-tool'],
+    _missingRequires: ['missing-tool']
+  },
+  {
+    schemaVersion: 1,
+    id: 'needs-tool',
+    mode: 'prefix',
+    label: 'Duplicate',
+    prefixes: ['duplicate'],
+    command: ['duplicate', '{prompt}']
+  }
+]))
+assert(!unavailableCatalog.extensions[0].available, 'missing dependencies mark extensions unavailable')
+assert(unavailableCatalog.diagnostics.some(message => message.indexOf('missing-tool') >= 0), 'missing dependencies produce diagnostics')
+assert(unavailableCatalog.diagnostics.some(message => message.indexOf('duplicate extension id') >= 0), 'duplicate extension ids produce diagnostics')
+
 const searchTree = {
   setup: { id: 'setup', parent: 'root' },
   'setup.default': { id: 'setup.default', parent: 'setup' },

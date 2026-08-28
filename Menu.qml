@@ -56,6 +56,8 @@ Item {
   property var defaultMenuItems: []
   property var userMenuItems: []
   property var extensions: []
+  property var extensionDiagnostics: []
+  property var unavailableResultExtension: null
   property bool extensionsReloadPending: false
   property bool opened: false
   property string mode: "menu"
@@ -291,8 +293,14 @@ Item {
     }
     root.extensionsReloadPending = false
     extensionProc.collected = ""
-    var script = "{ shopt -s nullglob; "
-      + "for bundled in " + root.shellQuote(root.pluginPath) + "/extensions/*/extension.json; do jq -c '. + {_bundled:true}' \"$bundled\" 2>/dev/null || true; done; "
+    var script = "emit_extension() { "
+      + "local file=$1 bundled=$2 raw requirement missing_json; local -a missing=(); "
+      + "raw=$(jq -c '.' \"$file\" 2>/dev/null) || return; "
+      + "while IFS= read -r requirement; do [[ -z $requirement ]] || command -v \"$requirement\" &>/dev/null || missing+=(\"$requirement\"); done < <(jq -r '.requires[]? // empty' <<<\"$raw\"); "
+      + "missing_json=$(printf '%s\\n' \"${missing[@]}\" | jq -Rsc 'split(\"\\n\") | map(select(length > 0))'); "
+      + "jq -c --argjson bundled \"$bundled\" --argjson missing \"$missing_json\" '. + {_bundled:$bundled,_missingRequires:$missing}' <<<\"$raw\"; "
+      + "}; { shopt -s nullglob; "
+      + "for bundled in " + root.shellQuote(root.pluginPath) + "/extensions/*/extension.json; do emit_extension \"$bundled\" true; done; "
       + "declare -A enabled=(); "
       + "while IFS= read -r id; do enabled[\"$id\"]=1; done < <(omarchy plugin list --json | jq -r '.[] | select(.enabled == true) | .id'); "
       + "shopt -s nullglob; "
@@ -301,7 +309,7 @@ Item {
       + "dir=${manifest%/manifest.json}; "
       + "while IFS= read -r provider; do "
       + "[[ $provider && $provider != /* && $provider != *..* ]] || continue; "
-      + "file=$dir/$provider; [[ -f $file ]] && jq -c '. + {_bundled:false}' \"$file\" 2>/dev/null || true; "
+      + "file=$dir/$provider; [[ -f $file ]] && emit_extension \"$file\" false; "
       + "done < <(jq -r '((.omalaunch.extensions // []) + (.omalaunch.queryProviders // []))[]? // empty' \"$manifest\" 2>/dev/null); "
       + "done; } | jq -s '.'"
     extensionProc.command = ["bash", "-lc", script]
@@ -317,12 +325,14 @@ Item {
     root.extensionQuery = ""
     root.extensionResult = ""
     root.resultExtension = null
+    root.unavailableResultExtension = null
     extensionQueryTimer.stop()
     if (extensionQueryProc.running) extensionQueryProc.running = false
     if (root.dmenuActive) return
 
     var query = root.filterText.trim()
     root.resultExtension = MenuModel.queryExtension(root.extensions, query)
+    root.unavailableResultExtension = MenuModel.unavailableQueryExtension(root.extensions, query)
     if (root.resultExtension) extensionQueryTimer.start()
   }
 
@@ -709,28 +719,47 @@ Item {
       for (var suggestionIndex = extensionSuggestions.length - 1; suggestionIndex >= 0; suggestionIndex--) {
         var suggestion = extensionSuggestions[suggestionIndex]
         var suggestedExtension = suggestion.extension
-        var suggestionItem = root.normalizeItem("extension.prepare." + suggestedExtension.id, {
+        var suggestionDetail = suggestedExtension.available
+          ? suggestedExtension.description
+          : "Missing dependency: " + suggestedExtension.missingRequires.join(", ")
+        var suggestionId = suggestedExtension.available ? "extension.prepare." : "extension.unavailable."
+        var suggestionItem = root.normalizeItem(suggestionId + suggestedExtension.id, {
           icon: suggestedExtension.icon,
           iconFont: suggestedExtension.iconFont,
           label: suggestedExtension.label,
-          description: suggestedExtension.description,
-          action: suggestion.prefix + " "
+          description: suggestionDetail,
+          action: suggestedExtension.available ? suggestion.prefix + " " : ""
         })
-        rows.unshift(root.displayRow(suggestionItem, suggestedExtension.description, -3))
+        rows.unshift(root.displayRow(suggestionItem, suggestionDetail, -3))
       }
 
       var extensionMatches = MenuModel.matchExtensions(root.extensions, query)
       for (var extensionIndex = extensionMatches.length - 1; extensionIndex >= 0; extensionIndex--) {
         var extensionMatch = extensionMatches[extensionIndex]
         var extension = extensionMatch.extension
-        var extensionItem = root.normalizeItem("extension." + extension.id, {
+        var extensionDetail = extension.available
+          ? extension.description
+          : "Missing dependency: " + extension.missingRequires.join(", ")
+        var extensionId = extension.available ? "extension." : "extension.unavailable."
+        var extensionItem = root.normalizeItem(extensionId + extension.id, {
           icon: extension.icon,
           iconFont: extension.iconFont,
           label: extension.label + ": " + extensionMatch.prompt,
-          description: extension.description,
-          action: root.extensionAction(extension, extensionMatch.prompt)
+          description: extensionDetail,
+          action: extension.available ? root.extensionAction(extension, extensionMatch.prompt) : ""
         })
-        rows.unshift(root.displayRow(extensionItem, extension.description, -2))
+        rows.unshift(root.displayRow(extensionItem, extensionDetail, -2))
+      }
+
+      if (root.unavailableResultExtension) {
+        var unavailableDetail = "Missing dependency: " + root.unavailableResultExtension.missingRequires.join(", ")
+        var unavailableItem = root.normalizeItem("extension.unavailable." + root.unavailableResultExtension.id, {
+          icon: root.unavailableResultExtension.icon,
+          iconFont: root.unavailableResultExtension.iconFont,
+          label: root.unavailableResultExtension.label + " unavailable",
+          description: unavailableDetail
+        })
+        rows.unshift(root.displayRow(unavailableItem, unavailableDetail, -1))
       }
 
       if (liveResult && root.resultExtension) {
@@ -889,6 +918,7 @@ Item {
     if (index < 0 || index >= displayModel.count) return
 
     var row = displayModel.get(index)
+    if (row.itemId.indexOf("extension.unavailable.") === 0) return
     if (row.itemId.indexOf("extension.prepare.") === 0) {
       root.setFilter(row.action)
       Qt.callLater(function() { keyCatcher.forceActiveFocus() })
@@ -1096,7 +1126,12 @@ Item {
       onRead: function(data) { extensionProc.collected += data + "\n" }
     }
     onExited: function(exitCode) {
-      root.extensions = exitCode === 0 ? MenuModel.parseExtensions(extensionProc.collected) : []
+      var catalog = exitCode === 0
+        ? MenuModel.parseExtensionCatalog(extensionProc.collected)
+        : { extensions: [], diagnostics: ["Extension loader exited with code " + exitCode] }
+      root.extensions = catalog.extensions
+      root.extensionDiagnostics = catalog.diagnostics
+      for (var i = 0; i < catalog.diagnostics.length; i++) console.warn("Omalaunch: " + catalog.diagnostics[i])
       if (root.opened && !root.dmenuActive) {
         root.scheduleExtensionQuery()
         root.rebuildDisplay()

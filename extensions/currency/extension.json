@@ -7,6 +7,7 @@
   "icon": "󰃬",
   "description": "Press Enter to copy",
   "priority": 20,
+  "requires": ["qalc", "wl-copy"],
   "match": {
     "all": ["^\\s*[+-]?(?:\\d|\\.\\d)", "\\b[A-Za-z]{3}\\b.*\\b(to|in)\\b.*\\b[A-Za-z]{3}\\b"]
   },
