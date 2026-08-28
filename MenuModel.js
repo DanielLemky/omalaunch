@@ -380,8 +380,11 @@ function resolveExtensions(extensions) {
   for (var i = 0; i < values.length; i++) {
     var extension = values[i]
     var current = selected[extension.capability]
-    if (!current || extension.priority > current.priority
-        || (extension.priority === current.priority && current.bundled && !extension.bundled))
+    if (!current
+        || (extension.available && !current.available)
+        || (extension.available === current.available && extension.priority > current.priority)
+        || (extension.available === current.available && extension.priority === current.priority
+          && current.bundled && !extension.bundled))
       selected[extension.capability] = extension
   }
   var result = []

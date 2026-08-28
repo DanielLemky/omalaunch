@@ -55,9 +55,36 @@ const queryExtensions = menu.parseExtensions(JSON.stringify([
     _bundled: false
   }
 ]))
-assert(queryExtensions.length === 1 && queryExtensions[0].id === 'replacement-calculator', 'external extensions replace bundled capabilities')
+assert(queryExtensions.length === 1 && queryExtensions[0].id === 'replacement-calculator', 'equal-priority external extensions replace bundled capabilities')
 assert(menu.queryExtension(queryExtensions, '2+2').id === 'replacement-calculator', 'query extensions match live input')
 assert(menu.queryExtension(queryExtensions, 'hello') === null, 'query extensions ignore unrelated input')
+
+const replacementFixture = {
+  schemaVersion: 1,
+  id: 'fixture-calculator',
+  capability: 'calculator',
+  mode: 'query',
+  label: 'Fixture',
+  priority: 10,
+  command: ['printf', 'fixture'],
+  match: { all: ['^\\d'], any: ['[+]'] },
+  _bundled: false
+}
+const bundledFixture = {
+  schemaVersion: 1,
+  id: 'bundled-fixture',
+  capability: 'calculator',
+  mode: 'query',
+  label: 'Bundled',
+  priority: 10,
+  command: ['printf', 'bundled'],
+  match: { all: ['^\\d'], any: ['[+]'] },
+  _bundled: true
+}
+assert(menu.parseExtensions(JSON.stringify([bundledFixture, { ...replacementFixture, priority: 9 }]))[0].id === 'bundled-fixture', 'lower-priority external extensions do not replace bundled extensions')
+assert(menu.parseExtensions(JSON.stringify([bundledFixture, { ...replacementFixture, priority: 11 }]))[0].id === 'fixture-calculator', 'higher-priority external extensions replace bundled extensions')
+assert(menu.parseExtensions(JSON.stringify([bundledFixture]))[0].id === 'bundled-fixture', 'removing a replacement restores the bundled extension')
+assert(menu.parseExtensions(JSON.stringify([bundledFixture, { ...replacementFixture, _missingRequires: ['fixture-calc'] }]))[0].id === 'bundled-fixture', 'unavailable replacements fall back to bundled extensions')
 
 const bundledExtensions = menu.parseExtensions(JSON.stringify([
   { ...JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'extensions', 'calculator', 'extension.json'), 'utf8')), _bundled: true },
