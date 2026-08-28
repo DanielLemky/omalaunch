@@ -335,11 +335,11 @@ Item {
     extensionProc.collected = ""
     extensionProc.outputOverflow = false
     var script = "emit_extension() { "
-      + "local file=$1 bundled=$2 raw requirement missing_json; local -a missing=(); "
+      + "local file=$1 bundled=$2 raw requirement missing_json source_dir; local -a missing=(); source_dir=${file%/*}; "
       + "raw=$(jq -c '.' \"$file\" 2>/dev/null) || return; "
       + "while IFS= read -r requirement; do [[ -z $requirement ]] || command -v \"$requirement\" &>/dev/null || missing+=(\"$requirement\"); done < <(jq -r '.requires[]? // empty' <<<\"$raw\"); "
       + "missing_json=$(printf '%s\\n' \"${missing[@]}\" | jq -Rsc 'split(\"\\n\") | map(select(length > 0))'); "
-      + "jq -c --argjson bundled \"$bundled\" --argjson missing \"$missing_json\" '. + {_bundled:$bundled,_missingRequires:$missing}' <<<\"$raw\"; "
+      + "jq -c --argjson bundled \"$bundled\" --argjson missing \"$missing_json\" --arg sourceDir \"$source_dir\" '. + {_bundled:$bundled,_missingRequires:$missing,_sourceDir:$sourceDir}' <<<\"$raw\"; "
       + "}; { shopt -s nullglob; "
       + "for bundled in " + root.shellQuote(root.pluginPath) + "/extensions/*/extension.json; do emit_extension \"$bundled\" true; done; "
       + "declare -A enabled=(); "
@@ -358,7 +358,10 @@ Item {
   }
 
   function isPotentialExtensionQuery(value) {
-    return /^\s*[+-]?(?:\d|\.\d)/.test(String(value || ""))
+    var query = String(value || "")
+    return /^\s*[+-]?(?:\d|\.\d)/.test(query)
+      || MenuModel.queryExtension(root.extensions, query) !== null
+      || MenuModel.unavailableQueryExtension(root.extensions, query) !== null
   }
 
   function scheduleExtensionQuery() {
@@ -1411,7 +1414,7 @@ Item {
       extensionQueryProc.revision = root.extensionQuerySerial
       extensionQueryProc.collected = ""
       extensionQueryProc.outputOverflow = false
-      extensionQueryProc.command = root.commandArguments(extension.command, { query: query })
+      extensionQueryProc.command = root.commandArguments(extension.command, { query: query, extensionDir: extension.sourceDir })
       extensionQueryProc.running = true
       extensionQueryTimeout.restart()
     }

@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "id": "omalaunch.timezone",
+  "capability": "timezone",
+  "mode": "query",
+  "label": "Timezone",
+  "prefixes": ["time"],
+  "icon": "󰥔",
+  "description": "Press Enter to copy",
+  "priority": 15,
+  "requires": ["python", "wl-copy"],
+  "match": {
+    "all": ["^time\\s+\\S"]
+  },
+  "command": ["python", "{extensionDir}/convert-timezone.py", "{query}"],
+  "resultCommand": ["wl-copy", "--", "{result}"]
+}

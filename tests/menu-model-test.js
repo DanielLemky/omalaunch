@@ -127,6 +127,16 @@ assert(menu.queryExtension(bundledExtensions, '2 + 2').capability === 'calculato
 assert(menu.queryExtension(bundledExtensions, '10 USD to CAD').capability === 'currency', 'bundled currency extension outranks general conversions')
 assert(menu.queryExtension(bundledExtensions, 'hello') === null, 'bundled extensions ignore ordinary searches')
 
+const timezoneExtension = menu.parseExtensions(JSON.stringify([{
+  ...JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'extensions', 'timezone', 'extension.json'), 'utf8')),
+  _bundled: true,
+  _sourceDir: '/tmp/timezone'
+}]))
+assert(menu.suggestExtensions(timezoneExtension, 'tim')[0].prefix === 'time', 'live query extensions can suggest prefixes')
+assert(menu.queryExtension(timezoneExtension, 'time seattle').capability === 'timezone', 'timezone extension matches explicit time queries')
+assert(menu.queryExtension(timezoneExtension, 'timer') === null, 'timezone extension ignores unrelated searches')
+assert(timezoneExtension[0].sourceDir === '/tmp/timezone', 'extension source directories are retained for bundled scripts')
+
 const unavailableCatalog = menu.parseExtensionCatalog(JSON.stringify([
   {
     schemaVersion: 1,

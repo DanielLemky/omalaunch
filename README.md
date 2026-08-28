@@ -27,6 +27,7 @@ Click the Omalaunch icon to open it. Right-clicking the icon opens a terminal.
 - Run arithmetic, unit conversions, and currency conversions with `qalc`
 - Copy calculation results directly to the clipboard
 - Browse, recursively search, open, and copy paths for local files
+- Look up current times and convert times across DST-aware timezones
 - Accept dmenu-style select and input requests
 - Load extensions contributed by enabled Omarchy plugins
 - Launch agent prompts such as Pi and Codex through optional extensions
@@ -49,6 +50,16 @@ Convert currencies inline using `qalc` exchange-rate data. Press Enter to copy t
 
 ![Currency conversion in Omalaunch](assets/currency-conversion.png)
 
+## Timezones
+
+Type `time` to select the bundled Timezone extension. Look up the current time with queries such as `time seattle` or convert a specific time with `time 9am winnipeg to tokyo`. Dates are optional, city aliases and IANA timezone names are supported, and conversions account for daylight-saving time.
+
+```text
+time seattle
+time 9am winnipeg to tokyo
+time 2026-11-15 8pm new york to london
+```
+
 ## Files
 
 Type `files` and activate the **Files** result to browse from your home directory. Select folders to navigate, type to search recursively within the current folder, and select a file to open it with the default application. Search uses `fd` with fzf's path-aware relevance ranking. Hidden and ignored files are excluded.
@@ -61,7 +72,7 @@ Press Ctrl+K on a selected item to open its Action Panel. Directories can be ope
 
 - A current Omarchy installation with the manifest-based shell plugin system
 - [`libqalculate`](https://qalculate.github.io/) (`qalc`) for calculations and conversions
-- `fd`, `fzf`, `jq`, Bash, and `wl-clipboard` (provided by a standard Omarchy installation)
+- `fd`, `fzf`, `jq`, Python, Bash, and `wl-clipboard` (provided by a standard Omarchy installation)
 
 Install the calculation dependency through Omarchy:
 

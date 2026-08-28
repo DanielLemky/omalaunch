@@ -1,0 +1,22 @@
+{
+  "berlin": "Europe/Berlin",
+  "chicago": "America/Chicago",
+  "denver": "America/Denver",
+  "honolulu": "Pacific/Honolulu",
+  "la": "America/Los_Angeles",
+  "london": "Europe/London",
+  "los angeles": "America/Los_Angeles",
+  "melbourne": "Australia/Melbourne",
+  "new york": "America/New_York",
+  "new-york": "America/New_York",
+  "nyc": "America/New_York",
+  "paris": "Europe/Paris",
+  "phoenix": "America/Phoenix",
+  "seattle": "America/Los_Angeles",
+  "sydney": "Australia/Sydney",
+  "tokyo": "Asia/Tokyo",
+  "toronto": "America/Toronto",
+  "utc": "UTC",
+  "vancouver": "America/Vancouver",
+  "winnipeg": "America/Winnipeg"
+}
