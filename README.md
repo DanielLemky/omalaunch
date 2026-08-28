@@ -16,6 +16,24 @@ Omalaunch keeps the familiar Omarchy command tree while adding fast global searc
 - Load extensions contributed by enabled Omarchy plugins
 - Launch agent prompts such as Pi and Codex through optional extensions
 
+## Starred favorites
+
+Pin frequently used applications and commands to the launcher’s starting view.
+
+![Starred favorites in Omalaunch](assets/starred-favorites.png)
+
+## Calculator
+
+Evaluate arithmetic, units, and currency conversions without leaving the launcher. Press Enter to copy the result.
+
+![Calculator result in Omalaunch](assets/calculator.png)
+
+## Currency conversion
+
+Convert currencies inline using `qalc` exchange-rate data. Press Enter to copy the result.
+
+![Currency conversion in Omalaunch](assets/currency-conversion.png)
+
 ## Requirements
 
 - A current Omarchy installation with the manifest-based shell plugin system
