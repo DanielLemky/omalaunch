@@ -6,6 +6,20 @@ Omalaunch keeps the familiar Omarchy command tree while adding fast global searc
 
 ![Omalaunch demo](assets/omalaunch-demo.gif)
 
+## Installation
+
+```bash
+omarchy plugin add https://github.com/daniellemky/omalaunch --enable
+```
+
+If needed, place the widget in the left bar section:
+
+```bash
+omarchy plugin enable quantumfire.omalaunch --section left
+```
+
+Click the Omalaunch icon to open it. Right-clicking the icon opens a terminal.
+
 ## Features
 
 - Search the complete Omarchy command tree and installed applications
@@ -47,20 +61,6 @@ omarchy pkg add libqalculate
 ```
 
 Omalaunch does not install system packages automatically.
-
-## Installation
-
-```bash
-omarchy plugin add https://github.com/daniellemky/omalaunch --enable
-```
-
-If needed, place the widget in the left bar section:
-
-```bash
-omarchy plugin enable quantumfire.omalaunch --section left
-```
-
-Click the Omalaunch icon to open it. Right-clicking the icon opens a terminal.
 
 ## Usage
 
