@@ -1366,10 +1366,10 @@ Item {
       var needle = root.filterText.trim()
       var sourceCommand = needle
         ? "fd --color never --absolute-path --print0 --type file --type directory . \"$base\" 2>/dev/null | fzf --read0 --print0 --filter=\"$needle\" --scheme=path --tiebreak=begin,length --no-multi-line"
-        : "fd --color never --absolute-path --print0 --type file --type directory --max-depth 1 . \"$base\" 2>/dev/null"
+        : "fd --color never --absolute-path --print0 --type file --type directory --max-depth 1 . \"$base\" 2>/dev/null -X stat --printf '%Y\\t%n\\0' | sort -z -t $'\\t' -k1,1nr"
       var script = "base=" + root.shellQuote(base) + "; needle=" + root.shellQuote(needle) + "; count=0; "
         + "while IFS= read -r -d '' entry && (( count < 100 )); do "
-        + "clean=${entry%/}; [[ -d $clean ]] && type=directory || type=file; name=${clean##*/}; "
+        + "[[ -n $needle ]] || entry=${entry#*$'\\t'}; clean=${entry%/}; [[ -d $clean ]] && type=directory || type=file; name=${clean##*/}; "
         + "jq -cn --arg path \"$clean\" --arg name \"$name\" --arg type \"$type\" '{path:$path,name:$name,type:$type}'; "
         + "count=$((count + 1)); done < <(" + sourceCommand + ")"
       fileScanProc.revision = root.fileScanSerial
@@ -1399,10 +1399,6 @@ Item {
           try { entries.push(JSON.parse(lines[i])) } catch (e) {}
         }
       }
-      if (!fileScanProc.query) entries.sort(function(a, b) {
-        if (a.type !== b.type) return a.type === "directory" ? -1 : 1
-        return a.name.toLowerCase().localeCompare(b.name.toLowerCase())
-      })
       root.fileEntries = entries
       root.rebuildFileDisplay()
     }
