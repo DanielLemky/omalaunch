@@ -96,7 +96,15 @@ Calculation results appear first and are copied to the clipboard when activated.
 
 ### Extensions
 
-Omalaunch includes replaceable bundled extensions and also loads extensions from enabled Omarchy plugins:
+Omalaunch includes replaceable bundled extensions. Every external Omalaunch extension is simply a standard Omarchy plugin, so it uses the same installation, enable/disable, update, and removal workflow as any other Omarchy plugin.
+
+Install an extension directly from its repository:
+
+```bash
+omarchy plugin add https://github.com/example/omalaunch-example --enable
+```
+
+Once enabled, Omalaunch discovers it automatically through the plugin manifest:
 
 ```json
 "omalaunch": {
@@ -104,7 +112,7 @@ Omalaunch includes replaceable bundled extensions and also loads extensions from
 }
 ```
 
-Browse community integrations in the [Omalaunch Extension Directory](https://github.com/DanielLemky/omalaunch-extensions). See [EXTENSIONS.md](EXTENSIONS.md) for the complete extension contract and examples.
+Browse available integrations in the [Omalaunch Extension Directory](https://github.com/DanielLemky/omalaunch-extensions). Each extension repository contains its exact installation command. See [EXTENSIONS.md](EXTENSIONS.md) for the complete extension contract and examples.
 
 ## Configuration
 
