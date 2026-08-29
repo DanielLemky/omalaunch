@@ -3,6 +3,13 @@
 - Make all code changes in a dedicated Git worktree unless explicitly directed otherwise.
 - Create worktrees under this repository's `.worktrees/` directory.
 
+# Releases
+
+- Follow [`RELEASING.md`](RELEASING.md) for every release.
+- Keep `master` stable and releasable because Omarchy plugin updates fast-forward the default branch rather than resolving release tags.
+- Keep the `manifest.json` version, `v<version>` Git tag, and GitHub release version identical.
+- Never move or replace a published release tag; publish a new patch release for corrections.
+
 # Extensions
 
 - Read [`EXTENSIONS.md`](EXTENSIONS.md) before adding or changing launcher extensions.

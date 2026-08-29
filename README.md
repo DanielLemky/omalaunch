@@ -150,6 +150,10 @@ bash tests/qalc-integration-test.sh
 
 The integration test requires `qalc`.
 
+Release maintainers should follow [`RELEASING.md`](RELEASING.md). Omarchy updates
+plugins from the default branch, so `master` remains stable while version tags
+and GitHub releases provide immutable reference and rollback points.
+
 ## Acknowledgements
 
 Omalaunch began as a customization of Omarchy's built-in menu and continues to consume Omarchy's standard menu definitions and shell APIs.
