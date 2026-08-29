@@ -230,9 +230,6 @@ Item {
   function availableRowsHeight() {
     var top = panel.cardTop >= 0 ? panel.cardTop : Style.gapsOut
     var available = panel.height - top - Style.gapsOut - root.contentMargin * 2 - root.headerHeight - root.contentSpacing
-    // The starting menu sets the ceiling along with the offset: drilling into
-    // a longer submenu scrolls behind the fold instead of growing the card.
-    if (panel.maxRowsHeight >= 0) available = Math.min(available, panel.maxRowsHeight)
     // A card that swallows the whole screen reads as a page, not a menu.
     return Math.min(available, Math.round(panel.height * 0.5))
   }
@@ -1640,17 +1637,14 @@ Item {
     // The card opens centered. The first search keystroke or submenu move
     // freezes its top edge so later size changes grow downward without jumping.
     property int cardTop: -1
-    property int maxRowsHeight: -1
     readonly property int centeredTop: Math.max(Style.gapsOut, Math.round((height - root.cardHeight) / 2))
     readonly property int effectiveCardTop: cardTop >= 0 ? cardTop : centeredTop
     function freezeCardTop() {
       if (visible && cardTop < 0) {
         cardTop = effectiveCardTop
-        // The compact empty root must still be allowed to expand on search.
-        maxRowsHeight = root.emptyRoot ? -1 : root.visibleRowsHeight
       }
     }
-    onVisibleChanged: if (!visible) { cardTop = -1; maxRowsHeight = -1 }
+    onVisibleChanged: if (!visible) cardTop = -1
 
     Rectangle {
       anchors.fill: parent
