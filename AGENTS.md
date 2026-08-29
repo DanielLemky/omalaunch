@@ -1,7 +1,6 @@
 # Development workflow
 
-- Make all code changes in a dedicated Git worktree unless explicitly directed otherwise.
-- Create worktrees under this repository's `.worktrees/` directory.
+- Develop from a normal source checkout, not from a copy installed in an Omarchy plugin directory. Omarchy recursively watches its plugin directory and may reload the shell for every file changed beneath it, potentially causing Quickshell to crash during development.
 
 # Releases
 
