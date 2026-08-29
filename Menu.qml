@@ -156,10 +156,33 @@ Item {
     ? Style.space(root.dmenuWidth)
     : Style.space(root.imagePreviewActive ? 900 : 600), panel.width - Style.gapsOut * 2)
   readonly property bool emptyRoot: !root.dmenuActive && root.activeMenu === "root" && !root.filterText && displayModel.count === 0
-  property int visibleRowsHeight: root.emptyRoot ? 0 : (root.dmenuActive ? dmenuRowListHeight(layoutSerial, displayModel.count, filterText) : rowListHeight(layoutSerial, displayModel.count, filterText, searchDivider))
-  property int cardHeight: root.dmenuActive
-    ? Math.min(contentMargin * 2 + headerHeight + (mode === "input" ? 0 : contentSpacing + visibleRowsHeight), panel.height - Style.gapsOut * 2)
-    : Math.min(contentMargin * 2 + headerHeight + (visibleRowsHeight > 0 ? contentSpacing + visibleRowsHeight : 0), panel.height - Style.gapsOut * 2)
+  // The overlay can report the compact card's height instead of the output
+  // size, especially on scaled displays. Never let that become the ceiling.
+  readonly property int overlayHeight: {
+    var h = Math.max(0, panel.height)
+    if (panel.screen && panel.screen.height > h) h = panel.screen.height
+    return Math.max(h, 720)
+  }
+  // Dummy geometry reads keep this binding honest: rowListHeight() also
+  // looks at panel size and the frozen top, which are not otherwise deps.
+  property int visibleRowsHeight: {
+    var _geometry = root.overlayHeight + panel.cardTop
+    if (root.emptyRoot) return 0
+    var computed = root.dmenuActive
+      ? dmenuRowListHeight(layoutSerial + _geometry, displayModel.count, filterText)
+      : rowListHeight(layoutSerial + _geometry, displayModel.count, filterText, searchDivider)
+    if (displayModel.count > 1) return Math.max(computed, root.baseRowHeight * 8)
+    return computed
+  }
+  property int cardHeight: {
+    var wanted = contentMargin * 2 + headerHeight
+    if (root.dmenuActive) {
+      if (mode !== "input") wanted += contentSpacing + visibleRowsHeight
+    } else if (visibleRowsHeight > 0) {
+      wanted += contentSpacing + visibleRowsHeight
+    }
+    return Math.min(wanted, root.overlayHeight - Style.gapsOut * 2)
+  }
 
   function finishRequest(selection) {
     if (!root.requestActive || !root.doneFile) {
@@ -228,10 +251,10 @@ Item {
   // Uses panel.cardTop rather than effectiveCardTop: the centered top is
   // derived from the card height, which this value feeds.
   function availableRowsHeight() {
+    var screenH = root.overlayHeight
     var top = panel.cardTop >= 0 ? panel.cardTop : Style.gapsOut
-    var available = panel.height - top - Style.gapsOut - root.contentMargin * 2 - root.headerHeight - root.contentSpacing
-    // A card that swallows the whole screen reads as a page, not a menu.
-    return Math.min(available, Math.round(panel.height * 0.5))
+    var available = screenH - top - Style.gapsOut - root.contentMargin * 2 - root.headerHeight - root.contentSpacing
+    return Math.max(root.baseRowHeight, Math.min(available, Math.round(screenH * 0.5)))
   }
 
   // When every row fits, the list gets its full height. When they don't,
@@ -252,22 +275,24 @@ Item {
   }
 
   function rowListHeight(_serial, _count, _filter, _divider) {
-    if (displayModel.count === 0) return root.baseRowHeight
+    var n = displayModel.count
+    if (n <= 0) return root.baseRowHeight
 
-    var totals = []
-    var total = 0
-    var previousSection = ""
+    var rowH = (root.filterText || root.dmenuActive) ? root.detailRowHeight : root.baseRowHeight
+    var total = n * rowH + Math.max(0, n - 1) * root.rowSpacing
+    if (_divider) total += root.dividerHeight
 
-    for (var i = 0; i < displayModel.count; i++) {
-      var row = displayModel.get(i)
-      if (i > 0) total += root.rowSpacing
-      if (row.section === "drilldown" && previousSection !== "drilldown") total += root.dividerHeight
-      total += root.rowHeightForDetail(row.detail)
-      previousSection = row.section
-      totals.push(total)
-    }
+    var available = availableRowsHeight()
+    var floorN = Math.min(n, 8)
+    var floor = floorN * rowH + Math.max(0, floorN - 1) * root.rowSpacing
+    if (total <= available) return Math.max(total, floor)
 
-    return foldedListHeight(totals, availableRowsHeight())
+    var peek = root.rowPeek
+    var full = 1
+    while (full < n && full * rowH + (full - 1) * root.rowSpacing + peek <= available) full++
+    if (full > 1 && (full - 1) * rowH + (full - 2) * root.rowSpacing + peek > available) full--
+    var folded = Math.max(rowH, (full - 1) * rowH + Math.max(0, full - 2) * root.rowSpacing + peek)
+    return Math.max(folded, floor)
   }
 
   function dmenuRowListHeight(_serial, _count, _filter) {
@@ -1628,20 +1653,31 @@ Item {
     id: panel
     visible: root.opened && root.rowsLoaded
     anchors { top: true; bottom: true; left: true; right: true }
+    // Map the layer at output size on first show. If the window sizes to the
+    // compact card, later growth is clipped and the list only scrolls in place.
+    implicitWidth: screen && screen.width > 0 ? screen.width : 1920
+    implicitHeight: screen && screen.height > 0 ? screen.height : 1080
     color: "transparent"
     WlrLayershell.namespace: "omarchy-menu"
     WlrLayershell.layer: WlrLayer.Overlay
     WlrLayershell.keyboardFocus: WlrKeyboardFocus.Exclusive
     exclusionMode: ExclusionMode.Ignore
 
-    // The card opens centered. The first search keystroke or submenu move
-    // freezes its top edge so later size changes grow downward without jumping.
+    // Park the compact card in the upper portion of the layer so there is
+    // room to grow down. Use panel.height (layer Y), not overlayHeight:
+    // on scaled outputs overlayHeight can follow screen.height in a
+    // different unit and drop a small card back near visual center.
+    // First search or submenu freeze that top edge so later resizes don't jump.
     property int cardTop: -1
-    readonly property int centeredTop: Math.max(Style.gapsOut, Math.round((height - root.cardHeight) / 2))
+    readonly property int centeredTop: {
+      var h = panel.height > 0 ? panel.height : root.overlayHeight
+      return Math.max(Style.gapsOut, Math.round(h * 0.15))
+    }
     readonly property int effectiveCardTop: cardTop >= 0 ? cardTop : centeredTop
     function freezeCardTop() {
       if (visible && cardTop < 0) {
         cardTop = effectiveCardTop
+        root.layoutSerial += 1
       }
     }
     onVisibleChanged: if (!visible) cardTop = -1
@@ -1659,7 +1695,7 @@ Item {
     BorderSurface {
       id: card
       width: root.cardWidth
-      height: Math.min(root.cardHeight, panel.height - Style.gapsOut - panel.effectiveCardTop)
+      height: root.cardHeight
       radius: root.cornerRadius
       anchors.horizontalCenter: parent.horizontalCenter
       y: panel.effectiveCardTop
