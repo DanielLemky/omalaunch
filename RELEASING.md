@@ -73,8 +73,11 @@ After publishing:
 
    ```bash
    omarchy plugin update quantumfire.omalaunch
+   omarchy restart shell
    ```
 
+   The restart ensures the smoke test uses the updated QML rather than a stale
+   component cached by the running shell.
 4. Open Omalaunch and smoke-test the primary launcher and extension flows.
 
 If a release is broken, fix it with a new patch release. Do not move or replace
