@@ -624,6 +624,18 @@ function compareSearchRows(a, b, useHistory) {
   return String(a.path || "").localeCompare(String(b.path || ""))
 }
 
+function isImagePath(path) {
+  return /\.(?:avif|bmp|gif|jpe?g|png|svg|webp)$/i.test(String(path || ""))
+}
+
+function localFileUrl(path) {
+  var value = String(path || "")
+  if (!value || value.charAt(0) !== "/") return ""
+  return "file://" + value.split("/").map(function(part) {
+    return encodeURIComponent(part)
+  }).join("/")
+}
+
 function displayRow(items, itemOrder, checkedResults, entry, detail, score, section) {
   var target = entry.kind === "link" ? entry.target : entry.id
   return {
@@ -801,6 +813,8 @@ if (typeof module !== "undefined") {
     searchMatchPriority: searchMatchPriority,
     searchScore: searchScore,
     compareSearchRows: compareSearchRows,
+    isImagePath: isImagePath,
+    localFileUrl: localFileUrl,
     displayRow: displayRow
   }
 }
