@@ -12,13 +12,9 @@ Omalaunch keeps the familiar Omarchy command tree while adding fast global searc
 omarchy plugin add https://github.com/daniellemky/omalaunch --enable
 ```
 
-If needed, place the widget in the left bar section:
+Enabling Omalaunch replaces Omarchy’s default clickable launcher icon and routes the existing Super+Space shortcut to Omalaunch. Disabling or removing the plugin restores the default Omarchy launcher.
 
-```bash
-omarchy plugin enable quantumfire.omalaunch --section left
-```
-
-Click the Omalaunch icon to open it. Right-clicking the icon opens a terminal.
+Click the launcher icon or press Super+Space to open Omalaunch. Right-clicking the icon opens a terminal.
 
 ## Features
 
