@@ -98,6 +98,12 @@ Item {
   property string fileCopyFeedback: ""
   property bool actionPanelActive: false
   property var actionPanelFile: null
+  readonly property var selectedFileRow: root.fileBrowserActive && !root.actionPanelActive && root.cursorActive
+    && root.selectedIndex >= 0 && root.selectedIndex < displayModel.count
+    ? displayModel.get(root.selectedIndex) : null
+  readonly property string selectedFilePath: root.selectedFileRow ? String(root.selectedFileRow.action || "") : ""
+  readonly property bool imagePreviewActive: MenuModel.isImagePath(root.selectedFilePath)
+  readonly property int previewPaneWidth: Style.space(280)
 
   // Shared application engine (entries, hidden filters, icons, launch,
   // removal), owned by the shell and also used by the standalone launcher.
@@ -146,7 +152,9 @@ Item {
   property int dividerHeight: Style.space(17)
   property bool searchDivider: false
   property int layoutSerial: 0
-  property int cardWidth: Math.min(root.dmenuActive ? Style.space(root.dmenuWidth) : Style.space(600), panel.width - Style.gapsOut * 2)
+  property int cardWidth: Math.min(root.dmenuActive
+    ? Style.space(root.dmenuWidth)
+    : Style.space(root.imagePreviewActive ? 900 : 600), panel.width - Style.gapsOut * 2)
   readonly property bool emptyRoot: !root.dmenuActive && root.activeMenu === "root" && !root.filterText && displayModel.count === 0
   property int visibleRowsHeight: root.emptyRoot ? 0 : (root.dmenuActive ? dmenuRowListHeight(layoutSerial, displayModel.count, filterText) : rowListHeight(layoutSerial, displayModel.count, filterText, searchDivider))
   property int cardHeight: root.dmenuActive
@@ -1814,6 +1822,7 @@ Item {
           ListView {
             id: resultList
             anchors.fill: parent
+            anchors.rightMargin: root.imagePreviewActive ? root.previewPaneWidth + root.contentSpacing : 0
             model: displayModel
             clip: true
             spacing: root.rowSpacing
@@ -1858,7 +1867,8 @@ Item {
 
               readonly property bool hasCursor: root.cursorActive && row.index === root.selectedIndex
               readonly property bool isApp: row.kind === "app"
-              readonly property bool hasIcon: row.icon.length > 0 || row.isApp
+              readonly property bool isImageFile: row.itemId.indexOf("file.item.") === 0 && MenuModel.isImagePath(row.action)
+              readonly property bool hasIcon: row.icon.length > 0 || row.isApp || row.isImageFile
 
               width: ListView.view.width
               height: root.rowHeightForDetail(row.detail)
@@ -1879,7 +1889,7 @@ Item {
 
               Text {
                 id: iconText
-                visible: row.hasIcon && !row.isApp
+                visible: row.hasIcon && !row.isApp && !row.isImageFile
                 text: row.icon
                 color: row.hasCursor ? root.selectedText : root.foreground
                 font.family: row.iconFont.length > 0 ? row.iconFont : root.fontFamily
@@ -1890,6 +1900,29 @@ Item {
                 anchors.left: parent.left
                 anchors.leftMargin: root.rowReservedBorderLeft + Style.space(8)
                 y: contentColumn.y + labelText.y + (labelText.height - height) / 2
+              }
+
+              Rectangle {
+                id: imagePreview
+                visible: row.isImageFile
+                width: Style.space(36)
+                height: Style.space(36)
+                radius: Math.min(root.cornerRadius, Style.space(5))
+                color: Util.alpha(root.foreground, 0.08)
+                clip: true
+                anchors.left: parent.left
+                anchors.leftMargin: root.rowReservedBorderLeft + Style.space(8)
+                y: contentColumn.y + labelText.y + (labelText.height - height) / 2
+
+                Image {
+                  anchors.fill: parent
+                  source: row.isImageFile ? MenuModel.localFileUrl(row.action) : ""
+                  fillMode: Image.PreserveAspectCrop
+                  sourceSize.width: width * Screen.devicePixelRatio
+                  sourceSize.height: height * Screen.devicePixelRatio
+                  asynchronous: true
+                  cache: true
+                }
               }
 
               Image {
@@ -1911,7 +1944,7 @@ Item {
 
               Column {
                 id: contentColumn
-                anchors.left: row.hasIcon ? iconText.right : parent.left
+                anchors.left: row.isImageFile ? imagePreview.right : (row.hasIcon ? iconText.right : parent.left)
                 anchors.leftMargin: row.hasIcon ? Style.space(6) : root.rowReservedBorderLeft + Style.space(18)
                 anchors.right: trail.left
                 anchors.rightMargin: Style.space(6)
@@ -1991,6 +2024,49 @@ Item {
             }
           }
 
+          BorderSurface {
+            id: previewPane
+            visible: root.imagePreviewActive
+            width: root.previewPaneWidth
+            anchors.top: parent.top
+            anchors.bottom: parent.bottom
+            anchors.right: parent.right
+            radius: root.cornerRadius
+            color: Util.alpha(root.foreground, 0.035)
+            borderSpec: Border.none()
+            padding: Style.space(12)
+
+            Image {
+              id: selectedImagePreview
+              anchors.fill: parent
+              anchors.leftMargin: previewPane.contentLeftInset
+              anchors.rightMargin: previewPane.contentRightInset
+              anchors.topMargin: previewPane.contentTopInset
+              anchors.bottomMargin: previewPane.contentBottomInset + previewCaption.height + Style.space(8)
+              source: root.imagePreviewActive ? MenuModel.localFileUrl(root.selectedFilePath) : ""
+              fillMode: Image.PreserveAspectFit
+              asynchronous: true
+              cache: true
+            }
+
+            Text {
+              id: previewCaption
+              anchors.left: parent.left
+              anchors.right: parent.right
+              anchors.bottom: parent.bottom
+              anchors.leftMargin: previewPane.contentLeftInset
+              anchors.rightMargin: previewPane.contentRightInset
+              anchors.bottomMargin: previewPane.contentBottomInset
+              text: root.selectedFileRow ? root.selectedFileRow.label : ""
+              color: root.foreground
+              opacity: 0.72
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.bodySmall
+              horizontalAlignment: Text.AlignHCenter
+              elide: Text.ElideMiddle
+            }
+          }
+
           // Scroll scrims. The clipped row already marks the fold at rest;
           // these keep both edges honest once the list has been scrolled,
           // when content hides above the card top as well as below. Strength
@@ -2000,6 +2076,7 @@ Item {
           Rectangle {
             anchors.left: parent.left
             anchors.right: parent.right
+            anchors.rightMargin: root.imagePreviewActive ? root.previewPaneWidth + root.contentSpacing : 0
             anchors.top: parent.top
             height: Math.min(Style.space(28), parent.height / 2)
             visible: opacity > 0
@@ -2015,6 +2092,7 @@ Item {
           Rectangle {
             anchors.left: parent.left
             anchors.right: parent.right
+            anchors.rightMargin: root.imagePreviewActive ? root.previewPaneWidth + root.contentSpacing : 0
             anchors.bottom: parent.bottom
             height: Math.min(Style.space(28), parent.height / 2)
             visible: opacity > 0

@@ -65,6 +65,11 @@ assert(menu.suggestExtensions(filesExtension, 'fil')[0].extension.id === 'files'
 assert(filesExtension[0].copyCommand[2] === '{path}', 'file browser copy path commands are retained')
 assert(filesExtension[0].copyFileCommand[1] === '{path}', 'file browser copy file commands are retained')
 assert(filesExtension[0].terminalCommand[1] === '--dir={path}', 'file browser terminal commands are retained')
+assert(menu.isImagePath('/tmp/Photo.JPEG'), 'image paths are recognized case-insensitively')
+assert(menu.isImagePath('/tmp/vector.svg'), 'SVG paths are recognized for previews')
+assert(!menu.isImagePath('/tmp/photo.jpeg.txt'), 'non-image paths do not get previews')
+assert(menu.localFileUrl('/tmp/My photo #1.png') === 'file:///tmp/My%20photo%20%231.png', 'local image URLs encode reserved characters')
+assert(menu.localFileUrl('relative.png') === '', 'relative paths are not converted to local file URLs')
 
 const queryExtensions = menu.parseExtensions(JSON.stringify([
   {
