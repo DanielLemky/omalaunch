@@ -128,7 +128,12 @@ Favorites and usage data are stored in the user's state directory. Currency refr
 
 ```bash
 omarchy plugin update quantumfire.omalaunch
+omarchy restart shell
 ```
+
+Restart the shell after updating so the running QML engine does not continue
+using cached plugin code. This works around an upstream Omarchy hot-reload
+issue until plugin rescans reliably load changed QML.
 
 ## Removal
 
