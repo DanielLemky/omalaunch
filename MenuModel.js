@@ -425,21 +425,24 @@ function normalizeExtension(raw) {
     extension.matchAll = stringArray(match.all)
     extension.matchAny = stringArray(match.any)
     extension.matchNone = stringArray(match.none)
+    extension.matchAllRegex = []
+    extension.matchAnyRegex = []
+    extension.matchNoneRegex = []
     extension.resultCommand = stringArray(raw.resultCommand)
     if (extension.resultCommand.length === 0) extension.resultCommand = ["wl-copy", "--", "{result}"]
     if (extension.matchAll.length === 0 && extension.matchAny.length === 0) return null
     try {
       for (var j = 0; j < extension.matchAll.length; j++) {
         if (!safeExtensionPattern(extension.matchAll[j])) return null
-        new RegExp(extension.matchAll[j], "i")
+        extension.matchAllRegex.push(new RegExp(extension.matchAll[j], "i"))
       }
       for (var k = 0; k < extension.matchAny.length; k++) {
         if (!safeExtensionPattern(extension.matchAny[k])) return null
-        new RegExp(extension.matchAny[k], "i")
+        extension.matchAnyRegex.push(new RegExp(extension.matchAny[k], "i"))
       }
       for (var n = 0; n < extension.matchNone.length; n++) {
         if (!safeExtensionPattern(extension.matchNone[n])) return null
-        new RegExp(extension.matchNone[n], "i")
+        extension.matchNoneRegex.push(new RegExp(extension.matchNone[n], "i"))
       }
     } catch (e) { return null }
   }
@@ -511,16 +514,19 @@ function parseExtensions(text) {
 function matchesRules(extension, query) {
   var input = String(query || "").trim()
   if (input.length > 4096) return false
-  for (var i = 0; i < extension.matchAll.length; i++)
-    if (!(new RegExp(extension.matchAll[i], "i")).test(input)) return false
-  if (extension.matchAny.length > 0) {
+  var all = extension.matchAllRegex || extension.matchAll.map(function(pattern) { return new RegExp(pattern, "i") })
+  var anyRules = extension.matchAnyRegex || extension.matchAny.map(function(pattern) { return new RegExp(pattern, "i") })
+  var none = extension.matchNoneRegex || extension.matchNone.map(function(pattern) { return new RegExp(pattern, "i") })
+  for (var i = 0; i < all.length; i++)
+    if (!all[i].test(input)) return false
+  if (anyRules.length > 0) {
     var any = false
-    for (var j = 0; j < extension.matchAny.length; j++)
-      if ((new RegExp(extension.matchAny[j], "i")).test(input)) { any = true; break }
+    for (var j = 0; j < anyRules.length; j++)
+      if (anyRules[j].test(input)) { any = true; break }
     if (!any) return false
   }
-  for (var k = 0; k < extension.matchNone.length; k++)
-    if ((new RegExp(extension.matchNone[k], "i")).test(input)) return false
+  for (var k = 0; k < none.length; k++)
+    if (none[k].test(input)) return false
   return true
 }
 
