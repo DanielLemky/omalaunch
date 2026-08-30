@@ -27,9 +27,41 @@ An Omarchy plugin declares its extension files in `manifest.json`:
 }
 ```
 
-Paths must be relative to the plugin directory and may not contain `..`. Omalaunch only loads contributions from plugins reported as enabled by `omarchy plugin list --json`.
+Paths must be relative to the plugin directory, may not contain `..` segments, and must resolve inside that directory (including through symlinks). Omalaunch only loads contributions from plugins reported as enabled by `omarchy plugin list --json`.
 
 The original `omalaunch.queryProviders` manifest field remains accepted as an alias for compatibility.
+
+## Dynamic extension catalogs
+
+An enabled plugin may generate extension definitions when Omalaunch loads or refreshes its catalog:
+
+```json
+{
+  "omalaunch": {
+    "extensions": ["static-extension.json"],
+    "extensionProviders": [
+      ["./bin/generate-extensions", "--format", "json"],
+      ["catalog-tool", "--plugin", "example.omalaunch-tools"]
+    ]
+  }
+}
+```
+
+Each `extensionProviders` entry is a non-empty argument array. Omalaunch invokes it directly, never through a shell, with the plugin directory as its working directory and no stdin. Arguments are passed literally: shell expansion, pipes, redirects, variable expansion, and command substitution do not occur.
+
+Executable resolution is explicit:
+
+- An executable containing `/` is a plugin-relative path. It must resolve inside the plugin directory and have its executable bit set. Absolute paths and paths that escape through `..` or a symlink are rejected.
+- An executable without `/` is looked up on Omalaunch's `PATH`.
+- Other arguments are opaque strings; Omalaunch does not resolve or interpolate them.
+
+A provider writes either one extension object or an array of extension objects to stdout. These are the same schema-version-1 definitions used by static extension files and pass through the same `MenuModel` validation, dependency checks, capability resolution, and duplicate detection. Provider definitions are external (not bundled), and their source directory is the plugin root. This is a one-shot catalog-generation contract: providers are not persistent processes and cannot answer launcher queries as an RPC service.
+
+Providers have a five-second timeout and a 256 KiB limit on each output stream. Failure, timeout, oversized or malformed output, unsafe paths, missing executables, invalid definitions, and duplicate IDs or prefixes are logged with the plugin/provider source. One provider's failure does not discard bundled, static, or other provider extensions. The full generated catalog is limited to 768 KiB. Disabling or removing a plugin removes both its static and generated definitions on the next catalog reload; an explicit Omalaunch refresh reloads immediately.
+
+### Trust boundary
+
+Omarchy plugins are trusted local software. A provider and every extension command it emits run as the current user with the launcher's environment and can access that user's files and services. Argument-array execution prevents accidental shell-string injection but is **not** a sandbox or a defense against a malicious plugin. Only install and enable plugins you trust. Providers should keep generation deterministic, fast, read-only, and free of network access where possible; secrets must not be written into generated definitions or diagnostics.
 
 ## Prefix extension
 

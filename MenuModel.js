@@ -514,6 +514,7 @@ function normalizeExtension(raw) {
     priority: Number(raw.priority) || 0,
     bundled: raw._bundled === true,
     sourceDir: String(raw._sourceDir || ""),
+    source: String(raw._source || ""),
     requires: stringArray(raw.requires),
     missingRequires: stringArray(raw._missingRequires)
   }
@@ -589,26 +590,40 @@ function resolveExtensions(extensions) {
   return result
 }
 
+function extensionSource(raw, index) {
+  var source = raw && typeof raw === "object" ? String(raw._source || "").trim() : ""
+  return source || "catalog index " + index
+}
+
 function parseExtensionCatalog(text) {
-  var values
-  try { values = JSON.parse(String(text || "[]")) }
+  var parsed
+  try { parsed = JSON.parse(String(text || "[]")) }
   catch (e) { return { extensions: [], diagnostics: ["Extension catalog is not valid JSON"] } }
-  if (!Array.isArray(values)) values = [values]
+
+  var diagnostics = []
+  var values = parsed
+  if (parsed && typeof parsed === "object" && !Array.isArray(parsed) && Array.isArray(parsed.extensions)) {
+    values = parsed.extensions
+    if (Array.isArray(parsed.diagnostics)) {
+      for (var d = 0; d < parsed.diagnostics.length; d++)
+        if (typeof parsed.diagnostics[d] === "string" && parsed.diagnostics[d]) diagnostics.push(parsed.diagnostics[d])
+    }
+  } else if (!Array.isArray(values)) values = [values]
 
   var extensions = []
-  var diagnostics = []
   var ids = ({})
   for (var i = 0; i < values.length; i++) {
     var extension = normalizeExtension(values[i])
     if (!extension) {
-      diagnostics.push("Ignored invalid extension at catalog index " + i)
+      diagnostics.push("Ignored invalid extension from " + extensionSource(values[i], i))
       continue
     }
     if (ids[extension.id]) {
-      diagnostics.push("Ignored duplicate extension id: " + extension.id)
+      diagnostics.push("Ignored duplicate extension id '" + extension.id + "' from " + extensionSource(values[i], i)
+        + "; already supplied by " + ids[extension.id])
       continue
     }
-    ids[extension.id] = true
+    ids[extension.id] = extensionSource(values[i], i)
     extensions.push(extension)
     if (!extension.available)
       diagnostics.push(extension.id + " is missing: " + extension.missingRequires.join(", "))
@@ -621,8 +636,9 @@ function parseExtensionCatalog(text) {
     if (!current.prefixes || current.prefixes.length === 0) continue
     for (var k = 0; k < current.prefixes.length; k++) {
       var prefix = current.prefixes[k]
-      if (prefixes[prefix]) diagnostics.push("Duplicate extension prefix '" + prefix + "': " + prefixes[prefix] + ", " + current.id)
-      else prefixes[prefix] = current.id
+      if (prefixes[prefix]) diagnostics.push("Duplicate extension prefix '" + prefix + "': " + prefixes[prefix]
+        + ", " + current.id + " (" + (current.source || "unknown source") + ")")
+      else prefixes[prefix] = current.id + " (" + (current.source || "unknown source") + ")"
     }
   }
   return { extensions: resolved, diagnostics: diagnostics }

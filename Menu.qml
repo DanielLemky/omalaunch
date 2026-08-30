@@ -112,6 +112,7 @@ Item {
   property var fileEntries: []
   property int fileScanSerial: 0
   readonly property string fileIndexHelper: root.pluginPath + "/extensions/files/file-index.py"
+  readonly property string extensionLoaderHelper: root.pluginPath + "/libexec/load-extensions.py"
   readonly property string fileIndexInstanceId: Date.now() + "-" + Math.floor(Math.random() * 1000000000)
   readonly property string fileIndexPathPrefix: Quickshell.env("XDG_RUNTIME_DIR")
     ? Quickshell.env("XDG_RUNTIME_DIR") + "/omalaunch-file-index-" + root.fileIndexInstanceId
@@ -400,26 +401,9 @@ Item {
     root.extensionsReloadPending = false
     extensionProc.collected = ""
     extensionProc.outputOverflow = false
-    var script = "emit_extension() { "
-      + "local file=$1 bundled=$2 raw requirement missing_json source_dir; local -a missing=(); source_dir=${file%/*}; "
-      + "raw=$(jq -c '.' \"$file\" 2>/dev/null) || return; "
-      + "while IFS= read -r requirement; do [[ -z $requirement ]] || command -v \"$requirement\" &>/dev/null || missing+=(\"$requirement\"); done < <(jq -r '.requires[]? // empty' <<<\"$raw\"); "
-      + "missing_json=$(printf '%s\\n' \"${missing[@]}\" | jq -Rsc 'split(\"\\n\") | map(select(length > 0))'); "
-      + "jq -c --argjson bundled \"$bundled\" --argjson missing \"$missing_json\" --arg sourceDir \"$source_dir\" '. + {_bundled:$bundled,_missingRequires:$missing,_sourceDir:$sourceDir}' <<<\"$raw\"; "
-      + "}; { shopt -s nullglob; "
-      + "for bundled in " + root.shellQuote(root.pluginPath) + "/extensions/*/extension.json; do emit_extension \"$bundled\" true; done; "
-      + "declare -A enabled=(); "
-      + "while IFS= read -r id; do enabled[\"$id\"]=1; done < <(omarchy plugin list --json | jq -r '.[] | select(.enabled == true) | .id'); "
-      + "shopt -s nullglob; "
-      + "for manifest in " + root.shellQuote(root.omarchyPath) + "/shell/plugins/*/manifest.json \"$HOME\"/.config/omarchy/plugins/*/manifest.json; do "
-      + "id=$(jq -r '.id // empty' \"$manifest\" 2>/dev/null); [[ $id && ${enabled[$id]+yes} ]] || continue; "
-      + "dir=${manifest%/manifest.json}; "
-      + "while IFS= read -r provider; do "
-      + "[[ $provider && $provider != /* && $provider != *..* ]] || continue; "
-      + "file=$dir/$provider; [[ -f $file ]] && emit_extension \"$file\" false; "
-      + "done < <(jq -r '((.omalaunch.extensions // []) + (.omalaunch.queryProviders // []))[]? // empty' \"$manifest\" 2>/dev/null); "
-      + "done; } | jq -s '.'"
-    extensionProc.command = ["bash", "-lc", script]
+    // The helper invokes provider argument arrays directly. No provider value
+    // is interpolated into a shell command.
+    extensionProc.command = [root.extensionLoaderHelper, root.pluginPath, root.omarchyPath]
     extensionProc.running = true
   }
 

@@ -212,6 +212,44 @@ assert(!unavailableCatalog.extensions[0].available, 'missing dependencies mark e
 assert(unavailableCatalog.diagnostics.some(message => message.indexOf('missing-tool') >= 0), 'missing dependencies produce diagnostics')
 assert(unavailableCatalog.diagnostics.some(message => message.indexOf('duplicate extension id') >= 0), 'duplicate extension ids produce diagnostics')
 
+const providerCatalog = menu.parseExtensionCatalog(JSON.stringify({
+  diagnostics: ['plugin example provider #2 timed out'],
+  extensions: [
+    {
+      schemaVersion: 1,
+      id: 'provider-first',
+      label: 'First',
+      prefixes: ['shared'],
+      command: ['printf', 'first'],
+      _source: 'plugin example provider #1'
+    },
+    {
+      schemaVersion: 1,
+      id: 'provider-first',
+      label: 'Duplicate id',
+      prefixes: ['other'],
+      command: ['printf', 'duplicate'],
+      _source: 'plugin example provider #2'
+    },
+    {
+      schemaVersion: 1,
+      id: 'provider-prefix',
+      label: 'Duplicate prefix',
+      prefixes: ['shared'],
+      command: ['printf', 'prefix'],
+      _source: 'plugin example provider #3'
+    },
+    {
+      _source: 'plugin example provider #4'
+    }
+  ]
+}))
+assert(providerCatalog.extensions.length === 2, 'loader catalog envelopes preserve valid provider extensions')
+assert(providerCatalog.diagnostics.some(message => message.indexOf('provider #2 timed out') >= 0), 'loader diagnostics pass through catalog validation')
+assert(providerCatalog.diagnostics.some(message => message.indexOf("duplicate extension id 'provider-first'") >= 0 && message.indexOf('provider #2') >= 0), 'duplicate provider ids identify their source')
+assert(providerCatalog.diagnostics.some(message => message.indexOf("Duplicate extension prefix 'shared'") >= 0 && message.indexOf('provider #3') >= 0), 'duplicate provider prefixes identify their source')
+assert(providerCatalog.diagnostics.some(message => message.indexOf('invalid extension from plugin example provider #4') >= 0), 'invalid provider definitions identify their source')
+
 const bundledMissingQalc = menu.parseExtensions(JSON.stringify([{
   ...JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'extensions', 'calculator', 'extension.json'), 'utf8')),
   _bundled: true,
