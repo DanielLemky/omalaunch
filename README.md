@@ -8,19 +8,33 @@ Omalaunch keeps the familiar Omarchy command tree while adding fast global searc
 
 ## Installation
 
+### From the Omarchy menu
+
+1. Open **Setup › Plugins › Add Plugin**.
+2. Enter `https://github.com/daniellemky/omalaunch` as the Git URL.
+3. Review and confirm Omarchy’s plugin trust warning.
+4. Confirm that you want to enable Omalaunch.
+5. Choose **left** when prompted for a bar section.
+
+### From a terminal
+
 ```bash
 omarchy plugin add https://github.com/daniellemky/omalaunch --enable
 ```
+
+Review and confirm the plugin trust warning, then choose **left** when prompted for a bar section.
 
 Enabling Omalaunch replaces Omarchy’s default clickable launcher icon and routes the existing Super+Space shortcut to Omalaunch. Disabling or removing the plugin restores the default Omarchy launcher. No calculation dependency needs to be installed before adding the plugin; Omalaunch offers explicit setup from its starting view when needed.
 
 Click the launcher icon or press Super+Space to open Omalaunch. Right-clicking the icon opens a terminal.
 
-Current Omarchy versions may append the replacement launcher after other widgets when an interactive installation asks for a bar section. Until Omarchy preserves the replaced widget’s exact position, move Omalaunch before the workspace widget with:
+Current Omarchy versions can select a bar section during installation but not an exact index. If the launcher icon appears after the workspace buttons, move it to the first position with:
 
 ```bash
-omarchy bar move quantumfire.omalaunch --before quantumfire.workspaces
+omarchy bar move quantumfire.omalaunch --section left --index 0
 ```
+
+This workaround can be removed once Omarchy supports setting a widget’s section and index during plugin installation.
 
 ## Features
 
@@ -135,11 +149,11 @@ Favorites and usage data are stored in the user's state directory. Currency refr
 ## Updating
 
 ```bash
-omarchy plugin update quantumfire.omalaunch
+omarchy plugin update quantumfire.omalaunch --yes
 omarchy restart shell
 ```
 
-Restart the shell after updating so the running QML engine does not continue
+The `--yes` flag skips the interactive diff review; omit it if you prefer to review and confirm every incoming change. Restart the shell after updating so the running QML engine does not continue
 using cached plugin code. This works around an upstream Omarchy hot-reload
 issue until plugin rescans reliably load changed QML. The restart reloads
 Omalaunch code and is unrelated to calculation dependencies; installing
