@@ -61,7 +61,14 @@ const filesExtension = menu.parseExtensions(JSON.stringify([{
   copyFileCommand: ['copy-file', '{path}']
 }]))
 assert(filesExtension.length === 1 && filesExtension[0].mode === 'files', 'file browser extensions are parsed')
-assert(menu.suggestExtensions(filesExtension, 'fil')[0].extension.id === 'files', 'file browser extensions appear in prefix suggestions')
+const partialFilesSuggestion = menu.suggestExtensions(filesExtension, 'fil')[0]
+const exactFilesSuggestion = menu.suggestExtensions(filesExtension, 'files')[0]
+assert(partialFilesSuggestion.extension.id === 'files', 'file browser extensions appear in prefix suggestions')
+assert(menu.extensionSuggestionPriority(partialFilesSuggestion, 'fil') === 20, 'partial extension suggestions receive low priority')
+assert(menu.extensionSuggestionPriority(exactFilesSuggestion, ' FILES ') === 95, 'exact extension prefixes outrank exact app titles')
+assert(menu.extensionSuggestionPriority({ extension: { available: false }, prefix: 'files' }, 'files') === 0, 'unavailable extension suggestions receive no priority boost')
+assert(menu.extensionMatchPriority(filesExtension[0]) === 100, 'explicit available extension invocations receive top priority')
+assert(menu.extensionMatchPriority({ available: false }) === 0, 'unavailable extension invocations receive no priority boost')
 assert(filesExtension[0].copyCommand[2] === '{path}', 'file browser copy path commands are retained')
 assert(filesExtension[0].copyFileCommand[1] === '{path}', 'file browser copy file commands are retained')
 assert(filesExtension[0].terminalCommand[1] === '--dir={path}', 'file browser terminal commands are retained')
@@ -256,10 +263,14 @@ assert(specialParentMetadata.constructor.childCount === 1, 'derived child maps a
 assert(specialParentMetadata['constructor.child'].ancestorSet.$constructor, 'derived ancestry accepts inherited object-property names')
 assert(specialParentMetadata['toString.child'].visible && specialParentMetadata['__proto__.child'].visible, 'special parent ids do not prevent metadata construction')
 
-assert(menu.searchMatchPriority({ label: 'Apps', aliases: ['app', 'applications'] }, 'apps') === 4, 'exact labels have highest priority')
-assert(menu.searchMatchPriority({ label: 'Apps', aliases: ['app', 'applications'] }, 'app') === 3, 'exact aliases outrank prefixes')
-assert(menu.searchMatchPriority({ label: 'Apps', aliases: ['app', 'applications'] }, 'ap') === 2, 'alias prefixes outrank label prefixes')
-assert(menu.searchMatchPriority({ label: 'Apple Music', aliases: [] }, 'ap') === 1, 'label prefixes are recognized')
+assert(menu.searchMatchPriority({ kind: 'app', label: 'Apps', aliases: ['app', 'applications'] }, 'apps') === 90, 'exact app titles have highest item priority')
+assert(menu.searchMatchPriority({ kind: 'app', label: 'Apple Music', aliases: [] }, 'app') === 70, 'app title prefixes outrank menu shortcuts')
+assert(menu.searchMatchPriority({ kind: 'action', parent: 'apps', label: 'Work Browser', aliases: [] }, 'browser') === 60, 'whole-word titles in the Apps menu outrank exact menu shortcuts')
+assert(menu.searchMatchPriority({ kind: 'app', parent: 'apps', label: 'Chromium', aliases: ['Web Browser'] }, 'browser') === 55, 'apps matched through metadata outrank management shortcuts')
+assert(menu.searchMatchPriority({ kind: 'menu', label: 'Browser', aliases: [] }, 'browser') === 50, 'exact menu titles rank below matching apps')
+assert(menu.searchMatchPriority({ label: 'Utilities', aliases: ['app', 'applications'] }, 'app') === 40, 'exact aliases outrank menu title prefixes')
+assert(menu.searchMatchPriority({ label: 'Apps', aliases: ['app', 'applications'] }, 'ap') === 30, 'menu title prefixes outrank alias prefixes')
+assert(menu.searchMatchPriority({ label: 'Utilities', aliases: ['applications'] }, 'ap') === 10, 'alias prefixes are recognized')
 
 assert(menu.compareSearchRows(
   { matchPriority: 0, starred: false, usageCount: 2, lastUsedAt: 100, score: 20, path: 'A' },
@@ -274,10 +285,28 @@ assert(menu.compareSearchRows(
 ) < 0, 'recency breaks equal frequency ties')
 
 assert(menu.compareSearchRows(
-  { matchPriority: 3, starred: false, usageCount: 0, lastUsedAt: 0, score: 20, path: 'Apps' },
-  { matchPriority: 1, starred: true, usageCount: 10, lastUsedAt: 200, score: 0, path: 'Apple Music' },
+  { matchPriority: 70, starred: false, usageCount: 0, lastUsedAt: 0, score: 20, path: 'Apple Music' },
+  { matchPriority: 40, starred: true, usageCount: 10, lastUsedAt: 200, score: 0, path: 'Apps' },
   true
-) < 0, 'exact aliases remain ahead of learned prefix matches')
+) < 0, 'label prefixes remain ahead of exact aliases and learned ranking')
+
+assert(menu.compareSearchRows(
+  { matchPriority: 95, starred: false, usageCount: 0, lastUsedAt: 0, score: -3, path: 'Exact extension' },
+  { matchPriority: 90, starred: true, usageCount: 10, lastUsedAt: 200, score: 0, path: 'Exact app' },
+  true
+) < 0, 'exact extension activations outrank exact app titles')
+
+assert(menu.compareSearchRows(
+  { matchPriority: 95, starred: false, usageCount: 0, lastUsedAt: 0, score: -3, path: 'Exact extension' },
+  { matchPriority: 70, starred: true, usageCount: 10, lastUsedAt: 200, score: 0, path: 'App prefix' },
+  true
+) < 0, 'exact extension activations outrank app title prefixes')
+
+assert(menu.compareSearchRows(
+  { matchPriority: 60, starred: false, usageCount: 0, lastUsedAt: 0, score: 0, path: 'App word' },
+  { matchPriority: 20, starred: true, usageCount: 10, lastUsedAt: 200, score: -3, path: 'Partial extension' },
+  true
+) < 0, 'app title words outrank partial extension suggestions')
 
 assert(menu.compareSearchRows(
   { matchPriority: 0, starred: false, usageCount: 10, lastUsedAt: 200, score: 20, path: 'A' },
