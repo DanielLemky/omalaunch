@@ -76,7 +76,7 @@ Install the calculation dependency through Omarchy:
 omarchy pkg add libqalculate
 ```
 
-If it is missing, Calculator and Currency results remain visible but unavailable. Press Enter on one of those results to review the exact command and explicitly confirm opening it in a visible terminal. Reopen Omalaunch afterward to recheck the dependency; no shell restart is required. All unrelated launcher features remain usable.
+If it is missing, the launcher’s starting view shows **Enable Calculator & Currency**. Press Enter to review the exact command and explicitly confirm opening it in a visible terminal. The same setup remains available from unavailable calculation results. Reopen Omalaunch afterward to recheck the dependency; no shell restart is required. All unrelated launcher features remain usable.
 
 Omalaunch never installs system packages silently. Package installation is offered only for dependencies allow-listed by Omalaunch itself; external extensions cannot supply installation commands.
 

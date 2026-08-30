@@ -353,6 +353,13 @@ function unavailableExtensionDetail(extension) {
   return "Missing dependency: " + extension.missingRequires.join(", ")
 }
 
+function firstSetupExtension(extensions) {
+  var values = Array.isArray(extensions) ? extensions : []
+  for (var i = 0; i < values.length; i++)
+    if (!values[i].available && dependencySetup(values[i])) return values[i]
+  return null
+}
+
 // Extension matchers run on the QML UI thread. Reject oversized patterns and
 // the most common nested-quantifier shapes, which can otherwise backtrack for
 // seconds on a short launcher query. This deliberately accepts a conservative
@@ -830,6 +837,7 @@ if (typeof module !== "undefined") {
     descriptionTextMatches: descriptionTextMatches,
     dependencySetup: dependencySetup,
     unavailableExtensionDetail: unavailableExtensionDetail,
+    firstSetupExtension: firstSetupExtension,
     safeExtensionPattern: safeExtensionPattern,
     normalizeExtension: normalizeExtension,
     resolveExtensions: resolveExtensions,

@@ -1007,6 +1007,18 @@ Item {
       }
 
       if (active === "root") {
+        var setupExtension = MenuModel.firstSetupExtension(root.extensions)
+        if (setupExtension) {
+          var dependencySetup = MenuModel.dependencySetup(setupExtension)
+          var setupItem = root.normalizeItem("dependency.setup." + setupExtension.id, {
+            icon: setupExtension.icon,
+            iconFont: setupExtension.iconFont,
+            label: "Enable Calculator & Currency",
+            description: "Install " + dependencySetup.packageName + " · Press Enter to review"
+          })
+          rows.push(root.displayRow(setupItem, setupItem.description, -1))
+        }
+
         rows.sort(function(a, b) {
           if (a.itemId === "omarchy" || b.itemId === "omarchy") return a.itemId === "omarchy" ? -1 : 1
           var aLabel = String(a.label || "").toLowerCase()
@@ -1146,6 +1158,12 @@ Item {
     var row = displayModel.get(index)
     if (root.actionPanelActive && row.itemId.indexOf("file.action.") === 0) {
       root.activateFileAction(row.action)
+      return
+    }
+    if (row.itemId.indexOf("dependency.setup.") === 0) {
+      var setupExtension = root.extensionById(row.itemId.substring("dependency.setup.".length))
+      root.dependencyTarget = MenuModel.dependencySetup(setupExtension)
+      root.dependencyConfirmOpen = root.dependencyTarget !== null
       return
     }
     if (row.itemId.indexOf("extension.unavailable.") === 0) {
