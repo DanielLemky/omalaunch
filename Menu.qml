@@ -98,6 +98,17 @@ Item {
   property string fileBrowserPath: ""
   property var fileEntries: []
   property int fileScanSerial: 0
+  readonly property string fileIndexHelper: root.pluginPath + "/extensions/files/file-index.py"
+  readonly property string fileIndexInstanceId: Date.now() + "-" + Math.floor(Math.random() * 1000000000)
+  readonly property string fileIndexPathPrefix: Quickshell.env("XDG_RUNTIME_DIR")
+    ? Quickshell.env("XDG_RUNTIME_DIR") + "/omalaunch-file-index-" + root.fileIndexInstanceId
+    : "/tmp/omalaunch-file-index-" + Quickshell.env("USER") + "-" + root.fileIndexInstanceId
+  property string fileIndexPath: ""
+  property string fileIndexRoot: ""
+  property bool fileIndexReady: false
+  property int fileIndexSerial: 0
+  property double fileIndexBuiltAt: 0
+  readonly property int fileIndexTtlMs: 30 * 1000
   property string fileCopyFeedbackPath: ""
   property string fileCopyFeedback: ""
   property bool actionPanelActive: false
@@ -412,6 +423,7 @@ Item {
 
   function enterFileBrowser(extension) {
     if (!extension || !extension.available) return
+    root.resetFileIndex()
     root.fileBrowserActive = true
     root.fileBrowserExtension = extension
     root.fileBrowserPath = extension.root === "~" ? Quickshell.env("HOME") : extension.root
@@ -423,6 +435,7 @@ Item {
   }
 
   function leaveFileBrowser() {
+    root.resetFileIndex()
     root.actionPanelActive = false
     root.actionPanelFile = null
     root.fileBrowserActive = false
@@ -440,10 +453,57 @@ Item {
     return slash <= 0 ? "/" : value.substring(0, slash)
   }
 
-  function scheduleFileScan() {
+  function removeFileIndex(path) {
+    if (path) Quickshell.execDetached(["rm", "-f", "--", path])
+  }
+
+  function resetFileIndex() {
+    root.fileIndexSerial += 1
+    root.removeFileIndex(root.fileIndexPath)
+    root.fileIndexPath = ""
+    root.fileIndexRoot = ""
+    root.fileIndexReady = false
+    root.fileIndexBuiltAt = 0
+    if (fileIndexProc.running && !fileIndexProc.stopping) {
+      fileIndexProc.stopping = true
+      fileIndexProc.running = false
+    }
+  }
+
+  function startFileIndex(path) {
+    // Process command and metadata must stay immutable until onExited. Keep a
+    // build for the requested root alive while typing; only a different root
+    // is allowed to stop it.
+    if (fileIndexProc.running || fileIndexProc.stopping) {
+      if (fileIndexProc.indexRoot === path) return
+      if (fileIndexProc.running && !fileIndexProc.stopping) {
+        fileIndexProc.stopping = true
+        fileIndexProc.running = false
+      }
+      return
+    }
+    root.removeFileIndex(root.fileIndexPath)
+    root.fileIndexSerial += 1
+    root.fileIndexPath = root.fileIndexPathPrefix + "-" + root.fileIndexSerial + ".nul"
+    root.fileIndexRoot = path
+    root.fileIndexReady = false
+    root.fileIndexBuiltAt = 0
+    fileIndexProc.revision = root.fileIndexSerial
+    fileIndexProc.indexRoot = path
+    fileIndexProc.indexPath = root.fileIndexPath
+    fileIndexProc.command = ["python", root.fileIndexHelper, "index", path, fileIndexProc.indexPath]
+    fileIndexProc.running = true
+  }
+
+  function scheduleFileScan(immediate) {
     root.fileScanSerial += 1
+    fileScanTimer.interval = immediate === true ? 0 : 120
     fileScanTimer.restart()
-    if (fileScanProc.running) fileScanProc.running = false
+    if (fileScanProc.running && !fileScanProc.stopping) {
+      fileScanProc.stopping = true
+      fileScanProc.running = false
+    }
+    if (root.fileIndexRoot && root.fileIndexRoot !== root.fileBrowserPath) root.resetFileIndex()
   }
 
   function rebuildFileDisplay() {
@@ -555,6 +615,7 @@ Item {
     var shellAction = root.shellCommand(commandToRun, { path: path })
     root.actionPanelActive = false
     root.fileBrowserActive = false
+    root.resetFileIndex()
     root.opened = false
     root.runAction(shellAction)
   }
@@ -1205,6 +1266,7 @@ Item {
         var openCommand = root.shellCommand(root.fileBrowserExtension.command, { path: row.action })
         root.fileBrowserActive = false
         root.fileBrowserExtension = null
+        root.resetFileIndex()
         root.applySerial = root.requestSerial
         root.opened = false
         root.runAction(openCommand)
@@ -1300,6 +1362,7 @@ Item {
 
   function cancel() {
     if (root.dmenuActive) root.finishRequest(null)
+    root.resetFileIndex()
     root.actionPanelActive = false
     root.actionPanelFile = null
     root.fileBrowserActive = false
@@ -1441,23 +1504,56 @@ Item {
     interval: 120
     repeat: false
     onTriggered: {
-      if (!root.fileBrowserActive || !root.fileBrowserPath) return
+      if (!root.fileBrowserActive || !root.fileBrowserPath || fileScanProc.stopping) return
       var base = root.fileBrowserPath
       var needle = root.filterText.trim()
-      var sourceCommand = needle
-        ? "fd --color never --absolute-path --print0 --type file --type directory . \"$base\" 2>/dev/null | fzf --read0 --print0 --filter=\"$needle\" --scheme=path --tiebreak=begin,length --no-multi-line"
-        : "fd --color never --absolute-path --print0 --type file --type directory --max-depth 1 . \"$base\" 2>/dev/null -X stat --printf '%Y\\t%n\\0' | sort -z -t $'\\t' -k1,1nr"
-      var script = "base=" + root.shellQuote(base) + "; needle=" + root.shellQuote(needle) + "; count=0; "
-        + "while IFS= read -r -d '' entry && (( count < 100 )); do "
-        + "[[ -n $needle ]] || entry=${entry#*$'\\t'}; clean=${entry%/}; [[ -d $clean ]] && type=directory || type=file; name=${clean##*/}; "
-        + "jq -cn --arg path \"$clean\" --arg name \"$name\" --arg type \"$type\" '{path:$path,name:$name,type:$type}'; "
-        + "count=$((count + 1)); done < <(" + sourceCommand + ")"
+
+      if (needle) {
+        var stale = root.fileIndexBuiltAt > 0
+          && Date.now() - root.fileIndexBuiltAt >= root.fileIndexTtlMs
+        if (root.fileIndexRoot !== base || !root.fileIndexReady || stale) {
+          root.startFileIndex(base)
+          return
+        }
+      }
+
       fileScanProc.revision = root.fileScanSerial
       fileScanProc.scanPath = base
       fileScanProc.query = needle
       fileScanProc.collected = ""
-      fileScanProc.command = ["bash", "-lc", script]
+      fileScanProc.outputOverflow = false
+      fileScanProc.command = needle
+        ? ["python", root.fileIndexHelper, "query", root.fileIndexPath, needle]
+        : ["python", root.fileIndexHelper, "browse", base]
       fileScanProc.running = true
+    }
+  }
+
+  Process {
+    id: fileIndexProc
+    property int revision: 0
+    property string indexRoot: ""
+    property string indexPath: ""
+    property bool stopping: false
+    onExited: function(exitCode) {
+      var stale = fileIndexProc.stopping
+        || fileIndexProc.revision !== root.fileIndexSerial
+        || fileIndexProc.indexRoot !== root.fileBrowserPath
+      fileIndexProc.stopping = false
+      if (stale) {
+        root.removeFileIndex(fileIndexProc.indexPath)
+        if (root.fileBrowserActive && root.filterText.trim())
+          Qt.callLater(function() { root.scheduleFileScan(true) })
+        return
+      }
+      root.fileIndexReady = exitCode === 0
+      root.fileIndexBuiltAt = root.fileIndexReady ? Date.now() : 0
+      if (!root.fileIndexReady) {
+        root.removeFileIndex(fileIndexProc.indexPath)
+        if (root.fileIndexPath === fileIndexProc.indexPath) root.fileIndexPath = ""
+      }
+      if (root.fileIndexReady && root.fileBrowserActive && root.filterText.trim())
+        Qt.callLater(function() { root.scheduleFileScan(true) })
     }
   }
 
@@ -1467,12 +1563,23 @@ Item {
     property string scanPath: ""
     property string query: ""
     property string collected: ""
-    stdout: SplitParser { onRead: function(data) { fileScanProc.collected += data + "\n" } }
+    property bool outputOverflow: false
+    property bool stopping: false
+    stdout: SplitParser { onRead: function(data) { root.collectBounded(fileScanProc, data) } }
     onExited: function(exitCode) {
-      if (fileScanProc.revision !== root.fileScanSerial || !root.fileBrowserActive) return
-      if (fileScanProc.scanPath !== root.fileBrowserPath || fileScanProc.query !== root.filterText.trim()) return
+      var stale = fileScanProc.stopping
+        || fileScanProc.revision !== root.fileScanSerial
+        || !root.fileBrowserActive
+        || fileScanProc.scanPath !== root.fileBrowserPath
+        || fileScanProc.query !== root.filterText.trim()
+      fileScanProc.stopping = false
+      if (stale) {
+        if (root.fileBrowserActive)
+          Qt.callLater(function() { root.scheduleFileScan(true) })
+        return
+      }
       var entries = []
-      if (exitCode === 0) {
+      if (exitCode === 0 && !fileScanProc.outputOverflow) {
         var lines = fileScanProc.collected.split("\n")
         for (var i = 0; i < lines.length; i++) {
           if (!lines[i].trim()) continue
@@ -1717,6 +1824,8 @@ Item {
       if (root.guardsPending) Qt.callLater(function() { root.evaluateGuards(root.guardsForcePending) })
     }
   }
+  Component.onDestruction: root.resetFileIndex()
+
   PanelWindow {
     id: panel
     visible: root.opened && root.rowsLoaded
