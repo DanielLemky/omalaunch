@@ -390,6 +390,9 @@ Item {
     root.resultExtension = MenuModel.queryExtension(root.extensions, query)
     root.unavailableResultExtension = MenuModel.unavailableQueryExtension(root.extensions, query)
     if (root.resultExtension) extensionQueryTimer.start()
+    // Available queries rebuild when their process exits. Unavailable queries
+    // start no process, so surface their actionable row immediately.
+    else if (root.unavailableResultExtension) root.rebuildDisplay()
   }
 
   function extensionById(id) {
