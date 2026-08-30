@@ -12,9 +12,15 @@ Omalaunch keeps the familiar Omarchy command tree while adding fast global searc
 omarchy plugin add https://github.com/daniellemky/omalaunch --enable
 ```
 
-Enabling Omalaunch replaces Omarchy’s default clickable launcher icon and routes the existing Super+Space shortcut to Omalaunch. Disabling or removing the plugin restores the default Omarchy launcher.
+Enabling Omalaunch replaces Omarchy’s default clickable launcher icon and routes the existing Super+Space shortcut to Omalaunch. Disabling or removing the plugin restores the default Omarchy launcher. No calculation dependency needs to be installed before adding the plugin; Omalaunch offers explicit setup from its starting view when needed.
 
 Click the launcher icon or press Super+Space to open Omalaunch. Right-clicking the icon opens a terminal.
+
+Current Omarchy versions may append the replacement launcher after other widgets when an interactive installation asks for a bar section. Until Omarchy preserves the replaced widget’s exact position, move Omalaunch before the workspace widget with:
+
+```bash
+omarchy bar move quantumfire.omalaunch --before quantumfire.workspaces
+```
 
 ## Features
 
@@ -67,7 +73,7 @@ Press Ctrl+K on a selected item to open its Action Panel. Directories can be ope
 ## Requirements
 
 - A current Omarchy installation with the manifest-based shell plugin system
-- [`libqalculate`](https://qalculate.github.io/) (`qalc`) for calculations and conversions
+- [`libqalculate`](https://qalculate.github.io/) (`qalc`) to enable calculations and conversions
 - `fd`, `fzf`, `jq`, Python, Bash, and `wl-clipboard` (provided by a standard Omarchy installation)
 
 Install the calculation dependency through Omarchy:
@@ -135,7 +141,9 @@ omarchy restart shell
 
 Restart the shell after updating so the running QML engine does not continue
 using cached plugin code. This works around an upstream Omarchy hot-reload
-issue until plugin rescans reliably load changed QML.
+issue until plugin rescans reliably load changed QML. The restart reloads
+Omalaunch code and is unrelated to calculation dependencies; installing
+`libqalculate` requires only reopening Omalaunch to recheck it.
 
 ## Disabling and removal
 
