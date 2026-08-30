@@ -5,6 +5,7 @@ import os
 import re
 import sys
 from datetime import date, datetime
+from functools import cache
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError, available_timezones
 
@@ -39,6 +40,7 @@ def local_zone_name():
     return "UTC"
 
 
+@cache
 def zone_index():
     zones = sorted(available_timezones())
     exact = {zone.lower(): zone for zone in zones}
@@ -56,14 +58,26 @@ def zone_index():
 
 
 ALIASES = load_aliases()
-EXACT_ZONES, CITY_ZONES = zone_index()
 
 
 def resolve_zone(value):
-    key = normalize(value)
-    zone_name = ALIASES.get(key) or EXACT_ZONES.get(value.strip().lower()) or CITY_ZONES.get(key)
+    raw = value.strip()
+    key = normalize(raw)
+    zone_name = ALIASES.get(key)
+
+    # Most lookups are aliases or correctly-cased IANA names. Resolve those
+    # without scanning the entire system timezone database on every query.
     if not zone_name:
-        raise ValueError(f"Unknown timezone: {value.strip()}")
+        try:
+            return ZoneInfo(raw), raw
+        except ZoneInfoNotFoundError:
+            pass
+
+        exact_zones, city_zones = zone_index()
+        zone_name = exact_zones.get(raw.lower()) or city_zones.get(key)
+
+    if not zone_name:
+        raise ValueError(f"Unknown timezone: {raw}")
     try:
         return ZoneInfo(zone_name), zone_name
     except ZoneInfoNotFoundError:

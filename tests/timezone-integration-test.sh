@@ -15,6 +15,8 @@ assert_contains() {
 }
 
 assert_contains "time seattle" "America/Los_Angeles"
+assert_contains "time berlin" "Europe/Berlin"
+assert_contains "time beijing" "Asia/Shanghai"
 assert_contains "time 2026-01-15 9am winnipeg to seattle" "7:00 AM PST"
 assert_contains "time 2026-11-15 8pm new york to london" "Mon, Nov 16"
 assert_contains "time nowhereville" "Unknown timezone: nowhereville"
