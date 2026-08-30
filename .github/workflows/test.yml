@@ -16,7 +16,8 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --yes jq qalc
+          sudo apt-get install --yes fd-find fzf jq qalc
+          if ! command -v fd >/dev/null; then sudo ln -s "$(command -v fdfind)" /usr/local/bin/fd; fi
 
       - name: Validate manifest
         run: bash tests/manifest-test.sh
@@ -29,3 +30,6 @@ jobs:
 
       - name: Run timezone integration tests
         run: bash tests/timezone-integration-test.sh
+
+      - name: Run file index integration tests
+        run: python tests/file-index-integration-test.py
