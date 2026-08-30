@@ -109,9 +109,16 @@ Item {
   // removal), owned by the shell and also used by the standalone launcher.
   readonly property var appLibrary: root.shell ? root.shell.appLibrary : null
   property bool deleteConfirmOpen: false
+  property bool dependencyConfirmOpen: false
   property string pendingStarSelectionId: ""
   property var deleteTarget: null
-  onOpenedChanged: if (!opened) { deleteConfirmOpen = false; deleteTarget = null }
+  property var dependencyTarget: null
+  onOpenedChanged: if (!opened) {
+    deleteConfirmOpen = false
+    deleteTarget = null
+    dependencyConfirmOpen = false
+    dependencyTarget = null
+  }
   // Bound to the central [menu] section in shell.toml via Color.qml.
   // Each color already includes its alpha companion (composed in the
   // singleton), so consumers can drop them straight into a Rectangle.
@@ -383,6 +390,9 @@ Item {
     root.resultExtension = MenuModel.queryExtension(root.extensions, query)
     root.unavailableResultExtension = MenuModel.unavailableQueryExtension(root.extensions, query)
     if (root.resultExtension) extensionQueryTimer.start()
+    // Available queries rebuild when their process exits. Unavailable queries
+    // start no process, so surface their actionable row immediately.
+    else if (root.unavailableResultExtension) root.rebuildDisplay()
   }
 
   function extensionById(id) {
@@ -934,7 +944,7 @@ Item {
         var suggestedExtension = suggestion.extension
         var suggestionDetail = suggestedExtension.available
           ? suggestedExtension.description
-          : "Missing dependency: " + suggestedExtension.missingRequires.join(", ")
+          : MenuModel.unavailableExtensionDetail(suggestedExtension)
         var suggestionId = suggestedExtension.available ? "extension.prepare." : "extension.unavailable."
         var suggestionItem = root.normalizeItem(suggestionId + suggestedExtension.id, {
           icon: suggestedExtension.icon,
@@ -952,7 +962,7 @@ Item {
         var extension = extensionMatch.extension
         var extensionDetail = extension.available
           ? extension.description
-          : "Missing dependency: " + extension.missingRequires.join(", ")
+          : MenuModel.unavailableExtensionDetail(extension)
         var extensionId = extension.available ? "extension." : "extension.unavailable."
         var extensionItem = root.normalizeItem(extensionId + extension.id, {
           icon: extension.icon,
@@ -965,7 +975,7 @@ Item {
       }
 
       if (root.unavailableResultExtension) {
-        var unavailableDetail = "Missing dependency: " + root.unavailableResultExtension.missingRequires.join(", ")
+        var unavailableDetail = MenuModel.unavailableExtensionDetail(root.unavailableResultExtension)
         var unavailableItem = root.normalizeItem("extension.unavailable." + root.unavailableResultExtension.id, {
           icon: root.unavailableResultExtension.icon,
           iconFont: root.unavailableResultExtension.iconFont,
@@ -1000,6 +1010,18 @@ Item {
       }
 
       if (active === "root") {
+        var setupExtension = MenuModel.firstSetupExtension(root.extensions)
+        if (setupExtension) {
+          var dependencySetup = MenuModel.dependencySetup(setupExtension)
+          var setupItem = root.normalizeItem("dependency.setup." + setupExtension.id, {
+            icon: setupExtension.icon,
+            iconFont: setupExtension.iconFont,
+            label: "Enable Calculator & Currency",
+            description: "Install " + dependencySetup.packageName + " · Press Enter to review"
+          })
+          rows.push(root.displayRow(setupItem, setupItem.description, -1))
+        }
+
         rows.sort(function(a, b) {
           if (a.itemId === "omarchy" || b.itemId === "omarchy") return a.itemId === "omarchy" ? -1 : 1
           var aLabel = String(a.label || "").toLowerCase()
@@ -1141,7 +1163,21 @@ Item {
       root.activateFileAction(row.action)
       return
     }
-    if (row.itemId.indexOf("extension.unavailable.") === 0) return
+    if (row.itemId.indexOf("dependency.setup.") === 0) {
+      var setupExtension = root.extensionById(row.itemId.substring("dependency.setup.".length))
+      root.dependencyTarget = MenuModel.dependencySetup(setupExtension)
+      root.dependencyConfirmOpen = root.dependencyTarget !== null
+      return
+    }
+    if (row.itemId.indexOf("extension.unavailable.") === 0) {
+      var unavailableExtension = root.extensionById(row.itemId.substring("extension.unavailable.".length))
+      var setup = MenuModel.dependencySetup(unavailableExtension)
+      if (setup) {
+        root.dependencyTarget = setup
+        root.dependencyConfirmOpen = true
+      }
+      return
+    }
     if (row.itemId.indexOf("extension.prepare.") === 0) {
       var preparedExtension = root.extensionById(row.itemId.substring("extension.prepare.".length))
       if (preparedExtension && preparedExtension.mode === "files") root.enterFileBrowser(preparedExtension)
@@ -1179,6 +1215,28 @@ Item {
     } else {
       root.applySelected(row.itemId, row.action)
     }
+  }
+
+  function cancelDependencyInstall() {
+    root.dependencyConfirmOpen = false
+    root.dependencyTarget = null
+    Qt.callLater(function() { keyCatcher.forceActiveFocus() })
+  }
+
+  function confirmDependencyInstall() {
+    var setup = root.dependencyTarget
+    root.dependencyConfirmOpen = false
+    root.dependencyTarget = null
+    if (!setup) return
+
+    // Close the exclusive-focus launcher before opening the visible terminal.
+    // --hold preserves package-manager output after success, failure, or
+    // cancellation. Reopening Omalaunch performs a fresh extension check.
+    root.opened = false
+    root.runAction(root.shellCommand(
+      ["xdg-terminal-exec", "--hold", "--"].concat(setup.installCommand),
+      {}
+    ))
   }
 
   function toggleSelectedStar() {
@@ -1672,13 +1730,17 @@ Item {
       Item {
         id: keyCatcher
         anchors.fill: parent
-        z: root.deleteConfirmOpen ? 20 : 0
+        z: (root.deleteConfirmOpen || root.dependencyConfirmOpen) ? 20 : 0
         focus: true
 
         Keys.priority: Keys.BeforeItem
         Keys.onPressed: function(event) {
           if (root.deleteConfirmOpen) {
             if (deleteConfirm.handleKey(event)) event.accepted = true
+            return
+          }
+          if (root.dependencyConfirmOpen) {
+            if (dependencyConfirm.handleKey(event)) event.accepted = true
             return
           }
 
@@ -1757,6 +1819,30 @@ Item {
           cornerRadius: root.cornerRadius
           onCanceled: root.cancelDelete()
           onConfirmed: root.confirmDelete()
+        }
+
+        ConfirmDialog {
+          id: dependencyConfirm
+
+          anchors.fill: parent
+          opened: root.dependencyConfirmOpen
+          z: 11
+          message: root.dependencyTarget
+            ? ("Install " + root.dependencyTarget.packageName + " for " + root.dependencyTarget.reason
+              + "?\n\nCommand: " + root.dependencyTarget.installCommand.join(" ")
+              + "\n\nThe command will run in a visible terminal. Reopen Omalaunch afterward to recheck.")
+            : ""
+          cancelText: "Not now"
+          confirmText: "Install"
+          background: root.background
+          foreground: root.foreground
+          scrim: root.scrim
+          selectedBackground: root.selectedBackground
+          selectedText: root.selectedText
+          fontFamily: root.fontFamily
+          cornerRadius: root.cornerRadius
+          onCanceled: root.cancelDependencyInstall()
+          onConfirmed: root.confirmDependencyInstall()
         }
       }
 

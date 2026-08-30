@@ -166,6 +166,21 @@ assert(!unavailableCatalog.extensions[0].available, 'missing dependencies mark e
 assert(unavailableCatalog.diagnostics.some(message => message.indexOf('missing-tool') >= 0), 'missing dependencies produce diagnostics')
 assert(unavailableCatalog.diagnostics.some(message => message.indexOf('duplicate extension id') >= 0), 'duplicate extension ids produce diagnostics')
 
+const bundledMissingQalc = menu.parseExtensions(JSON.stringify([{
+  ...JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'extensions', 'calculator', 'extension.json'), 'utf8')),
+  _bundled: true,
+  _missingRequires: ['qalc']
+}]))[0]
+const qalcSetup = menu.dependencySetup(bundledMissingQalc)
+assert(qalcSetup.packageName === 'libqalculate', 'bundled qalc requirements map to libqalculate setup')
+assert(qalcSetup.installCommand.join(' ') === 'omarchy pkg add libqalculate', 'dependency setup exposes the exact supported install command')
+assert(menu.unavailableExtensionDetail(bundledMissingQalc).indexOf('Press Enter to install') >= 0, 'known bundled dependencies are actionable')
+assert(menu.firstSetupExtension([bundledMissingQalc]) === bundledMissingQalc, 'missing bundled dependencies produce a root setup extension')
+assert(menu.firstSetupExtension(bundledExtensions) === null, 'available bundled dependencies do not produce root setup')
+assert(menu.dependencySetup(unavailableCatalog.extensions[0]) === null, 'external extensions cannot authorize package installation')
+assert(menu.firstSetupExtension(unavailableCatalog.extensions) === null, 'external dependencies cannot produce root package setup')
+assert(menu.unavailableExtensionDetail(unavailableCatalog.extensions[0]) === 'Missing dependency: missing-tool', 'unknown dependencies retain diagnostic-only messaging')
+
 const searchTree = {
   setup: { id: 'setup', parent: 'root' },
   'setup.default': { id: 'setup.default', parent: 'setup' },
