@@ -324,6 +324,35 @@ function stringArray(value) {
   return result
 }
 
+// Package installation is deliberately allow-listed here rather than read
+// from extension manifests. External plugins may declare executable
+// requirements, but that never authorizes them to install system packages.
+var DEPENDENCY_SETUPS = {
+  qalc: {
+    executable: "qalc",
+    packageName: "libqalculate",
+    reason: "arithmetic, unit conversion, and currency conversion",
+    installCommand: ["omarchy", "pkg", "add", "libqalculate"]
+  }
+}
+
+function dependencySetup(extension) {
+  if (!extension || !extension.bundled) return null
+  var missing = Array.isArray(extension.missingRequires) ? extension.missingRequires : []
+  for (var i = 0; i < missing.length; i++) {
+    var setup = DEPENDENCY_SETUPS[String(missing[i])]
+    if (setup) return setup
+  }
+  return null
+}
+
+function unavailableExtensionDetail(extension) {
+  if (!extension) return ""
+  var setup = dependencySetup(extension)
+  if (setup) return "Requires " + setup.packageName + " · Press Enter to install"
+  return "Missing dependency: " + extension.missingRequires.join(", ")
+}
+
 // Extension matchers run on the QML UI thread. Reject oversized patterns and
 // the most common nested-quantifier shapes, which can otherwise backtrack for
 // seconds on a short launcher query. This deliberately accepts a conservative
@@ -799,6 +828,8 @@ if (typeof module !== "undefined") {
     nameSearchText: nameSearchText,
     termInSearchWords: termInSearchWords,
     descriptionTextMatches: descriptionTextMatches,
+    dependencySetup: dependencySetup,
+    unavailableExtensionDetail: unavailableExtensionDetail,
     safeExtensionPattern: safeExtensionPattern,
     normalizeExtension: normalizeExtension,
     resolveExtensions: resolveExtensions,

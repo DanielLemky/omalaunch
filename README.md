@@ -76,7 +76,9 @@ Install the calculation dependency through Omarchy:
 omarchy pkg add libqalculate
 ```
 
-Omalaunch does not install system packages automatically.
+If it is missing, Calculator and Currency results remain visible but unavailable. Press Enter on one of those results to review the exact command and explicitly confirm opening it in a visible terminal. Reopen Omalaunch afterward to recheck the dependency; no shell restart is required. All unrelated launcher features remain usable.
+
+Omalaunch never installs system packages silently. Package installation is offered only for dependencies allow-listed by Omalaunch itself; external extensions cannot supply installation commands.
 
 ## Usage
 
@@ -135,13 +137,22 @@ Restart the shell after updating so the running QML engine does not continue
 using cached plugin code. This works around an upstream Omarchy hot-reload
 issue until plugin rescans reliably load changed QML.
 
-## Removal
+## Disabling and removal
+
+Disable or re-enable Omalaunch without removing it:
+
+```bash
+omarchy plugin disable quantumfire.omalaunch
+omarchy plugin enable quantumfire.omalaunch
+```
+
+Remove it completely:
 
 ```bash
 omarchy plugin remove quantumfire.omalaunch
 ```
 
-Removing Omalaunch does not remove its optional extension plugins or system dependencies.
+Disabling or removing Omalaunch restores the stock launcher. Removing Omalaunch does not remove its optional extension plugins, saved state, or system dependencies.
 
 ## Security
 

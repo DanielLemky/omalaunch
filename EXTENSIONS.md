@@ -133,4 +133,6 @@ Commands are argument arrays. Omalaunch substitutes placeholders and shell-quote
 
 Missing dependencies leave an extension visible but unavailable with a clear message; its command cannot be activated. Omalaunch logs diagnostics for malformed definitions, unsupported schemas, duplicate IDs or prefixes, invalid regular expressions, and missing dependencies.
 
+The `requires` field declares executable requirements only. It does not authorize package installation, and external extensions cannot provide commands for Omalaunch to install system packages. Omalaunch may offer explicit installation only for dependencies in its own trusted allow-list, after showing the exact command and receiving user confirmation.
+
 Malformed extensions are ignored. Omarchy plugins are trusted local software and extension commands run as the current user.
