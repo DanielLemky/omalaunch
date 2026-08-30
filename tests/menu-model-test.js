@@ -95,6 +95,7 @@ const queryExtensions = menu.parseExtensions(JSON.stringify([
 ]))
 assert(queryExtensions.length === 1 && queryExtensions[0].id === 'replacement-calculator', 'equal-priority external extensions replace bundled capabilities')
 assert(menu.queryExtension(queryExtensions, '2+2').id === 'replacement-calculator', 'query extensions match live input')
+assert(Object.prototype.toString.call(queryExtensions[0].matchAllRegex[0]) === '[object RegExp]', 'query extension regular expressions are compiled once')
 assert(menu.queryExtension(queryExtensions, 'hello') === null, 'query extensions ignore unrelated input')
 
 const replacementFixture = {

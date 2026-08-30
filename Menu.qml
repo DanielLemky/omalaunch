@@ -21,7 +21,7 @@ Item {
   property string pendingInitialMenu: "root"
 
   function open(payloadJson) {
-    root.loadExtensions()
+    root.loadExtensions(false)
     var payload = ({})
     try { payload = JSON.parse(payloadJson || "{}") } catch (e) { payload = ({}) }
 
@@ -41,7 +41,7 @@ Item {
   function refresh() {
     defaultMenuFile.reload()
     userMenuFile.reload()
-    root.loadExtensions()
+    root.loadExtensions(true)
     return "ok"
   }
 
@@ -59,11 +59,15 @@ Item {
   property var extensionDiagnostics: []
   property var unavailableResultExtension: null
   property bool extensionsReloadPending: false
+  property double extensionsLoadedAt: 0
+  readonly property int extensionRefreshTtlMs: 10 * 1000
   property bool opened: false
   property string mode: "menu"
   readonly property bool dmenuActive: mode === "select" || mode === "input"
   property string dmenuPrompt: ""
   property var dmenuOptions: []
+  property var dmenuRows: []
+  readonly property int maxDisplayedResults: 100
   property string selectionFile: ""
   property string doneFile: ""
   property int dmenuWidth: 300
@@ -338,11 +342,16 @@ Item {
     return root.shellCommand(extension.command, { prompt: prompt })
   }
 
-  function loadExtensions() {
+  function loadExtensions(force) {
+    var forced = force === true
     if (extensionProc.running) {
-      root.extensionsReloadPending = true
+      // An ordinary open can reuse the catalog already being loaded. Only an
+      // explicit refresh needs a follow-up run after the current one exits.
+      if (forced) root.extensionsReloadPending = true
       return
     }
+    if (!forced && root.extensionsLoadedAt > 0
+        && Date.now() - root.extensionsLoadedAt < root.extensionRefreshTtlMs) return
     root.extensionsReloadPending = false
     extensionProc.collected = ""
     extensionProc.outputOverflow = false
@@ -583,7 +592,7 @@ Item {
     root.items = nextItems
     root.itemOrder = nextOrder
     root.rowsLoaded = true
-    root.evaluateGuards()
+    root.evaluateGuards(true)
     if (root.opened) {
       root.rebuildDisplay()
       if (!root.dmenuActive) {
@@ -850,27 +859,20 @@ Item {
     }
 
     var query = root.filterText.trim().toLowerCase()
-    for (var i = 0; i < root.dmenuOptions.length; i++) {
-      // An option is "<label>", "<glyph>\t<label>", or
-      // "<glyph>\t<label>\t<subtext>". The glyph never comes back with the
-      // selection; the subtext renders under the label, filters alongside it,
-      // and returns with the selection as a stable key for same-named rows.
-      var parts = String(root.dmenuOptions[i] || "").split("\t")
-      var icon = parts.length > 1 ? parts.shift() : ""
-      var label = parts.shift() || ""
-      var detail = parts.join("\t")
-      if (query && label.toLowerCase().indexOf(query) < 0
-          && detail.toLowerCase().indexOf(query) < 0) continue
+    var appended = 0
+    for (var i = 0; i < root.dmenuRows.length && appended < root.maxDisplayedResults; i++) {
+      var option = root.dmenuRows[i]
+      if (query && option.searchText.indexOf(query) < 0) continue
       displayModel.append({
-        itemId: "dmenu." + i,
+        itemId: "dmenu." + option.index,
         kind: "dmenu",
-        icon: icon,
+        icon: option.icon,
         iconFont: "",
         appIcon: "",
         appId: "",
-        label: label,
+        label: option.label,
         target: "",
-        detail: detail,
+        detail: option.detail,
         path: "",
         childCount: 0,
         action: "",
@@ -879,6 +881,7 @@ Item {
         section: "",
         starred: false
       })
+      appended += 1
     }
 
     layoutSerial += 1
@@ -937,6 +940,10 @@ Item {
       rows.sort(function(a, b) {
         return MenuModel.compareSearchRows(a, b, query.length >= 3)
       })
+      // ListView virtualizes delegates, but ListModel still pays for every
+      // append across the QML/JS boundary. Only retain enough ranked results
+      // for useful navigation; extension rows are added separately below.
+      if (rows.length > root.maxDisplayedResults) rows = rows.slice(0, root.maxDisplayedResults)
 
       var extensionSuggestions = MenuModel.suggestExtensions(root.extensions, query)
       for (var suggestionIndex = extensionSuggestions.length - 1; suggestionIndex >= 0; suggestionIndex--) {
@@ -1104,7 +1111,9 @@ Item {
     root.cursorActive = root.mode !== "input"
     root.disarmPointer()
     if (root.fileBrowserActive) {
-      root.rebuildFileDisplay()
+      // Keep the current rows visible while the debounced scan runs. Rebuilding
+      // the same model here made every keystroke pay for up to 100 stale rows,
+      // only to replace them again when the process completed.
       root.scheduleFileScan()
       return
     }
@@ -1313,7 +1322,7 @@ Item {
     selectedIndex = 0
     cursorActive = true
     root.disarmPointer()
-    root.evaluateGuards()
+    root.evaluateGuards(false)
     opened = true
     rebuildDisplay()
     invalidateVolatileProvider(activeMenu)
@@ -1331,6 +1340,22 @@ Item {
     mode = payload.mode === "input" ? "input" : "select"
     dmenuPrompt = String(payload.prompt || (mode === "input" ? "Input" : "Select"))
     dmenuOptions = Array.isArray(payload.options) ? payload.options : []
+    // Normalize caller rows once rather than splitting and lowercasing every
+    // option again on each keystroke.
+    dmenuRows = []
+    for (var i = 0; i < dmenuOptions.length; i++) {
+      var parts = String(dmenuOptions[i] || "").split("\t")
+      var icon = parts.length > 1 ? parts.shift() : ""
+      var label = parts.shift() || ""
+      var detail = parts.join("\t")
+      dmenuRows.push({
+        index: i,
+        icon: icon,
+        label: label,
+        detail: detail,
+        searchText: (label + "\n" + detail).toLowerCase()
+      })
+    }
     selectionFile = String(payload.selectionFile || "")
     doneFile = String(payload.doneFile || "")
     requestActive = !!doneFile
@@ -1520,12 +1545,13 @@ Item {
         : { extensions: [], diagnostics: [extensionProc.outputOverflow ? "Extension catalog exceeded the output limit" : "Extension loader exited with code " + exitCode] }
       root.extensions = catalog.extensions
       root.extensionDiagnostics = catalog.diagnostics
+      if (exitCode === 0 && !extensionProc.outputOverflow) root.extensionsLoadedAt = Date.now()
       for (var i = 0; i < catalog.diagnostics.length; i++) console.warn("Omalaunch: " + catalog.diagnostics[i])
       if (root.opened && !root.dmenuActive) {
         root.scheduleExtensionQuery()
         root.rebuildDisplay()
       }
-      if (root.extensionsReloadPending) root.loadExtensions()
+      if (root.extensionsReloadPending) root.loadExtensions(true)
     }
   }
 
@@ -1616,8 +1642,14 @@ Item {
   property var whenResults: ({})       // id → true|false (allow visibility)
   property var checkedResults: ({})    // id → true|false (show ✓)
   property bool guardsPending: false
+  property bool guardsForcePending: false
+  property double guardsEvaluatedAt: 0
+  readonly property int guardRefreshTtlMs: 10 * 1000
 
-  function evaluateGuards() {
+  function evaluateGuards(force) {
+    var forced = force === true
+    if (!forced && root.guardsEvaluatedAt > 0
+        && Date.now() - root.guardsEvaluatedAt < root.guardRefreshTtlMs) return
     // Process ignores a command change while it is running, and `collected`
     // belongs to the run in flight, so a second evaluation cannot overwrite
     // the first: it would throw away the lines already read and never start.
@@ -1626,9 +1658,11 @@ Item {
     // false. Wait for the run in flight and evaluate once it lands instead.
     if (guardProc.running) {
       root.guardsPending = true
+      if (forced) root.guardsForcePending = true
       return
     }
     root.guardsPending = false
+    root.guardsForcePending = false
 
     var script = MenuModel.guardScript(root.items)
     if (!script) {
@@ -1653,7 +1687,7 @@ Item {
       // Keep the last complete set rather than let a half-read one through.
       // A signal leaves the exit code at 0, so the status is what tells us.
       if (exitCode !== 0 || exitStatus !== 0) {
-        if (root.guardsPending) Qt.callLater(function() { root.evaluateGuards() })
+        if (root.guardsPending) Qt.callLater(function() { root.evaluateGuards(root.guardsForcePending) })
         return
       }
 
@@ -1676,10 +1710,11 @@ Item {
       }
       root.whenResults = nextWhen
       root.checkedResults = nextChecked
+      root.guardsEvaluatedAt = Date.now()
       if (root.opened) root.rebuildDisplay()
       // Run the evaluation that had to stand aside. Deferred by a turn so the
       // process is settled before its command is set again.
-      if (root.guardsPending) Qt.callLater(function() { root.evaluateGuards() })
+      if (root.guardsPending) Qt.callLater(function() { root.evaluateGuards(root.guardsForcePending) })
     }
   }
   PanelWindow {
