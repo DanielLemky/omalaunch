@@ -245,13 +245,9 @@ Item {
     return (root.filterText || root.dmenuActive) && detail ? root.detailRowHeight : root.baseRowHeight
   }
 
-  // Height the card can devote to rows before running off the screen — or
-  // past the frozen top edge once a search has pinned the card in place.
-  // Uses panel.cardTop rather than effectiveCardTop: the centered top is
-  // derived from the card height, which this value feeds.
+  // Height the card can devote to rows below its pinned top edge.
   function availableRowsHeight() {
-    var top = panel.cardTop >= 0 ? panel.cardTop : Style.gapsOut
-    var available = panel.height - top - Style.gapsOut - root.contentMargin * 2 - root.headerHeight - root.contentSpacing
+    var available = panel.height - panel.pinnedTop - Style.gapsOut - root.contentMargin * 2 - root.headerHeight - root.contentSpacing
     // A card that swallows the whole screen reads as a page, not a menu.
     return Math.min(available, Math.round(panel.height * 0.5))
   }
@@ -1166,7 +1162,6 @@ Item {
 
   function setFilter(nextFilter) {
     if (root.actionPanelActive) return
-    panel.freezeCardTop()
     root.filterText = nextFilter
     root.selectedIndex = 0
     root.cursorActive = root.mode !== "input"
@@ -1184,7 +1179,6 @@ Item {
   }
 
   function setActiveMenu(id, pushHistory, fromPointer) {
-    panel.freezeCardTop()
     if (!root.item(id)) id = "root"
     if (pushHistory && id !== root.activeMenu) root.navStack = root.navStack.concat([root.activeMenu])
     root.activeMenu = id
@@ -1836,17 +1830,8 @@ Item {
     WlrLayershell.keyboardFocus: WlrKeyboardFocus.Exclusive
     exclusionMode: ExclusionMode.Ignore
 
-    // The card opens centered. The first search keystroke or submenu move
-    // freezes its top edge so later size changes grow downward without jumping.
-    property int cardTop: -1
-    readonly property int centeredTop: Math.max(Style.gapsOut, Math.round((height - root.cardHeight) / 2))
-    readonly property int effectiveCardTop: cardTop >= 0 ? cardTop : centeredTop
-    function freezeCardTop() {
-      if (visible && cardTop < 0) {
-        cardTop = effectiveCardTop
-      }
-    }
-    onVisibleChanged: if (!visible) cardTop = -1
+    // Keep the top edge fixed while result and submenu heights change.
+    readonly property int pinnedTop: Math.max(Style.gapsOut, Math.round(height * 0.25))
 
     Rectangle {
       anchors.fill: parent
@@ -1861,10 +1846,10 @@ Item {
     BorderSurface {
       id: card
       width: root.cardWidth
-      height: Math.min(root.cardHeight, panel.height - Style.gapsOut - panel.effectiveCardTop)
+      height: Math.min(root.cardHeight, panel.height - Style.gapsOut - panel.pinnedTop)
       radius: root.cornerRadius
       anchors.horizontalCenter: parent.horizontalCenter
-      y: panel.effectiveCardTop
+      y: panel.pinnedTop
       color: root.background
       borderSpec: root.borderSpec
       padding: root.contentMargin
