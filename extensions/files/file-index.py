@@ -161,7 +161,6 @@ def query(index_path: str, needle: str) -> int:
                 f"--filter={needle}",
                 "--scheme=path",
                 "--tiebreak=begin,length",
-                "--no-multi-line",
             ],
             stdin=index,
             stdout=subprocess.PIPE,
