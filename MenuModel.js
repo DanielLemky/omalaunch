@@ -167,6 +167,13 @@ function item(items, id) {
   return items && items[id] ? items[id] : null
 }
 
+// Structural IDs are supplied by menu authors. Prefix them before using plain
+// objects as maps so names such as constructor, toString, and __proto__ cannot
+// collide with Object.prototype.
+function structuralKey(value) {
+  return "$" + String(value || "")
+}
+
 // Routes may name a real id (`system`, `setup.power`) or an alias declared in
 // JSONC (`power-menu`, `settings`). An exact id beats any alias, and app rows
 // are never routable: their aliases carry .desktop Keywords and GenericName
@@ -232,7 +239,7 @@ function parentPathFor(items, id, metadata) {
 function isDescendantOf(items, id, ancestorId, metadata) {
   if (ancestorId === "root") return id !== "root"
   var cached = metadata && metadata[id]
-  if (cached) return cached.ancestorSet[ancestorId] === true
+  if (cached) return cached.ancestorSet[structuralKey(ancestorId)] === true
 
   var current = item(items, id)
   var guard = 0
@@ -330,27 +337,29 @@ function buildItemMetadata(items, itemOrder, whenResults) {
   for (var i = 0; i < order.length; i++) {
     var entry = item(source, order[i])
     if (!entry || !entry.parent) continue
-    if (!children[entry.parent]) children[entry.parent] = []
-    children[entry.parent].push(entry.id)
+    var parentKey = structuralKey(entry.parent)
+    if (!children[parentKey]) children[parentKey] = []
+    children[parentKey].push(entry.id)
   }
 
   function visible(id, depth, visiting) {
     var entry = item(source, id)
-    if (!entry || visiting[id]) return false
+    var visitKey = structuralKey(id)
+    if (!entry || visiting[visitKey]) return false
     if (entry.when && whenResults && whenResults[id] === false) return false
     // Match isVisible's ordering: leaves and provider-backed menus remain
     // visible even when reached at the recursion guard boundary.
     if ((entry.kind !== "menu" && entry.kind !== "link") || entry.provider) return true
     if (depth >= 32) return false
 
-    visiting[id] = true
+    visiting[visitKey] = true
     var target = entry.kind === "link" ? entry.target : id
-    var childIds = children[target] || []
+    var childIds = children[structuralKey(target)] || []
     var result = false
     for (var childIndex = 0; childIndex < childIds.length; childIndex++) {
       if (visible(childIds[childIndex], depth + 1, visiting)) { result = true; break }
     }
-    delete visiting[id]
+    delete visiting[visitKey]
     return result
   }
 
@@ -364,7 +373,7 @@ function buildItemMetadata(items, itemOrder, whenResults) {
     var depth = 0
     while (cursor && cursor.id !== "root" && guard < 32) {
       labels.unshift(cursor.label)
-      if (cursor.parent) ancestorSet[cursor.parent] = true
+      if (cursor.parent) ancestorSet[structuralKey(cursor.parent)] = true
       if (cursor.parent && cursor.parent !== "root") depth += 1
       cursor = item(source, cursor.parent)
       guard += 1
@@ -382,7 +391,7 @@ function buildItemMetadata(items, itemOrder, whenResults) {
       parentPath: current.parent && current.parent !== "root" && metadata[current.parent]
         ? metadata[current.parent].path
         : (current.parent && current.parent !== "root" ? pathFor(source, current.parent) : ""),
-      childCount: (children[target] || []).length,
+      childCount: (children[structuralKey(target)] || []).length,
       ancestorSet: ancestorSet,
       visible: visible(current.id, 0, ({})),
       nameText: nameSearchText(current),

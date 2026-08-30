@@ -244,6 +244,18 @@ deepOrder.push('deep.leaf')
 const deepMetadata = menu.buildItemMetadata(deepItems, deepOrder, {})
 assert(deepOrder.every(id => deepMetadata[id].visible === menu.isVisible(deepItems, deepOrder, {}, deepItems[id])), 'cached visibility preserves recursion-boundary behavior')
 
+const specialParentItems = { root: menu.normalizeItem('root', { label: 'Go' }) }
+specialParentItems.constructor = menu.normalizeItem('constructor', { label: 'Constructor' })
+specialParentItems['constructor.child'] = menu.normalizeItem('constructor.child', { label: 'Child', parent: 'constructor', action: 'child' })
+specialParentItems['toString.child'] = menu.normalizeItem('toString.child', { label: 'String Child', parent: 'toString', action: 'child' })
+specialParentItems['__proto__.child'] = menu.normalizeItem('__proto__.child', { label: 'Proto Child', parent: '__proto__', action: 'child' })
+const specialParentOrder = ['root', 'constructor', 'constructor.child', 'toString.child', '__proto__.child']
+specialParentOrder.forEach((id, index) => { specialParentItems[id].order = index })
+const specialParentMetadata = menu.buildItemMetadata(specialParentItems, specialParentOrder, {})
+assert(specialParentMetadata.constructor.childCount === 1, 'derived child maps accept inherited object-property names')
+assert(specialParentMetadata['constructor.child'].ancestorSet.$constructor, 'derived ancestry accepts inherited object-property names')
+assert(specialParentMetadata['toString.child'].visible && specialParentMetadata['__proto__.child'].visible, 'special parent ids do not prevent metadata construction')
+
 assert(menu.searchMatchPriority({ label: 'Apps', aliases: ['app', 'applications'] }, 'apps') === 4, 'exact labels have highest priority')
 assert(menu.searchMatchPriority({ label: 'Apps', aliases: ['app', 'applications'] }, 'app') === 3, 'exact aliases outrank prefixes')
 assert(menu.searchMatchPriority({ label: 'Apps', aliases: ['app', 'applications'] }, 'ap') === 2, 'alias prefixes outrank label prefixes')
