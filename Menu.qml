@@ -528,7 +528,7 @@ Item {
 
   function isPotentialExtensionQuery(value) {
     var query = String(value || "")
-    return /^\s*[+-]?(?:\d|\.\d)/.test(query)
+    return /^\s*[+-]?[\s(]*(?:\d|\.\d)/.test(query)
       || MenuModel.queryExtension(root.extensions, query) !== null
       || MenuModel.unavailableQueryExtension(root.extensions, query) !== null
   }
