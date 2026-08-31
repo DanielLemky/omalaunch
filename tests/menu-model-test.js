@@ -625,3 +625,18 @@ const guardRun = childProcess.spawnSync('bash', ['-c', menu.guardScript({
 assert(guardRun.status === 0, 'guard scripts remain valid for shell metacharacters in ids')
 assert(guardRun.stdout.trim() === `${hostileId}:w:1`, 'guard ids round-trip without shell interpretation')
 assert(!fs.existsSync(marker), 'guard ids cannot inject shell commands')
+
+const configuredProviderCatalog = menu.parseExtensionCatalog(JSON.stringify({
+  extensions: [
+    { schemaVersion: 1, id: 'default-files', capability: 'files', mode: 'files', label: 'Default', prefixes: ['default'], command: ['true'], _bundled: true },
+    { schemaVersion: 1, id: 'chosen-files', capability: 'files', mode: 'files', label: 'Chosen', prefixes: ['chosen'], command: ['true'], priority: -10 }
+  ], providerPreferences: { files: 'chosen-files' }
+}))
+assert(configuredProviderCatalog.extensions[0].id === 'chosen-files',
+  'provider configuration selects an available id')
+const missingProviderCatalog = menu.parseExtensionCatalog(JSON.stringify({
+  extensions: [{ schemaVersion: 1, id: 'fallback', capability: 'files', mode: 'files', label: 'Fallback', prefixes: ['fallback'], command: ['true'] }],
+  providerPreferences: { files: 'missing' }
+}))
+assert(missingProviderCatalog.extensions[0].id === 'fallback' && missingProviderCatalog.diagnostics.some(value => value.indexOf("is missing; normal provider resolution was used") >= 0),
+  'a missing configured provider falls back with a diagnostic')

@@ -37,6 +37,8 @@ MAX_DIAGNOSTICS = 256
 MAX_DIAGNOSTIC_CHARS = 1024
 MAX_SAFE_JSON_INTEGER = 9007199254740991
 AGGREGATE_PROVIDER_SECONDS = 15.0
+MAX_CONFIG_INPUT_BYTES = 64 * 1024
+MAX_CONFIG_CAPABILITIES = 128
 
 
 @dataclass(frozen=True)
@@ -71,6 +73,11 @@ class CatalogBuilder:
         self.definition_limit_reported = False
         self.byte_limit_reported = False
         self.diagnostic_limit_reported = False
+        self.provider_preferences: dict[str, str] = {}
+        # This normalized object is the stable loader-to-host envelope for
+        # current and future Omalaunch core settings. Only validated settings
+        # are copied from the user-owned config file.
+        self.omalaunch_config: dict[str, Any] = {}
         # Reserve room for useful diagnostics. The final envelope still uses
         # the exact public catalog limit and trims diagnostics linearly.
         reserve = min(64 * 1024, max(64, limits.catalog_output_bytes // 4))
@@ -135,7 +142,13 @@ class CatalogBuilder:
         """Return a bounded envelope even if defensive final encoding fails."""
         try:
             validate_json_depth(self.catalog, self.limits.json_nesting_depth + 1)
-            result = {"extensions": self.catalog, "diagnostics": [], "complete": complete}
+            result = {
+                "extensions": self.catalog,
+                "diagnostics": [],
+                "complete": complete,
+                "providerPreferences": self.provider_preferences,
+                "omalaunchConfig": self.omalaunch_config,
+            }
             base_size = len(self.encoded(result))
             used = base_size
             omitted = False
@@ -303,6 +316,75 @@ def parse_json(value: str | bytes, *, maximum_depth: int = MAX_JSON_NESTING_DEPT
     return parsed
 
 
+def strip_jsonc(value: bytes) -> str:
+    """Remove JSONC comments and trailing commas without changing strings."""
+    text = value.decode("utf-8")
+    output: list[str] = []
+    index = 0
+    in_string = False
+    escaped = False
+    while index < len(text):
+        char = text[index]
+        if in_string:
+            output.append(char)
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            index += 1
+            continue
+        if char == '"':
+            in_string = True
+            output.append(char)
+            index += 1
+        elif text.startswith("//", index):
+            end = text.find("\n", index + 2)
+            index = len(text) if end < 0 else end
+        elif text.startswith("/*", index):
+            end = text.find("*/", index + 2)
+            if end < 0:
+                raise ValueError("unterminated block comment")
+            output.append(" ")
+            output.extend("\n" for item in text[index:end + 2] if item == "\n")
+            index = end + 2
+        else:
+            output.append(char)
+            index += 1
+    # A second string-aware pass removes only commas followed by ] or }.
+    text = "".join(output)
+    output = []
+    index = 0
+    in_string = escaped = False
+    while index < len(text):
+        char = text[index]
+        if in_string:
+            output.append(char)
+            if escaped: escaped = False
+            elif char == "\\": escaped = True
+            elif char == '"': in_string = False
+        elif char == '"':
+            in_string = True
+            output.append(char)
+        elif char == ',':
+            lookahead = index + 1
+            while lookahead < len(text) and text[lookahead].isspace(): lookahead += 1
+            if lookahead >= len(text) or text[lookahead] not in "]}": output.append(char)
+        else:
+            output.append(char)
+        index += 1
+    return "".join(output)
+
+
+def read_jsonc(path: Path, *, size_limit: int = MAX_CONFIG_INPUT_BYTES,
+               maximum_depth: int = MAX_JSON_NESTING_DEPTH) -> Any:
+    size = path.stat().st_size
+    if size > size_limit:
+        raise ValueError(f"file is {size} bytes; limit is {size_limit} bytes")
+    return parse_json(strip_jsonc(path.read_bytes()), maximum_depth=maximum_depth)
+
+
 def read_json(path: Path, *, size_limit: int | None = None,
               maximum_depth: int = MAX_JSON_NESTING_DEPTH) -> Any:
     if size_limit is not None:
@@ -359,6 +441,38 @@ def provider_failure(source: str, status: str, stderr: bytes, output_limit: int)
         reason = f"could not start ({status.split(':', 1)[-1]})"
     detail = stderr.decode("utf-8", "replace").strip()[:DIAGNOSTIC_STDERR_BYTES]
     return f"Extension provider {source} {reason}" + (f": {detail}" if detail else "")
+
+
+def load_user_configuration(home: Path, builder: CatalogBuilder, limits: Limits) -> None:
+    config_root = home / ".config" / "omarchy" / "omalaunch"
+    main_path = config_root / "config.jsonc"
+    if main_path.exists():
+        try:
+            value = read_jsonc(main_path, maximum_depth=limits.json_nesting_depth)
+            if not isinstance(value, dict) or value.get("version") != 1:
+                raise ValueError("expected an object with version 1")
+            capabilities = value.get("capabilities", {})
+            if not isinstance(capabilities, dict):
+                raise ValueError("capabilities must be an object")
+            if len(capabilities) > MAX_CONFIG_CAPABILITIES:
+                builder.diagnostic(f"Configuration {main_path} has more than {MAX_CONFIG_CAPABILITIES} capabilities; trailing entries were ignored")
+            normalized_capabilities: dict[str, dict[str, str]] = {}
+            for capability, setting in list(capabilities.items())[:MAX_CONFIG_CAPABILITIES]:
+                if not isinstance(capability, str) or not capability or not isinstance(setting, dict):
+                    builder.diagnostic(f"Ignored invalid capability selection in {main_path}: {capability!r}")
+                    continue
+                provider = setting.get("provider")
+                if not isinstance(provider, str) or not provider:
+                    builder.diagnostic(f"Ignored invalid provider for capability {capability!r} in {main_path}")
+                    continue
+                builder.provider_preferences[capability] = provider
+                normalized_capabilities[capability] = {"provider": provider}
+            builder.omalaunch_config = {
+                "version": 1,
+                "capabilities": normalized_capabilities,
+            }
+        except (OSError, UnicodeDecodeError, ValueError) as error:
+            builder.diagnostic(f"Could not load configuration {main_path}: {error}")
 
 
 def load_catalog(plugin_path: Path, omarchy_path: Path, home: Path, limits: Limits) -> dict[str, Any]:
@@ -561,6 +675,7 @@ def load_catalog(plugin_path: Path, omarchy_path: Path, home: Path, limits: Limi
                 continue
             builder.append(definitions, bundled=False, source_dir=plugin_dir, source=source)
 
+    load_user_configuration(home, builder, limits)
     return builder.finish(complete=complete)
 
 
