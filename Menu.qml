@@ -1143,7 +1143,7 @@ Item {
           var searchFavoriteItem = MenuModel.fileFavoriteItem(searchFavoriteIds[searchFavoriteIndex])
           if (!searchFavorite || !searchFavoriteItem || seenSearchFileFavorites["$" + searchFavoriteItem.id]) continue
           seenSearchFileFavorites["$" + searchFavoriteItem.id] = true
-          if (!MenuModel.matchesQuery(searchFavoriteItem, preparedQuery, true)) continue
+          if (!MenuModel.matchesFileFavoriteQuery(searchFavoriteItem, preparedQuery)) continue
           searchFavoriteItem.icon = searchFavorite.type === "directory" ? "󰉋" : "󰈔"
           var searchFavoriteRow = root.displayRow(searchFavoriteItem, searchFavorite.path, 0)
           searchFavoriteRow.path = searchFavorite.path

@@ -107,9 +107,13 @@ assert(menu.fileFavoriteLabel('/') === '/', 'the filesystem root has a useful fa
 const favoriteSearchItem = menu.fileFavoriteItem('file.favorite.directory:/home/quantumfire/Downloads')
 assert(favoriteSearchItem.id === menu.fileFavoriteId('/home/quantumfire/Downloads', 'directory', 'files'), 'favorite search items canonicalize legacy ids')
 assert(favoriteSearchItem.label === 'Downloads' && favoriteSearchItem.action === '/home/quantumfire/Downloads', 'favorite search items retain their label and path action')
-assert(menu.matchesQuery(favoriteSearchItem, menu.prepareSearchQuery('downloads'), true), 'favorite search items match their visible labels')
-assert(menu.matchesQuery(favoriteSearchItem, menu.prepareSearchQuery('home quantumfire'), true), 'favorite search items match path components')
-assert(!menu.matchesQuery(favoriteSearchItem, menu.prepareSearchQuery('documents'), true), 'nonmatching file favorites remain hidden from search')
+assert(menu.matchesFileFavoriteQuery(favoriteSearchItem, menu.prepareSearchQuery('downloads')), 'favorite search items match their visible labels')
+assert(menu.matchesFileFavoriteQuery(favoriteSearchItem, menu.prepareSearchQuery('home quantumfire')), 'favorite search items match path components')
+assert(!menu.matchesFileFavoriteQuery(favoriteSearchItem, menu.prepareSearchQuery('documents')), 'nonmatching file favorites remain hidden from search')
+assert(!menu.matchesFileFavoriteQuery(favoriteSearchItem, menu.prepareSearchQuery('files')), 'favorite search ignores the hidden extension capability in canonical ids')
+assert(!menu.matchesFileFavoriteQuery(favoriteSearchItem, menu.prepareSearchQuery('directory')), 'favorite search ignores the hidden path type in canonical ids')
+const filesPathFavorite = menu.fileFavoriteItem(menu.fileFavoriteId('/home/quantumfire/files/Downloads', 'directory', 'files'))
+assert(menu.matchesFileFavoriteQuery(filesPathFavorite, menu.prepareSearchQuery('files')), 'favorite search still matches capability-like words when they occur in the visible path')
 assert(menu.fileFavoriteItem('app.example') === null, 'ordinary starred items do not become synthetic file rows')
 
 const queryExtensions = menu.parseExtensions(JSON.stringify([
