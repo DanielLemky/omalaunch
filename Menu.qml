@@ -2095,6 +2095,10 @@ Item {
             else if (root.fileBrowserActive) root.leaveFileBrowser()
             else root.cancel()
             event.accepted = true
+          } else if ((event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab)
+              && !(event.modifiers & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier))) {
+            root.select(event.key === Qt.Key_Backtab || (event.modifiers & Qt.ShiftModifier) ? -1 : 1)
+            event.accepted = true
           } else if (Util.editsFilter(event, root.filterText)) {
             root.setFilter(Util.editedFilter(event, root.filterText))
             event.accepted = true

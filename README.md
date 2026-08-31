@@ -102,7 +102,7 @@ Omalaunch never installs system packages silently. Package installation is offer
 
 ## Usage
 
-Start typing to search commands and applications. Use the arrow keys to move, Enter to activate, and Escape to go back or close the launcher.
+Start typing to search commands and applications. Use the arrow keys or Tab and Shift+Tab to move, Enter to activate, and Escape to go back or close the launcher.
 
 Examples:
 
