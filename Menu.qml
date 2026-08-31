@@ -111,6 +111,10 @@ Item {
   // favorites system or changing direct typed extension invocation.
   property var focusedExtension: null
   property int extensionQuerySerial: 0
+  property int extensionQueryGeneration: 0
+  property var pendingExtensionQuery: null
+  readonly property int extensionQueryTimeoutMs: 5000
+  readonly property int extensionQueryTerminationGraceMs: 500
   property bool fileBrowserActive: false
   property bool directoryPickerActive: false
   property var fileBrowserExtension: null
@@ -175,6 +179,7 @@ Item {
   property var dependencyTarget: null
   onOpenedChanged: if (!opened) {
     root.invalidateWorkflowAction("launcher closed")
+    root.invalidateExtensionQuery("launcher closed")
     deleteConfirmOpen = false
     deleteTarget = null
     dependencyConfirmOpen = false
@@ -191,8 +196,7 @@ Item {
     target: currencyRates
     function onRefreshed() {
       if (!root.resultExtension || root.resultExtension.capability !== "currency") return
-      root.extensionQuerySerial += 1
-      extensionQueryTimer.restart()
+      root.scheduleExtensionQuery()
     }
   }
 
@@ -429,15 +433,79 @@ Item {
       || MenuModel.unavailableQueryExtension(root.extensions, query) !== null
   }
 
-  function scheduleExtensionQuery() {
+  function stopExtensionQuery(reason) {
+    extensionQueryTimeout.stop()
+    if (!extensionQueryProc.running || extensionQueryProc.stopping) return
+    // Keep every field describing this child immutable until onExited. Setting
+    // running false is Quickshell's SIGTERM path; only the matching generation
+    // may escalate the same direct child after the grace period.
+    extensionQueryProc.stopping = true
+    extensionQueryProc.stopGeneration = extensionQueryProc.generation
+    extensionQueryKillTimer.generation = extensionQueryProc.stopGeneration
+    extensionQueryProc.running = false
+    extensionQueryKillTimer.restart()
+  }
+
+  function invalidateExtensionQuery(reason) {
     root.extensionQuerySerial += 1
+    extensionQueryTimer.stop()
+    root.pendingExtensionQuery = null
+    root.stopExtensionQuery(reason)
+  }
+
+  function dispatchPendingExtensionQuery() {
+    if (extensionQueryProc.running || extensionQueryProc.stopping || !root.pendingExtensionQuery) return
+    var request = root.pendingExtensionQuery
+    root.pendingExtensionQuery = null
+    if (!root.opened || request.revision !== root.extensionQuerySerial
+        || request.query !== root.effectiveExtensionQuery()
+        || !root.resultExtension || request.extensionId !== root.resultExtension.id) return
+
+    root.extensionQueryGeneration += 1
+    extensionQueryProc.generation = root.extensionQueryGeneration
+    extensionQueryProc.revision = request.revision
+    extensionQueryProc.query = request.query
+    extensionQueryProc.extensionId = request.extensionId
+    extensionQueryProc.collected = ""
+    extensionQueryProc.outputOverflow = false
+    extensionQueryProc.command = request.command
+    extensionQueryProc.running = true
+    extensionQueryTimeout.generation = extensionQueryProc.generation
+    extensionQueryTimeout.restart()
+  }
+
+  function queueExtensionQuery(extension, query, revision) {
+    root.pendingExtensionQuery = {
+      extensionId: extension.id,
+      query: query,
+      revision: revision,
+      command: root.commandArguments(extension.command, { query: query, extensionDir: extension.sourceDir })
+    }
+    if (extensionQueryProc.running && !extensionQueryProc.stopping)
+      root.stopExtensionQuery("newer query queued")
+    else if (!extensionQueryProc.stopping)
+      root.dispatchPendingExtensionQuery()
+  }
+
+  function collectExtensionQuery(data) {
+    if (extensionQueryProc.outputOverflow || extensionQueryProc.stopping) return
+    var next = extensionQueryProc.collected + data + "\n"
+    if (next.length > root.maxProcessOutputBytes) {
+      extensionQueryProc.outputOverflow = true
+      extensionQueryProc.collected = ""
+      root.stopExtensionQuery("query output exceeded limit")
+      return
+    }
+    extensionQueryProc.collected = next
+  }
+
+  function scheduleExtensionQuery() {
+    root.invalidateExtensionQuery("query context changed")
     root.extensionQuery = ""
     root.extensionResult = ""
     root.resultExtension = null
     root.unavailableResultExtension = null
-    extensionQueryTimer.stop()
-    if (extensionQueryProc.running) extensionQueryProc.running = false
-    if (root.dmenuActive) return
+    if (root.dmenuActive || !root.opened) return
     if (root.focusedExtension && root.focusedExtension.mode === "prefix") {
       root.rebuildDisplay()
       return
@@ -447,7 +515,7 @@ Item {
     var queryCatalog = root.focusedExtension ? [root.focusedExtension] : root.extensions
     root.resultExtension = MenuModel.queryExtension(queryCatalog, query)
     root.unavailableResultExtension = MenuModel.unavailableQueryExtension(queryCatalog, query)
-    if (root.resultExtension) extensionQueryTimer.start()
+    if (root.resultExtension) extensionQueryTimer.restart()
     // Available queries rebuild when their process exits. Unavailable queries
     // start no process, so surface their actionable row immediately.
     else if (root.unavailableResultExtension) root.rebuildDisplay()
@@ -497,6 +565,7 @@ Item {
   }
 
   function leaveFocusedExtension() {
+    root.invalidateExtensionQuery("left focused extension")
     root.focusedExtension = null
     root.extensionQuery = ""
     root.extensionResult = ""
@@ -540,6 +609,7 @@ Item {
 
   function enterWorkflow(extension) {
     if (!extension || !extension.available || extension.mode !== "workflow") return
+    root.invalidateExtensionQuery("entered workflow")
     root.invalidateWorkflowAction("entered workflow")
     root.focusedExtension = null
     root.leaveFileBrowser(false)
@@ -747,6 +817,7 @@ Item {
 
   function enterFileBrowser(extension, startPath) {
     if (!extension || !extension.available) return
+    root.invalidateExtensionQuery("entered file browser")
     root.focusedExtension = null
     root.resetFileIndex()
     root.fileBrowserActive = true
@@ -1721,6 +1792,7 @@ Item {
 
   function setActiveMenu(id, pushHistory, fromPointer) {
     if (!root.item(id)) id = "root"
+    root.invalidateExtensionQuery("active menu changed")
     root.focusedExtension = null
     if (pushHistory && id !== root.activeMenu) root.navStack = root.navStack.concat([root.activeMenu])
     root.activeMenu = id
@@ -1946,9 +2018,7 @@ Item {
     root.invalidateWorkflowAction("new launcher session")
     root.routePendingForMenuSources = false
     root.resetFileIndex()
-    extensionQueryTimer.stop()
-    root.extensionQuerySerial += 1
-    if (extensionQueryProc.running) extensionQueryProc.running = false
+    root.invalidateExtensionQuery("new launcher session")
 
     var reset = MenuModel.openStateReset()
     for (var key in reset) root[key] = reset[key]
@@ -2225,27 +2295,39 @@ Item {
     interval: 140
     repeat: false
     onTriggered: {
+      var revision = root.extensionQuerySerial
       var query = root.effectiveExtensionQuery()
       var queryCatalog = root.focusedExtension ? [root.focusedExtension] : root.extensions
       var extension = MenuModel.queryExtension(queryCatalog, query)
-      if (!extension) return
+      if (!extension || revision !== root.extensionQuerySerial) return
       root.resultExtension = extension
-      extensionQueryProc.query = query
-      extensionQueryProc.extensionId = extension.id
-      extensionQueryProc.revision = root.extensionQuerySerial
-      extensionQueryProc.collected = ""
-      extensionQueryProc.outputOverflow = false
-      extensionQueryProc.command = root.commandArguments(extension.command, { query: query, extensionDir: extension.sourceDir })
-      extensionQueryProc.running = true
-      extensionQueryTimeout.restart()
+      root.queueExtensionQuery(extension, query, revision)
     }
   }
 
   Timer {
     id: extensionQueryTimeout
-    interval: 5000
+    interval: root.extensionQueryTimeoutMs
     repeat: false
-    onTriggered: if (extensionQueryProc.running) extensionQueryProc.running = false
+    property int generation: 0
+    onTriggered: {
+      if (generation !== extensionQueryProc.generation || extensionQueryProc.stopping) return
+      console.warn("Omalaunch: live query timed out after " + interval + "ms")
+      root.stopExtensionQuery("query timed out")
+    }
+  }
+
+  Timer {
+    id: extensionQueryKillTimer
+    interval: root.extensionQueryTerminationGraceMs
+    repeat: false
+    property int generation: 0
+    onTriggered: {
+      if (!extensionQueryProc.stopping || generation !== extensionQueryProc.stopGeneration
+          || generation !== extensionQueryProc.generation) return
+      console.warn("Omalaunch: live query ignored SIGTERM; sending SIGKILL to direct child")
+      extensionQueryProc.signal(9)
+    }
   }
 
   Process {
@@ -2255,17 +2337,38 @@ Item {
     property string collected: ""
     property bool outputOverflow: false
     property int revision: 0
+    property int generation: 0
+    property int stopGeneration: 0
+    property bool stopping: false
     stdout: SplitParser {
-      onRead: function(data) { root.collectBounded(extensionQueryProc, data) }
+      onRead: function(data) { root.collectExtensionQuery(data) }
     }
     onExited: function(exitCode) {
-      extensionQueryTimeout.stop()
-      if (extensionQueryProc.revision !== root.extensionQuerySerial || extensionQueryProc.query !== root.effectiveExtensionQuery()) return
-      if (!root.resultExtension || extensionQueryProc.extensionId !== root.resultExtension.id) return
-      root.extensionQuery = extensionQueryProc.query
-      root.extensionResult = exitCode === 0 && !extensionQueryProc.outputOverflow ? extensionQueryProc.collected.trim() : ""
-      root.rebuildDisplay()
-      if (root.extensionResult && root.resultExtension.capability === "currency") currencyRates.refreshIfStale()
+      var exitedGeneration = extensionQueryProc.generation
+      var wasStopping = extensionQueryProc.stopping
+      if (extensionQueryTimeout.generation === exitedGeneration) extensionQueryTimeout.stop()
+      if (extensionQueryKillTimer.generation === exitedGeneration) extensionQueryKillTimer.stop()
+
+      var accept = MenuModel.extensionQueryRunIsCurrent(
+        extensionQueryProc.revision, root.extensionQuerySerial,
+        extensionQueryProc.query, root.effectiveExtensionQuery(),
+        extensionQueryProc.extensionId, root.resultExtension,
+        wasStopping, root.opened
+      )
+      if (accept) {
+        root.extensionQuery = extensionQueryProc.query
+        root.extensionResult = exitCode === 0 && !extensionQueryProc.outputOverflow ? extensionQueryProc.collected.trim() : ""
+        root.rebuildDisplay()
+        if (root.extensionResult && root.resultExtension.capability === "currency") currencyRates.refreshIfStale()
+      }
+
+      // Only onExited makes this reusable. No request metadata or command is
+      // changed before these flags are released, and rapid input has retained
+      // exactly one latest request in pendingExtensionQuery.
+      extensionQueryProc.stopping = false
+      extensionQueryProc.stopGeneration = 0
+      extensionQueryProc.generation = 0
+      root.dispatchPendingExtensionQuery()
     }
   }
 

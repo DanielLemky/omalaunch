@@ -208,6 +208,14 @@ const bundledExtensions = menu.parseExtensions(JSON.stringify([
 assert(menu.queryExtension(bundledExtensions, '2 + 2').capability === 'calculator', 'bundled calculator matches arithmetic')
 assert(menu.queryExtension(bundledExtensions, '10 USD to CAD').capability === 'currency', 'bundled currency extension outranks general conversions')
 assert(menu.queryExtension(bundledExtensions, 'hello') === null, 'bundled extensions ignore ordinary searches')
+const calculatorResult = bundledExtensions.find(extension => extension.capability === 'calculator')
+assert(menu.extensionQueryRunIsCurrent(4, 4, '2 + 2', '2 + 2', calculatorResult.id, calculatorResult, false, true),
+  'only a current open live-query run may publish output')
+assert(!menu.extensionQueryRunIsCurrent(3, 4, '2 + 2', '2 + 2', calculatorResult.id, calculatorResult, false, true)
+  && !menu.extensionQueryRunIsCurrent(4, 4, '2 + 1', '2 + 2', calculatorResult.id, calculatorResult, false, true)
+  && !menu.extensionQueryRunIsCurrent(4, 4, '2 + 2', '2 + 2', calculatorResult.id, calculatorResult, true, true)
+  && !menu.extensionQueryRunIsCurrent(4, 4, '2 + 2', '2 + 2', calculatorResult.id, calculatorResult, false, false),
+  'stale, replaced, stopping, and closed live-query runs cannot publish output')
 
 const timezoneExtension = menu.parseExtensions(JSON.stringify([{
   ...JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'extensions', 'timezone', 'extension.json'), 'utf8')),

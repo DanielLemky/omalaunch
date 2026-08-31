@@ -1040,6 +1040,14 @@ function unavailableQueryExtension(extensions, query) {
   return matches.length > 0 && !matches[0].available ? matches[0] : null
 }
 
+function extensionQueryRunIsCurrent(revision, currentRevision, query, effectiveQuery,
+                                    extensionId, resultExtension, stopping, opened) {
+  return opened === true && stopping !== true
+    && revision === currentRevision
+    && query === effectiveQuery
+    && !!resultExtension && extensionId === resultExtension.id
+}
+
 function extensionSuggestionPriority(suggestion, query) {
   if (!suggestion || !suggestion.extension || !suggestion.extension.available) return 0
   var input = String(query || "").toLowerCase().trim()
@@ -1509,6 +1517,7 @@ if (typeof module !== "undefined") {
     matchesRules: matchesRules,
     queryExtension: queryExtension,
     unavailableQueryExtension: unavailableQueryExtension,
+    extensionQueryRunIsCurrent: extensionQueryRunIsCurrent,
     extensionSuggestionPriority: extensionSuggestionPriority,
     extensionMatchPriority: extensionMatchPriority,
     suggestExtensions: suggestExtensions,

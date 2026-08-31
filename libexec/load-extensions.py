@@ -27,8 +27,12 @@ MAX_TOTAL_PROVIDERS = 64
 MAX_TOTAL_DEFINITIONS = 1024
 MAX_STATIC_INPUT_BYTES = 1024 * 1024
 MAX_MANIFEST_INPUT_BYTES = 256 * 1024
+MAX_TOTAL_MANIFEST_BYTES = 4 * 1024 * 1024
+MAX_DISCOVERED_MANIFESTS = 512
+MAX_MANIFEST_FILESYSTEM_ENTRIES = 4096
 MAX_STATIC_ENTRIES_PER_PLUGIN = 128
 MAX_DEFINITIONS_PER_SOURCE = 256
+MAX_JSON_NESTING_DEPTH = 32
 MAX_DIAGNOSTICS = 256
 MAX_DIAGNOSTIC_CHARS = 1024
 MAX_SAFE_JSON_INTEGER = 9007199254740991
@@ -46,8 +50,12 @@ class Limits:
     static_input_bytes: int = MAX_STATIC_INPUT_BYTES
     aggregate_provider_seconds: float = AGGREGATE_PROVIDER_SECONDS
     manifest_input_bytes: int = MAX_MANIFEST_INPUT_BYTES
+    total_manifest_bytes: int = MAX_TOTAL_MANIFEST_BYTES
+    discovered_manifests: int = MAX_DISCOVERED_MANIFESTS
+    manifest_filesystem_entries: int = MAX_MANIFEST_FILESYSTEM_ENTRIES
     static_entries_per_plugin: int = MAX_STATIC_ENTRIES_PER_PLUGIN
     definitions_per_source: int = MAX_DEFINITIONS_PER_SOURCE
+    json_nesting_depth: int = MAX_JSON_NESTING_DEPTH
     diagnostics: int = MAX_DIAGNOSTICS
     diagnostic_chars: int = MAX_DIAGNOSTIC_CHARS
 
@@ -70,7 +78,10 @@ class CatalogBuilder:
 
     @staticmethod
     def encoded(value: Any) -> bytes:
-        return json.dumps(value, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode()
+        try:
+            return json.dumps(value, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode()
+        except RecursionError as error:
+            raise ValueError("JSON serialization exceeded Python's recursion limit") from error
 
     def diagnostic(self, message: str) -> None:
         clean = str(message).replace("\x00", "�")
@@ -101,8 +112,14 @@ class CatalogBuilder:
                     )
                     self.definition_limit_reported = True
                 return
-            annotated = annotate(value, bundled=bundled, source_dir=source_dir, source=source)
-            encoded_size = len(self.encoded(annotated)) + (1 if self.catalog else 0)
+            try:
+                validate_json_depth(value, self.limits.json_nesting_depth)
+                annotated = annotate(value, bundled=bundled, source_dir=source_dir, source=source)
+                validate_json_depth(annotated, self.limits.json_nesting_depth)
+                encoded_size = len(self.encoded(annotated)) + (1 if self.catalog else 0)
+            except (RecursionError, ValueError) as error:
+                self.diagnostic(f"Ignored extension definition from {source}: {error}")
+                continue
             if self.definition_bytes + encoded_size > self.definition_byte_limit:
                 if not self.byte_limit_reported:
                     self.diagnostic(
@@ -115,27 +132,33 @@ class CatalogBuilder:
             self.definition_bytes += encoded_size
 
     def finish(self, *, complete: bool) -> dict[str, Any]:
-        result = {"extensions": self.catalog, "diagnostics": [], "complete": complete}
-        base_size = len(self.encoded(result))
-        used = base_size
-        omitted = False
-        for message in self.diagnostics:
-            size = len(self.encoded(message)) + (1 if result["diagnostics"] else 0)
-            if used + size <= self.limits.catalog_output_bytes:
-                result["diagnostics"].append(message)
-                used += size
-            else:
-                omitted = True
-        if omitted:
-            notice = f"Diagnostics were truncated to keep the catalog within {self.limits.catalog_output_bytes} bytes"
-            notice_size = len(self.encoded(notice)) + (1 if result["diagnostics"] else 0)
-            while result["diagnostics"] and used + notice_size > self.limits.catalog_output_bytes:
-                removed = result["diagnostics"].pop()
-                used -= len(self.encoded(removed)) + (1 if result["diagnostics"] else 0)
+        """Return a bounded envelope even if defensive final encoding fails."""
+        try:
+            validate_json_depth(self.catalog, self.limits.json_nesting_depth + 1)
+            result = {"extensions": self.catalog, "diagnostics": [], "complete": complete}
+            base_size = len(self.encoded(result))
+            used = base_size
+            omitted = False
+            for message in self.diagnostics:
+                size = len(self.encoded(message)) + (1 if result["diagnostics"] else 0)
+                if used + size <= self.limits.catalog_output_bytes:
+                    result["diagnostics"].append(message)
+                    used += size
+                else:
+                    omitted = True
+            if omitted:
+                notice = f"Diagnostics were truncated to keep the catalog within {self.limits.catalog_output_bytes} bytes"
                 notice_size = len(self.encoded(notice)) + (1 if result["diagnostics"] else 0)
-            if used + notice_size <= self.limits.catalog_output_bytes:
-                result["diagnostics"].append(notice)
-        return result
+                while result["diagnostics"] and used + notice_size > self.limits.catalog_output_bytes:
+                    removed = result["diagnostics"].pop()
+                    used -= len(self.encoded(removed)) + (1 if result["diagnostics"] else 0)
+                    notice_size = len(self.encoded(notice)) + (1 if result["diagnostics"] else 0)
+                if used + notice_size <= self.limits.catalog_output_bytes:
+                    result["diagnostics"].append(notice)
+            return result
+        except (RecursionError, ValueError) as error:
+            message = f"Could not serialize extension catalog safely: {error}"
+            return {"extensions": [], "diagnostics": [message[:self.limits.diagnostic_chars]], "complete": False}
 
 
 def run_bounded(command: list[str], *, cwd: Path | None, timeout: float, limit: int) -> tuple[str, bytes, bytes]:
@@ -242,27 +265,54 @@ def strict_json_int(value: str) -> int:
     return result
 
 
-def parse_json(value: str | bytes) -> Any:
-    return json.loads(
-        value,
-        parse_constant=reject_json_constant,
-        parse_float=strict_json_float,
-        parse_int=strict_json_int,
-    )
+def validate_json_depth(value: Any, maximum: int) -> None:
+    """Reject containers nested deeper than maximum without recursive walking."""
+    stack: list[tuple[Any, int]] = [(value, 0)]
+    while stack:
+        current, parent_depth = stack.pop()
+        if isinstance(current, dict):
+            depth = parent_depth + 1
+            if depth > maximum:
+                raise ValueError(f"JSON nesting exceeds the {maximum}-level limit")
+            for key, child in current.items():
+                # JSON object keys are scalar strings, but validate defensively.
+                if not isinstance(key, str):
+                    raise ValueError("JSON object contains a non-string key")
+                if isinstance(child, (dict, list)):
+                    stack.append((child, depth))
+        elif isinstance(current, list):
+            depth = parent_depth + 1
+            if depth > maximum:
+                raise ValueError(f"JSON nesting exceeds the {maximum}-level limit")
+            for child in current:
+                if isinstance(child, (dict, list)):
+                    stack.append((child, depth))
 
 
-def read_json(path: Path, *, size_limit: int | None = None) -> Any:
-    if size_limit is not None:
-        size = path.stat().st_size
-        if size > size_limit:
-            raise ValueError(f"file is {size} bytes; limit is {size_limit} bytes")
-    with path.open("r", encoding="utf-8") as handle:
-        return json.load(
-            handle,
+def parse_json(value: str | bytes, *, maximum_depth: int = MAX_JSON_NESTING_DEPTH) -> Any:
+    try:
+        parsed = json.loads(
+            value,
             parse_constant=reject_json_constant,
             parse_float=strict_json_float,
             parse_int=strict_json_int,
         )
+    except RecursionError as error:
+        raise ValueError("JSON parsing exceeded Python's recursion limit") from error
+    validate_json_depth(parsed, maximum_depth)
+    return parsed
+
+
+def read_json(path: Path, *, size_limit: int | None = None,
+              maximum_depth: int = MAX_JSON_NESTING_DEPTH) -> Any:
+    if size_limit is not None:
+        size = path.stat().st_size
+        if size > size_limit:
+            raise ValueError(f"file is {size} bytes; limit is {size_limit} bytes")
+    try:
+        return parse_json(path.read_bytes(), maximum_depth=maximum_depth)
+    except RecursionError as error:
+        raise ValueError("JSON file handling exceeded Python's recursion limit") from error
 
 
 def annotate(raw: Any, *, bundled: bool, source_dir: Path, source: str) -> Any:
@@ -278,7 +328,7 @@ def annotate(raw: Any, *, bundled: bool, source_dir: Path, source: str) -> Any:
     return value
 
 
-def enabled_plugin_ids(timeout: float) -> tuple[set[str], list[str], bool]:
+def enabled_plugin_ids(timeout: float, maximum_depth: int = MAX_JSON_NESTING_DEPTH) -> tuple[set[str], list[str], bool]:
     status, stdout, stderr = run_bounded(
         ["omarchy", "plugin", "list", "--json"], cwd=None, timeout=timeout, limit=COMMAND_OUTPUT_BYTES
     )
@@ -287,8 +337,8 @@ def enabled_plugin_ids(timeout: float) -> tuple[set[str], list[str], bool]:
         suffix = f": {detail}" if detail else ""
         return set(), [f"Could not list enabled Omarchy plugins ({status}){suffix}; external extensions were skipped"], False
     try:
-        plugins = parse_json(stdout)
-    except (ValueError, UnicodeDecodeError) as error:
+        plugins = parse_json(stdout, maximum_depth=maximum_depth)
+    except (RecursionError, ValueError, UnicodeDecodeError) as error:
         return set(), [f"Could not list enabled Omarchy plugins: output was not valid JSON ({error}); external extensions were skipped"], False
     if not isinstance(plugins, list):
         return set(), ["Could not list enabled Omarchy plugins: expected a JSON array; external extensions were skipped"], False
@@ -329,15 +379,18 @@ def load_catalog(plugin_path: Path, omarchy_path: Path, home: Path, limits: Limi
             return
         static_bytes += size
         try:
-            builder.append(read_json(extension_file), bundled=bundled, source_dir=source_dir, source=source)
-        except (OSError, ValueError, UnicodeDecodeError) as error:
+            builder.append(read_json(extension_file, maximum_depth=limits.json_nesting_depth),
+                           bundled=bundled, source_dir=source_dir, source=source)
+        except (OSError, RecursionError, ValueError, UnicodeDecodeError) as error:
             builder.diagnostic(f"Could not load {source}: {error}")
 
     for extension_file in sorted(plugin_path.glob("extensions/*/extension.json")):
         load_static(extension_file, bundled=True, source_dir=extension_file.parent,
                     source=f"bundled file {extension_file}")
 
-    enabled, enabled_diagnostics, complete = enabled_plugin_ids(limits.provider_timeout)
+    enabled, enabled_diagnostics, complete = enabled_plugin_ids(
+        limits.provider_timeout, limits.json_nesting_depth
+    )
     for message in enabled_diagnostics:
         builder.diagnostic(message)
     manifest_roots = (omarchy_path / "shell" / "plugins", home / ".config" / "omarchy" / "plugins")
@@ -348,14 +401,59 @@ def load_catalog(plugin_path: Path, omarchy_path: Path, home: Path, limits: Limi
 
     # Root order is the explicit precedence: the Omarchy-managed shell root
     # wins over the user plugin root, and lexical path order breaks ties inside
-    # one root. An enabled plugin id is materialized exactly once, so duplicate
-    # installs cannot multiply its static/provider budgets.
+    # one root. Discovery first collects at most the bounded filesystem-work
+    # budget, then sorts that bounded batch; no unbounded glob list is built.
     selected_manifests: dict[str, tuple[Path, dict[str, Any]]] = {}
-    for root in manifest_roots:
-        for manifest_path in sorted(root.glob("*/manifest.json")):
+    filesystem_entries = 0
+    discovered_manifests = 0
+    manifest_bytes = 0
+    discovery_exhausted: str | None = None
+    for manifest_root in manifest_roots:
+        if discovery_exhausted:
+            break
+        candidates: list[Path] = []
+        try:
+            with os.scandir(manifest_root) as entries:
+                for entry in entries:
+                    if filesystem_entries >= limits.manifest_filesystem_entries:
+                        discovery_exhausted = (
+                            f"filesystem entry limit ({limits.manifest_filesystem_entries})"
+                        )
+                        break
+                    filesystem_entries += 1
+                    try:
+                        if entry.is_dir(follow_symlinks=True):
+                            candidates.append(Path(entry.path) / "manifest.json")
+                    except OSError:
+                        # A raced or unreadable entry still consumes work; the
+                        # candidate cannot safely contribute a manifest.
+                        continue
+        except OSError as error:
+            builder.diagnostic(f"Could not scan plugin manifest root {manifest_root}: {error}")
+            continue
+
+        for manifest_path in sorted(candidates):
+            if discovery_exhausted:
+                break
             try:
-                manifest = read_json(manifest_path, size_limit=limits.manifest_input_bytes)
-            except (OSError, ValueError, UnicodeDecodeError) as error:
+                if not manifest_path.is_file():
+                    continue
+                if discovered_manifests >= limits.discovered_manifests:
+                    discovery_exhausted = f"manifest count limit ({limits.discovered_manifests})"
+                    break
+                discovered_manifests += 1
+                size = manifest_path.stat().st_size
+                if manifest_bytes + size > limits.total_manifest_bytes:
+                    discovery_exhausted = (
+                        f"aggregate manifest byte limit ({limits.total_manifest_bytes} bytes)"
+                    )
+                    break
+                manifest_bytes += size
+                manifest = read_json(
+                    manifest_path, size_limit=limits.manifest_input_bytes,
+                    maximum_depth=limits.json_nesting_depth,
+                )
+            except (OSError, RecursionError, ValueError, UnicodeDecodeError) as error:
                 builder.diagnostic(f"Could not load plugin manifest {manifest_path}: {error}")
                 continue
             if not isinstance(manifest, dict) or not isinstance(manifest.get("id"), str):
@@ -372,6 +470,12 @@ def load_catalog(plugin_path: Path, omarchy_path: Path, home: Path, limits: Limi
                 )
                 continue
             selected_manifests[plugin_id] = (manifest_path, manifest)
+
+    if discovery_exhausted:
+        builder.diagnostic(
+            f"Plugin manifest discovery budget exhausted at the {discovery_exhausted}; "
+            "remaining manifests across both roots were skipped"
+        )
 
     for plugin_id, (manifest_path, manifest) in selected_manifests.items():
         plugin_dir = manifest_path.parent.resolve()
@@ -446,8 +550,8 @@ def load_catalog(plugin_path: Path, omarchy_path: Path, home: Path, limits: Limi
                 builder.diagnostic(provider_failure(source, status, stderr, limits.provider_output_bytes))
                 continue
             try:
-                definitions = parse_json(stdout)
-            except (ValueError, UnicodeDecodeError) as error:
+                definitions = parse_json(stdout, maximum_depth=limits.json_nesting_depth)
+            except (RecursionError, ValueError, UnicodeDecodeError) as error:
                 builder.diagnostic(f"Extension provider {source} emitted invalid JSON: {error}")
                 continue
             if not isinstance(definitions, (dict, list)):
@@ -471,6 +575,10 @@ def main() -> int:
     parser.add_argument("--max-definitions", type=int, default=MAX_TOTAL_DEFINITIONS, help=argparse.SUPPRESS)
     parser.add_argument("--max-static-bytes", type=int, default=MAX_STATIC_INPUT_BYTES, help=argparse.SUPPRESS)
     parser.add_argument("--aggregate-provider-timeout", type=float, default=AGGREGATE_PROVIDER_SECONDS, help=argparse.SUPPRESS)
+    parser.add_argument("--max-manifests", type=int, default=MAX_DISCOVERED_MANIFESTS, help=argparse.SUPPRESS)
+    parser.add_argument("--max-total-manifest-bytes", type=int, default=MAX_TOTAL_MANIFEST_BYTES, help=argparse.SUPPRESS)
+    parser.add_argument("--max-manifest-fs-entries", type=int, default=MAX_MANIFEST_FILESYSTEM_ENTRIES, help=argparse.SUPPRESS)
+    parser.add_argument("--max-json-depth", type=int, default=MAX_JSON_NESTING_DEPTH, help=argparse.SUPPRESS)
     args = parser.parse_args()
     limits = Limits(
         provider_timeout=max(0.01, args.provider_timeout),
@@ -481,10 +589,24 @@ def main() -> int:
         definitions=max(0, args.max_definitions),
         static_input_bytes=max(0, args.max_static_bytes),
         aggregate_provider_seconds=max(0, args.aggregate_provider_timeout),
+        discovered_manifests=max(0, args.max_manifests),
+        total_manifest_bytes=max(0, args.max_total_manifest_bytes),
+        manifest_filesystem_entries=max(0, args.max_manifest_fs_entries),
+        json_nesting_depth=max(1, args.max_json_depth),
     )
-    result = load_catalog(args.plugin_path.resolve(), args.omarchy_path.resolve(), args.home.resolve(), limits)
-    json.dump(result, sys.stdout, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
-    sys.stdout.write("\n")
+    try:
+        result = load_catalog(args.plugin_path.resolve(), args.omarchy_path.resolve(), args.home.resolve(), limits)
+        output = json.dumps(result, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+    except (RecursionError, ValueError) as error:
+        # The command's protocol must remain valid JSON even if a future code
+        # path accidentally bypasses the iterative depth checks.
+        fallback = {
+            "extensions": [],
+            "diagnostics": [f"Extension loader could not serialize its result safely: {error}"[:MAX_DIAGNOSTIC_CHARS]],
+            "complete": False,
+        }
+        output = json.dumps(fallback, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+    sys.stdout.write(output + "\n")
     return 0
 
 

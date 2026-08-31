@@ -42,5 +42,28 @@ assert(qml.includes('root.invalidateWorkflowAction("extension catalog changed")'
 'catalog refresh cancels old actions and rebinds active workflow nodes')
 assert(qml.includes('Retained the last known-good extension catalog after a transient loader failure'),
 'loader failures retain and diagnose the last known-good QML catalog')
+const queryQueueBody = qml.slice(qml.indexOf('function queueExtensionQuery('), qml.indexOf('function collectExtensionQuery('))
+const queryDispatchBody = qml.slice(qml.indexOf('function dispatchPendingExtensionQuery('), qml.indexOf('function queueExtensionQuery('))
+const queryExitBody = qml.slice(qml.indexOf('id: extensionQueryProc'), qml.indexOf('id: extensionProc'))
+assert(queryQueueBody.includes('root.pendingExtensionQuery = {')
+  && queryQueueBody.includes('root.stopExtensionQuery("newer query queued")')
+  && !queryQueueBody.includes('extensionQueryProc.command ='),
+'rapid live queries coalesce into one latest pending request without overwriting a running command')
+assert(queryDispatchBody.includes('if (extensionQueryProc.running || extensionQueryProc.stopping')
+  && queryDispatchBody.includes('extensionQueryProc.command = request.command'),
+'live-query metadata is assigned only while the reusable Process is idle')
+assert(queryExitBody.includes('MenuModel.extensionQueryRunIsCurrent(')
+  && queryExitBody.includes('var wasStopping = extensionQueryProc.stopping')
+  && queryExitBody.indexOf('extensionQueryProc.stopping = false') < queryExitBody.indexOf('root.dispatchPendingExtensionQuery()'),
+'live-query exits reject stale output and exclusively dispatch the pending latest request after release')
+assert(qml.includes('extensionQueryKillTimer')
+  && qml.includes('generation !== extensionQueryProc.stopGeneration')
+  && qml.includes('generation !== extensionQueryProc.generation')
+  && qml.includes('extensionQueryProc.signal(9)'),
+'live-query cancellation escalates SIGTERM with a generation-safe SIGKILL')
+assert(qml.includes('root.invalidateExtensionQuery("launcher closed")')
+  && qml.includes('root.invalidateExtensionQuery("new launcher session")')
+  && qml.includes('root.scheduleExtensionQuery()'),
+'close/open and catalog/query context changes invalidate live-query generations')
 assert(qml.includes('if (root.directoryPickerActive) root.workflowBack()'),
 'directory picker Backspace at filesystem root returns through workflow history')

@@ -28,6 +28,9 @@ jobs:
       - name: Run QML extension path tests
         run: node tests/qml-extension-path-test.js
 
+      - name: Run Quickshell live-query process harness when available
+        run: bash tests/live-query-process-integration-test.sh
+
       - name: Run extension loader tests
         run: python tests/extension-loader-test.py
 
