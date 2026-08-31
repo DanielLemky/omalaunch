@@ -932,6 +932,19 @@ function fileFavoriteItem(itemId) {
   })
 }
 
+function matchesFileFavoriteQuery(entry, query) {
+  if (!entry) return false
+  var prepared = query && typeof query === "object" ? query : prepareSearchQuery(query)
+  var aliases = Array.isArray(entry.aliases) ? entry.aliases : []
+  // Deliberately exclude the canonical id: it contains implementation details
+  // such as the extension capability (`files`) and path type (`directory`).
+  var searchText = [entry.label].concat(aliases).join(" ").toLowerCase()
+  for (var i = 0; i < prepared.terms.length; i++) {
+    if (prepared.terms[i] && searchText.indexOf(prepared.terms[i]) < 0) return false
+  }
+  return prepared.terms.length > 0
+}
+
 function displayRow(items, itemOrder, checkedResults, entry, detail, score, section, metadata) {
   var target = entry.kind === "link" ? entry.target : entry.id
   return {
@@ -1130,6 +1143,7 @@ if (typeof module !== "undefined") {
     fileFavoriteCapability: fileFavoriteCapability,
     fileFavoriteLabel: fileFavoriteLabel,
     fileFavoriteItem: fileFavoriteItem,
+    matchesFileFavoriteQuery: matchesFileFavoriteQuery,
     displayRow: displayRow
   }
 }
