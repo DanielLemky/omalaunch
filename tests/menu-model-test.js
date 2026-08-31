@@ -211,7 +211,10 @@ assert(menu.suggestExtensions(timezoneExtension, 'tim')[0].prefix === 'time', 'l
 assert(menu.queryExtension(timezoneExtension, 'time seattle').capability === 'timezone', 'timezone extension matches explicit time queries')
 assert(menu.queryExtension(timezoneExtension, 'timer') === null, 'timezone extension ignores unrelated searches')
 assert(timezoneExtension[0].sourceDir === '/tmp/timezone', 'extension source directories are retained for bundled scripts')
-assert(menu.extensionRootActivation(timezoneExtension[0]) === 'input' && menu.extensionRootInput(timezoneExtension[0]) === 'time ', 'Timezone root activation focuses its prepared prefix')
+assert(menu.extensionRootActivation(timezoneExtension[0]) === 'input' && menu.extensionRootInput(timezoneExtension[0]) === '', 'Timezone root activation starts with a clean focused input')
+assert(menu.focusedExtensionQuery(timezoneExtension[0], '') === 'time', 'focused Timezone input applies its hidden prefix')
+assert(menu.focusedExtensionQuery(timezoneExtension[0], 'seattle') === 'time seattle', 'focused Timezone queries apply the hidden prefix')
+assert(menu.focusedExtensionQuery(timezoneExtension[0], 'time seattle') === 'time seattle', 'focused Timezone queries do not duplicate an explicit prefix')
 
 const workflowExtensions = menu.parseExtensions(JSON.stringify([{
   schemaVersion: 1,

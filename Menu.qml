@@ -434,7 +434,7 @@ Item {
     if (extensionQueryProc.running) extensionQueryProc.running = false
     if (root.dmenuActive) return
 
-    var query = root.filterText.trim()
+    var query = root.effectiveExtensionQuery()
     var queryCatalog = root.focusedExtension ? [root.focusedExtension] : root.extensions
     root.resultExtension = MenuModel.queryExtension(queryCatalog, query)
     root.unavailableResultExtension = MenuModel.unavailableQueryExtension(queryCatalog, query)
@@ -464,7 +464,14 @@ Item {
     if (!root.focusedExtension) return ""
     if (root.focusedExtension.capability === "calculator") return "Enter a calculation…"
     if (root.focusedExtension.capability === "currency") return "Enter a conversion…"
+    if (root.focusedExtension.capability === "timezone") return "Enter a timezone query…"
     return "Start typing…"
+  }
+
+  function effectiveExtensionQuery() {
+    return root.focusedExtension
+      ? MenuModel.focusedExtensionQuery(root.focusedExtension, root.filterText)
+      : root.filterText.trim()
   }
 
   function enterFocusedExtension(extension) {
@@ -1346,7 +1353,7 @@ Item {
     if (query) {
       var diagnosticRows = []
       var preparedQuery = MenuModel.prepareSearchQuery(query)
-      var liveResult = root.extensionQuery === query ? root.extensionResult : ""
+      var liveResult = root.extensionQuery === root.effectiveExtensionQuery() ? root.extensionResult : ""
       for (var i = 0; !root.focusedExtension && i < root.itemOrder.length; i++) {
         var entry = root.item(root.itemOrder[i])
         if (!entry || entry.id === "root") continue
@@ -2134,7 +2141,7 @@ Item {
     interval: 140
     repeat: false
     onTriggered: {
-      var query = root.filterText.trim()
+      var query = root.effectiveExtensionQuery()
       var queryCatalog = root.focusedExtension ? [root.focusedExtension] : root.extensions
       var extension = MenuModel.queryExtension(queryCatalog, query)
       if (!extension) return
@@ -2169,7 +2176,7 @@ Item {
     }
     onExited: function(exitCode) {
       extensionQueryTimeout.stop()
-      if (extensionQueryProc.revision !== root.extensionQuerySerial || extensionQueryProc.query !== root.filterText.trim()) return
+      if (extensionQueryProc.revision !== root.extensionQuerySerial || extensionQueryProc.query !== root.effectiveExtensionQuery()) return
       if (!root.resultExtension || extensionQueryProc.extensionId !== root.resultExtension.id) return
       root.extensionQuery = extensionQueryProc.query
       root.extensionResult = exitCode === 0 && !extensionQueryProc.outputOverflow ? extensionQueryProc.collected.trim() : ""

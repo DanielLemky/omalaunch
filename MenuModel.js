@@ -667,8 +667,17 @@ function extensionRootActivation(extension) {
 }
 
 function extensionRootInput(extension) {
-  if (!extension || !Array.isArray(extension.prefixes) || extension.prefixes.length === 0) return ""
-  return extension.prefixes[0] + " "
+  return ""
+}
+
+// A focused extension owns its input, so users should not need to see or type
+// the global-search prefix. Add it only to the query sent to the provider.
+function focusedExtensionQuery(extension, input) {
+  var query = String(input || "").trim()
+  if (!extension || !Array.isArray(extension.prefixes) || extension.prefixes.length === 0) return query
+  var prefix = String(extension.prefixes[0] || "").trim()
+  if (!prefix || query === prefix || query.indexOf(prefix + " ") === 0) return query || prefix
+  return query ? prefix + " " + query : prefix
 }
 
 function workflowClosesOnDispatch(node, command) {
@@ -1332,6 +1341,7 @@ if (typeof module !== "undefined") {
     sortExtensionRootRows: sortExtensionRootRows,
     extensionRootActivation: extensionRootActivation,
     extensionRootInput: extensionRootInput,
+    focusedExtensionQuery: focusedExtensionQuery,
     normalizeExtension: normalizeExtension,
     resolveExtensions: resolveExtensions,
     parseExtensionCatalog: parseExtensionCatalog,
