@@ -204,9 +204,7 @@ Item {
   readonly property real rowReservedBorderRight: Border.right(selectedBorderSpec)
   readonly property int cornerRadius: Style.cornerRadius
   property int contentMargin: Style.spacing.panelPadding
-  property int headerHeight: root.focusedExtension
-    ? Math.max(Style.space(52), Style.font.bodySmall + Style.font.heading + Style.space(8))
-    : Math.max(Style.space(34), Style.font.title + Style.spacing.controlPaddingY * 2)
+  property int headerHeight: Math.max(Style.space(34), Style.font.title + Style.spacing.controlPaddingY * 2)
   property int contentSpacing: Style.spacing.md
   property int baseRowHeight: Math.max(Style.space(50), Style.font.body + Style.spacing.rowPaddingX * 2)
   property int detailRowHeight: Math.max(Style.space(58), Style.font.body + Style.font.caption + Style.spacing.rowPaddingX * 2)
@@ -476,7 +474,7 @@ Item {
     root.navStack = ["root"]
     root.filterText = MenuModel.extensionRootInput(extension)
     root.selectedIndex = 0
-    root.cursorActive = false
+    root.cursorActive = true
     root.rebuildDisplay()
     root.scheduleExtensionQuery()
     Qt.callLater(function() { keyCatcher.forceActiveFocus() })
@@ -1565,6 +1563,25 @@ Item {
       }
     }
 
+    if (root.focusedExtension) {
+      var hasResultRow = false
+      for (var focusedRowIndex = 0; focusedRowIndex < rows.length; focusedRowIndex++) {
+        if (rows[focusedRowIndex].itemId === "extension.result") {
+          hasResultRow = true
+          break
+        }
+      }
+      if (!hasResultRow) {
+        var pendingResultItem = root.normalizeItem("extension.result.pending", {
+          icon: root.focusedExtension.icon,
+          iconFont: root.focusedExtension.iconFont,
+          label: "= …",
+          description: "Result will appear here"
+        })
+        rows.unshift(root.displayRow(pendingResultItem, pendingResultItem.description, -1))
+      }
+    }
+
     for (var k = 0; k < rows.length; k++) displayModel.append(rows[k])
     layoutSerial += 1
 
@@ -1703,6 +1720,7 @@ Item {
       }
       return
     }
+    if (row.itemId === "extension.result.pending") return
     if (row.itemId.indexOf("extension.prepare.") === 0) {
       var preparedExtension = root.extensionById(row.itemId.substring("extension.prepare.".length))
       if (preparedExtension && preparedExtension.mode === "files") root.enterFileBrowser(preparedExtension)
@@ -1796,7 +1814,7 @@ Item {
     if (root.dmenuActive || !root.cursorActive || root.selectedIndex < 0 || root.selectedIndex >= displayModel.count) return
     var row = displayModel.get(root.selectedIndex)
     if (!row || row.itemId === "omarchy" || row.itemId === "extensions"
-        || row.itemId === "extension.result" || !favorites.loaded) return
+        || row.itemId === "extension.result" || row.itemId === "extension.result.pending" || !favorites.loaded) return
     if (root.fileBrowserActive) {
       var fileType = row.itemId.indexOf("file.directory.") === 0 ? "directory"
         : (row.itemId.indexOf("file.item.") === 0 ? "file" : "")
@@ -2683,37 +2701,22 @@ Item {
             elide: Text.ElideRight
           }
 
-          Column {
+          Text {
             visible: !!root.focusedExtension
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
-            spacing: Style.space(3)
-
-            Text {
-              width: parent.width
-              text: root.focusedExtension ? root.focusedExtension.label : ""
-              color: root.foreground
-              opacity: 0.52
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.bodySmall
-              elide: Text.ElideRight
-            }
-
-            Text {
-              width: parent.width
-              text: root.filterText || root.focusedExtensionPlaceholder()
-              color: root.foreground
-              opacity: root.filterText ? 1 : 0.58
-              font.family: root.fontFamily
-              font.pixelSize: Style.font.heading
-              elide: Text.ElideRight
-            }
+            text: root.filterText || root.focusedExtensionPlaceholder()
+            color: root.foreground
+            opacity: root.filterText ? 1 : 0.58
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.heading
+            elide: Text.ElideRight
           }
 
           Text {
             id: starHint
-            visible: !root.actionPanelActive && !root.dmenuActive && !root.workflowActive && displayModel.count > 0 && root.cursorActive && root.selectedIndex >= 0 && root.selectedIndex < displayModel.count && (root.fileBrowserActive || (displayModel.get(root.selectedIndex).itemId !== "omarchy" && displayModel.get(root.selectedIndex).itemId !== "extensions" && displayModel.get(root.selectedIndex).itemId !== "extension.result"))
+            visible: !root.actionPanelActive && !root.dmenuActive && !root.workflowActive && displayModel.count > 0 && root.cursorActive && root.selectedIndex >= 0 && root.selectedIndex < displayModel.count && (root.fileBrowserActive || (displayModel.get(root.selectedIndex).itemId !== "omarchy" && displayModel.get(root.selectedIndex).itemId !== "extensions" && displayModel.get(root.selectedIndex).itemId !== "extension.result" && displayModel.get(root.selectedIndex).itemId !== "extension.result.pending"))
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
             text: root.fileBrowserActive
@@ -2877,7 +2880,7 @@ Item {
                 Text {
                   width: parent.width
                   text: row.detail
-                  visible: (root.filterText || row.kind === "dmenu") && row.detail.length > 0
+                  visible: (root.filterText || row.kind === "dmenu" || row.itemId === "extension.result.pending") && row.detail.length > 0
                   color: root.foreground
                   opacity: 0.52
                   font.family: root.fontFamily
