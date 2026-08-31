@@ -215,6 +215,7 @@ Item {
   property int contentMargin: Style.spacing.panelPadding
   property int headerHeight: Math.max(Style.space(34), Style.font.title + Style.spacing.controlPaddingY * 2)
   property int actionBarHeight: Math.max(Style.space(36), Style.font.bodySmall + Style.spacing.controlPaddingY * 2)
+  property int actionBarBottomPadding: Style.space(6)
   property int contentSpacing: Style.spacing.md
   property int baseRowHeight: Math.max(Style.space(50), Style.font.body + Style.spacing.rowPaddingX * 2)
   property int detailRowHeight: Math.max(Style.space(58), Style.font.body + Style.font.caption + Style.spacing.rowPaddingX * 2)
@@ -230,7 +231,7 @@ Item {
     : Style.space(root.imagePreviewActive ? 900 : 600), panel.width - Style.gapsOut * 2)
   readonly property bool emptyRoot: !root.dmenuActive && root.activeMenu === "root" && !root.filterText && displayModel.count === 0
   property int visibleRowsHeight: root.emptyRoot || root.workflowInputActive ? 0 : (root.dmenuActive ? dmenuRowListHeight(layoutSerial, displayModel.count, filterText) : rowListHeight(layoutSerial, displayModel.count, filterText, searchDivider))
-  property int cardHeight: Math.min(contentMargin * 2 + headerHeight + actionBarHeight + contentSpacing
+  property int cardHeight: Math.min(contentMargin + actionBarBottomPadding + headerHeight + actionBarHeight + contentSpacing
     + (visibleRowsHeight > 0 ? contentSpacing + visibleRowsHeight : 0), panel.height - Style.gapsOut * 2)
 
   readonly property var actionBarHints: MenuModel.actionBarHints({
@@ -326,7 +327,7 @@ Item {
 
   // Height the card can devote to rows below its pinned top edge.
   function availableRowsHeight() {
-    var available = panel.height - panel.pinnedTop - Style.gapsOut - root.contentMargin * 2
+    var available = panel.height - panel.pinnedTop - Style.gapsOut - root.contentMargin - root.actionBarBottomPadding
       - root.headerHeight - root.actionBarHeight - root.contentSpacing * 2
     // A card that swallows the whole screen reads as a page, not a menu.
     return Math.min(available, Math.round(panel.height * 0.5))
@@ -2960,7 +2961,7 @@ Item {
         anchors.fill: parent
         anchors.topMargin: card.contentTopInset
         anchors.rightMargin: card.contentRightInset
-        anchors.bottomMargin: card.contentBottomInset
+        anchors.bottomMargin: root.actionBarBottomPadding
         anchors.leftMargin: card.contentLeftInset
         spacing: root.contentSpacing
 
@@ -3333,7 +3334,7 @@ Item {
           Rectangle {
             x: -card.contentLeftInset
             width: parent.width + card.contentLeftInset + card.contentRightInset
-            height: parent.height + card.contentBottomInset
+            height: parent.height + root.actionBarBottomPadding
             color: Util.alpha(root.foreground, 0.035)
           }
 
@@ -3382,16 +3383,8 @@ Item {
 
                       Rectangle {
                         anchors.fill: parent
-                        anchors.topMargin: Style.space(2)
                         radius: Math.min(root.cornerRadius, Style.space(5))
-                        color: Util.alpha(root.foreground, 0.1)
-                      }
-
-                      Rectangle {
-                        anchors.fill: parent
-                        anchors.bottomMargin: Style.space(2)
-                        radius: Math.min(root.cornerRadius, Style.space(5))
-                        color: Util.alpha(root.foreground, 0.065)
+                        color: "transparent"
                         border.width: Style.spacing.hairline
                         border.color: Util.alpha(root.foreground, 0.13)
 
