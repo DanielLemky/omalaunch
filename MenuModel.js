@@ -667,6 +667,16 @@ function unavailableQueryExtension(extensions, query) {
   return matches.length > 0 && !matches[0].available ? matches[0] : null
 }
 
+function extensionSuggestionPriority(suggestion, query) {
+  if (!suggestion || !suggestion.extension || !suggestion.extension.available) return 0
+  var input = String(query || "").toLowerCase().trim()
+  return suggestion.prefix === input ? 95 : 20
+}
+
+function extensionMatchPriority(extension) {
+  return extension && extension.available ? 100 : 0
+}
+
 function suggestExtensions(extensions, query) {
   var input = String(query || "").toLowerCase().trim()
   if (!input || /\s/.test(input)) return []
@@ -729,7 +739,13 @@ function searchMatchPriority(entry, query, metadata) {
   var needle = prepared.needle
   if (!entry || !needle) return 0
   var label = metadata ? metadata.labelLower : String(entry.label || "").toLowerCase()
-  if (label === needle) return 4
+  var isApp = entry.kind === "app" || (entry.kind === "action" && entry.parent === "apps")
+  if (label === needle) return isApp ? 90 : 50
+  if (isApp && label.indexOf(needle) === 0) return 70
+  if (isApp && (metadata ? hasWord(metadata.labelWords, needle) : label.split(/\s+/).indexOf(needle) >= 0)) return 60
+  // Any remaining launchable-app match came from searchable metadata such as
+  // GenericName, Keywords, the generated id, or description text.
+  if (isApp && matchesQuery(entry, prepared, true, metadata)) return 55
 
   var aliases = metadata ? metadata.aliasesLower : []
   if (!metadata) {
@@ -738,12 +754,12 @@ function searchMatchPriority(entry, query, metadata) {
       aliases.push(String(sourceAliases[sourceIndex] || "").toLowerCase().trim())
   }
   for (var i = 0; i < aliases.length; i++) {
-    if (aliases[i] === needle) return 3
+    if (aliases[i] === needle) return 40
   }
+  if (label.indexOf(needle) === 0) return 30
   for (var j = 0; j < aliases.length; j++) {
-    if (aliases[j].indexOf(needle) === 0) return 2
+    if (aliases[j].indexOf(needle) === 0) return 10
   }
-  if (label.indexOf(needle) === 0) return 1
   return 0
 }
 
@@ -791,6 +807,23 @@ function compareSearchRows(a, b, useHistory) {
 
   if (a.score !== b.score) return a.score - b.score
   return String(a.path || "").localeCompare(String(b.path || ""))
+}
+
+function rankSearchRows(rows, diagnosticRows, useHistory, maxRows) {
+  var ranked = Array.isArray(rows) ? rows.slice() : []
+  var diagnostics = Array.isArray(diagnosticRows) ? diagnosticRows.slice() : []
+  ranked.sort(function(a, b) { return compareSearchRows(a, b, useHistory) })
+  diagnostics.sort(function(a, b) { return compareSearchRows(a, b, false) })
+
+  var limit = Math.max(0, Number(maxRows) || 0)
+  if (!limit) return []
+  // Even a saturated diagnostic set must not hide the best actionable result,
+  // such as a live extension result. Reserve one slot when one is available.
+  if (diagnostics.length >= limit) {
+    if (ranked.length === 0) return diagnostics.slice(0, limit)
+    return ranked.slice(0, 1).concat(diagnostics.slice(0, limit - 1))
+  }
+  return ranked.slice(0, limit - diagnostics.length).concat(diagnostics)
 }
 
 function isImagePath(path) {
@@ -982,12 +1015,15 @@ if (typeof module !== "undefined") {
     matchesRules: matchesRules,
     queryExtension: queryExtension,
     unavailableQueryExtension: unavailableQueryExtension,
+    extensionSuggestionPriority: extensionSuggestionPriority,
+    extensionMatchPriority: extensionMatchPriority,
     suggestExtensions: suggestExtensions,
     matchExtensions: matchExtensions,
     matchesQuery: matchesQuery,
     searchMatchPriority: searchMatchPriority,
     searchScore: searchScore,
     compareSearchRows: compareSearchRows,
+    rankSearchRows: rankSearchRows,
     isImagePath: isImagePath,
     localFileUrl: localFileUrl,
     displayRow: displayRow

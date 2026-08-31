@@ -995,6 +995,7 @@ Item {
     root.searchDivider = false
 
     if (query) {
+      var diagnosticRows = []
       var preparedQuery = MenuModel.prepareSearchQuery(query)
       var liveResult = root.extensionQuery === query ? root.extensionResult : ""
       for (var i = 0; i < root.itemOrder.length; i++) {
@@ -1014,14 +1015,6 @@ Item {
         rows.push(row)
       }
 
-      rows.sort(function(a, b) {
-        return MenuModel.compareSearchRows(a, b, query.length >= 3)
-      })
-      // ListView virtualizes delegates, but ListModel still pays for every
-      // append across the QML/JS boundary. Only retain enough ranked results
-      // for useful navigation; extension rows are added separately below.
-      if (rows.length > root.maxDisplayedResults) rows = rows.slice(0, root.maxDisplayedResults)
-
       var extensionSuggestions = MenuModel.suggestExtensions(root.extensions, query)
       for (var suggestionIndex = extensionSuggestions.length - 1; suggestionIndex >= 0; suggestionIndex--) {
         var suggestion = extensionSuggestions[suggestionIndex]
@@ -1037,7 +1030,10 @@ Item {
           description: suggestionDetail,
           action: suggestedExtension.available ? suggestion.prefix + " " : ""
         })
-        rows.unshift(root.displayRow(suggestionItem, suggestionDetail, -3))
+        var suggestionRow = root.displayRow(suggestionItem, suggestionDetail, -3)
+        suggestionRow.matchPriority = MenuModel.extensionSuggestionPriority(suggestion, query)
+        if (suggestedExtension.available) rows.push(suggestionRow)
+        else diagnosticRows.push(suggestionRow)
       }
 
       var extensionMatches = MenuModel.matchExtensions(root.extensions, query)
@@ -1055,7 +1051,10 @@ Item {
           description: extensionDetail,
           action: extension.available ? root.extensionAction(extension, extensionMatch.prompt) : ""
         })
-        rows.unshift(root.displayRow(extensionItem, extensionDetail, -2))
+        var extensionRow = root.displayRow(extensionItem, extensionDetail, -2)
+        extensionRow.matchPriority = MenuModel.extensionMatchPriority(extension)
+        if (extension.available) rows.push(extensionRow)
+        else diagnosticRows.push(extensionRow)
       }
 
       if (root.unavailableResultExtension) {
@@ -1066,7 +1065,9 @@ Item {
           label: root.unavailableResultExtension.label + " unavailable",
           description: unavailableDetail
         })
-        rows.unshift(root.displayRow(unavailableItem, unavailableDetail, -1))
+        var unavailableRow = root.displayRow(unavailableItem, unavailableDetail, -1)
+        unavailableRow.matchPriority = 0
+        diagnosticRows.push(unavailableRow)
       }
 
       if (liveResult && root.resultExtension) {
@@ -1077,8 +1078,14 @@ Item {
           description: root.resultExtension.description,
           action: root.shellCommand(root.resultExtension.resultCommand, { result: liveResult, query: query })
         })
-        rows.unshift(root.displayRow(resultItem, root.resultExtension.description, -1))
+        var resultRow = root.displayRow(resultItem, root.resultExtension.description, -1)
+        resultRow.matchPriority = 110
+        rows.push(resultRow)
       }
+
+      // Rank normal item and extension rows together. Diagnostic rows reserve
+      // space at the bottom so dependency/setup guidance survives the cap.
+      rows = MenuModel.rankSearchRows(rows, diagnosticRows, query.length >= 3, root.maxDisplayedResults)
     } else {
       for (var j = 0; j < root.itemOrder.length; j++) {
         var child = root.item(root.itemOrder[j])
