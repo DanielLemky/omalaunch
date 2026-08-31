@@ -3374,7 +3374,7 @@ Item {
                   anchors.verticalCenter: parent.verticalCenter
 
                   Repeater {
-                    model: modelData.shortcut === "Enter" ? ["↵"] : String(modelData.shortcut).split(" ")
+                    model: [modelData.shortcut === "Enter" ? "↵" : String(modelData.shortcut)]
 
                     Item {
                       required property string modelData
