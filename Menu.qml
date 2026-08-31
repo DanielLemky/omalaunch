@@ -3331,25 +3331,33 @@ Item {
           height: root.actionBarHeight
 
           Rectangle {
-            anchors.left: parent.left
-            anchors.right: parent.right
-            anchors.top: parent.top
-            height: Style.spacing.hairline
-            color: Util.alpha(root.foreground, 0.16)
+            x: -card.contentLeftInset
+            width: parent.width + card.contentLeftInset + card.contentRightInset
+            height: parent.height + card.contentBottomInset
+            color: Util.alpha(root.foreground, 0.035)
           }
 
           Row {
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
-            spacing: Style.space(14)
+            spacing: Style.space(18)
 
             Repeater {
               model: root.actionBarHints
 
               Row {
+                required property int index
                 required property var modelData
-                spacing: Style.space(6)
+                spacing: Style.space(5)
                 anchors.verticalCenter: parent.verticalCenter
+
+                Rectangle {
+                  visible: index > 0
+                  width: Style.spacing.hairline
+                  height: Style.space(15)
+                  color: Util.alpha(root.foreground, 0.14)
+                  anchors.verticalCenter: parent.verticalCenter
+                }
 
                 Text {
                   text: modelData.label
@@ -3360,24 +3368,45 @@ Item {
                   anchors.verticalCenter: parent.verticalCenter
                 }
 
-                Rectangle {
-                  width: shortcutText.implicitWidth + Style.space(10)
-                  height: Math.max(Style.space(22), shortcutText.implicitHeight + Style.space(6))
-                  radius: Math.min(root.cornerRadius, Style.space(5))
-                  color: Util.alpha(root.foreground, 0.09)
-                  border.width: Style.spacing.hairline
-                  border.color: Util.alpha(root.foreground, 0.16)
+                Row {
+                  spacing: Style.space(3)
                   anchors.verticalCenter: parent.verticalCenter
 
-                  Text {
-                    id: shortcutText
-                    anchors.centerIn: parent
-                    text: modelData.shortcut
-                    color: root.foreground
-                    opacity: 0.82
-                    font.family: root.fontFamily
-                    font.pixelSize: Style.font.caption
-                    font.weight: Font.Medium
+                  Repeater {
+                    model: modelData.shortcut === "Enter" ? ["↵"] : String(modelData.shortcut).split(" ")
+
+                    Item {
+                      required property string modelData
+                      width: shortcutText.implicitWidth + Style.space(10)
+                      height: Math.max(Style.space(22), shortcutText.implicitHeight + Style.space(6))
+
+                      Rectangle {
+                        anchors.fill: parent
+                        anchors.topMargin: Style.space(2)
+                        radius: Math.min(root.cornerRadius, Style.space(5))
+                        color: Util.alpha(root.foreground, 0.1)
+                      }
+
+                      Rectangle {
+                        anchors.fill: parent
+                        anchors.bottomMargin: Style.space(2)
+                        radius: Math.min(root.cornerRadius, Style.space(5))
+                        color: Util.alpha(root.foreground, 0.065)
+                        border.width: Style.spacing.hairline
+                        border.color: Util.alpha(root.foreground, 0.13)
+
+                        Text {
+                          id: shortcutText
+                          anchors.centerIn: parent
+                          text: modelData
+                          color: root.foreground
+                          opacity: 0.82
+                          font.family: root.fontFamily
+                          font.pixelSize: Style.font.caption
+                          font.weight: Font.Medium
+                        }
+                      }
+                    }
                   }
                 }
               }
