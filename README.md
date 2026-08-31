@@ -161,6 +161,15 @@ Omalaunch core settings live in the dedicated `~/.config/omarchy/omalaunch/confi
 }
 ```
 
+Each capability has an independent configuration file. For example, include files ignored by Git in Files browsing and search with `extensions/files.jsonc`:
+
+```jsonc
+{
+  "version": 1,
+  "includeGitIgnored": true,
+}
+```
+
 If a preferred provider is missing or unavailable, Omalaunch reports a diagnostic and uses its normal provider selection rules.
 
 ## Updating

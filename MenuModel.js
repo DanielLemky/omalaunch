@@ -973,6 +973,8 @@ function parseExtensionCatalog(text) {
 
   var providerPreferences = parsed && typeof parsed.providerPreferences === "object" && !Array.isArray(parsed.providerPreferences)
     ? parsed.providerPreferences : ({})
+  var capabilityConfig = parsed && typeof parsed.capabilityConfig === "object" && !Array.isArray(parsed.capabilityConfig)
+    ? parsed.capabilityConfig : ({})
   var extensions = []
   var ids = ({})
   if (values.length > MAX_EXTENSION_CATALOG_VALUES)
@@ -991,6 +993,8 @@ function parseExtensionCatalog(text) {
       continue
     }
     ids[idKey] = extensionSource(values[i], i)
+    extension.config = capabilityConfig[extension.capability] && typeof capabilityConfig[extension.capability] === "object"
+      ? capabilityConfig[extension.capability] : ({})
     extensions.push(extension)
     if (!extension.available)
       appendExtensionDiagnostic(diagnostics, extension.id + " is missing: " + extension.missingRequires.join(", "), diagnosticState)

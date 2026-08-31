@@ -245,3 +245,15 @@ Select a provider by extension `id` in `config.jsonc`. The key is the capability
   },
 }
 ```
+
+Capability settings are independent of the selected provider and have one file per capability. The first supported file is `extensions/files.jsonc`:
+
+```jsonc
+{
+  "version": 1,
+  // Include paths ignored by Git, but continue to honor other fd ignore rules.
+  "includeGitIgnored": true,
+}
+```
+
+`includeGitIgnored` defaults to `false`. When true, both directory browsing and the recursive Files index use `fd --no-ignore-vcs`.

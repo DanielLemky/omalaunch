@@ -52,9 +52,13 @@ def _entry(raw_path: bytes) -> dict[str, str] | None:
     }
 
 
-def _emit(raw_paths: Iterator[bytes]) -> None:
+def _emit(raw_paths: Iterator[bytes], *, limit: int = MAX_RESULTS,
+          excluded: set[bytes] | None = None) -> int:
     emitted = 0
+    skipped = excluded or set()
     for raw_path in raw_paths:
+        if raw_path.rstrip(b"/") in skipped:
+            continue
         entry = _entry(raw_path)
         if entry is None:
             continue
@@ -62,12 +66,14 @@ def _emit(raw_paths: Iterator[bytes]) -> None:
         # UTF-8-safe JSON line, including names containing literal newlines.
         print(json.dumps(entry, ensure_ascii=True, separators=(",", ":")))
         emitted += 1
-        if emitted >= MAX_RESULTS:
+        if emitted >= limit:
             break
+    return emitted
 
 
 def _fd_command(
-    root: str, *, max_depth: int | None = None, directories_only: bool = False
+    root: str, *, max_depth: int | None = None, directories_only: bool = False,
+    include_git_ignored: bool = False,
 ) -> list[str]:
     command = [
         "fd",
@@ -76,6 +82,8 @@ def _fd_command(
         "--absolute-path",
         "--print0",
     ]
+    if include_git_ignored:
+        command.append("--no-ignore-vcs")
     if not directories_only:
         command.extend(["--type", "file"])
     command.extend(["--type", "directory"])
@@ -85,7 +93,8 @@ def _fd_command(
     return command
 
 
-def build_index(root: str, output_path: str, *, directories_only: bool = False) -> int:
+def build_index(root: str, output_path: str, *, directories_only: bool = False,
+                include_git_ignored: bool = False) -> int:
     global _child
 
     output = Path(output_path)
@@ -98,7 +107,7 @@ def build_index(root: str, output_path: str, *, directories_only: bool = False) 
     try:
         with os.fdopen(descriptor, "wb") as destination:
             _child = subprocess.Popen(
-                _fd_command(root, directories_only=directories_only),
+                _fd_command(root, directories_only=directories_only, include_git_ignored=include_git_ignored),
                 stdout=destination,
                 stderr=subprocess.DEVNULL,
             )
@@ -116,11 +125,12 @@ def build_index(root: str, output_path: str, *, directories_only: bool = False) 
             pass
 
 
-def browse(root: str, *, directories_only: bool = False) -> int:
+def browse(root: str, *, directories_only: bool = False,
+           include_git_ignored: bool = False) -> int:
     global _child
 
     _child = subprocess.Popen(
-        _fd_command(root, max_depth=1, directories_only=directories_only),
+        _fd_command(root, max_depth=1, directories_only=directories_only, include_git_ignored=include_git_ignored),
         stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL,
     )
@@ -154,6 +164,22 @@ def query(index_path: str, needle: str) -> int:
         return 2
 
     with index:
+        # Exact basename matches must not be displaced by many descendants
+        # whose parent path contains the query. Find only this small priority
+        # set before asking fzf to rank all path matches.
+        exact: list[bytes] = []
+        exact_key = needle.casefold()
+        for raw_path in _nul_records(index):
+            name = os.path.basename(os.fsdecode(raw_path).rstrip("/"))
+            if name.casefold() == exact_key:
+                exact.append(raw_path)
+                if len(exact) >= MAX_RESULTS:
+                    break
+        emitted = _emit(iter(exact))
+        if emitted >= MAX_RESULTS:
+            return 0
+
+        index.seek(0)
         _child = subprocess.Popen(
             [
                 "fzf",
@@ -168,8 +194,9 @@ def query(index_path: str, needle: str) -> int:
             stderr=subprocess.DEVNULL,
         )
         assert _child.stdout is not None
-        _emit(_nul_records(_child.stdout))
-        # fzf may still be writing matches after the first 100. Closing its
+        exact_paths = {raw_path.rstrip(b"/") for raw_path in exact}
+        _emit(_nul_records(_child.stdout), limit=MAX_RESULTS - emitted, excluded=exact_paths)
+        # fzf may still be writing matches after the display limit. Closing its
         # pipe lets it stop without forcing Python to materialize every match.
         _child.stdout.close()
         if _child.poll() is None:
@@ -188,10 +215,14 @@ def main(argv: list[str]) -> int:
         return 2
 
     mode = argv[1]
-    if mode in ("index", "index-dirs") and len(argv) == 4:
-        return build_index(argv[2], argv[3], directories_only=mode == "index-dirs")
-    if mode in ("browse", "browse-dirs") and len(argv) == 3:
-        return browse(argv[2], directories_only=mode == "browse-dirs")
+    include_git_ignored = argv[-1] == "--include-git-ignored"
+    positional = argv[:-1] if include_git_ignored else argv
+    if mode in ("index", "index-dirs") and len(positional) == 4:
+        return build_index(positional[2], positional[3], directories_only=mode == "index-dirs",
+                           include_git_ignored=include_git_ignored)
+    if mode in ("browse", "browse-dirs") and len(positional) == 3:
+        return browse(positional[2], directories_only=mode == "browse-dirs",
+                      include_git_ignored=include_git_ignored)
     if mode == "query" and len(argv) == 4:
         return query(argv[2], argv[3])
 

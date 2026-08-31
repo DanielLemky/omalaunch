@@ -630,10 +630,10 @@ const configuredProviderCatalog = menu.parseExtensionCatalog(JSON.stringify({
   extensions: [
     { schemaVersion: 1, id: 'default-files', capability: 'files', mode: 'files', label: 'Default', prefixes: ['default'], command: ['true'], _bundled: true },
     { schemaVersion: 1, id: 'chosen-files', capability: 'files', mode: 'files', label: 'Chosen', prefixes: ['chosen'], command: ['true'], priority: -10 }
-  ], providerPreferences: { files: 'chosen-files' }
+  ], providerPreferences: { files: 'chosen-files' }, capabilityConfig: { files: { includeGitIgnored: true } }
 }))
-assert(configuredProviderCatalog.extensions[0].id === 'chosen-files',
-  'provider configuration selects an available id')
+assert(configuredProviderCatalog.extensions[0].id === 'chosen-files' && configuredProviderCatalog.extensions[0].config.includeGitIgnored === true,
+  'provider configuration selects an available id and capability configuration follows capability identity')
 const missingProviderCatalog = menu.parseExtensionCatalog(JSON.stringify({
   extensions: [{ schemaVersion: 1, id: 'fallback', capability: 'files', mode: 'files', label: 'Fallback', prefixes: ['fallback'], command: ['true'] }],
   providerPreferences: { files: 'missing' }
