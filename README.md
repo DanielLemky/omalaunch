@@ -50,7 +50,7 @@ This workaround can be removed once Omarchy supports setting a widget’s sectio
 
 ## Starred favorites
 
-Star frequently used applications, commands, files, and directories on the launcher’s starting view.
+Star frequently used applications, commands, files, and directories on the launcher’s starting view. Matching starred items rank above unstarred search results, and starred files and directories are searchable by name or path.
 
 ![Starred favorites in Omalaunch](assets/starred-favorites.png)
 

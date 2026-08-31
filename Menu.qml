@@ -1096,6 +1096,26 @@ Item {
         rows.push(row)
       }
 
+      // File favorites are synthetic starting-view rows rather than members of
+      // the menu tree, so add matching ones explicitly during global search.
+      if (active === "root") {
+        var searchFavoriteIds = Object.keys(favorites.starredIds)
+        var seenSearchFileFavorites = ({})
+        for (var searchFavoriteIndex = 0; searchFavoriteIndex < searchFavoriteIds.length; searchFavoriteIndex++) {
+          var searchFavorite = MenuModel.fileFavorite(searchFavoriteIds[searchFavoriteIndex])
+          var searchFavoriteItem = MenuModel.fileFavoriteItem(searchFavoriteIds[searchFavoriteIndex])
+          if (!searchFavorite || !searchFavoriteItem || seenSearchFileFavorites["$" + searchFavoriteItem.id]) continue
+          seenSearchFileFavorites["$" + searchFavoriteItem.id] = true
+          if (!MenuModel.matchesQuery(searchFavoriteItem, preparedQuery, true)) continue
+          searchFavoriteItem.icon = searchFavorite.type === "directory" ? "󰉋" : "󰈔"
+          var searchFavoriteRow = root.displayRow(searchFavoriteItem, searchFavorite.path, 0)
+          searchFavoriteRow.path = searchFavorite.path
+          searchFavoriteRow.starred = true
+          searchFavoriteRow.matchPriority = MenuModel.searchMatchPriority(searchFavoriteItem, preparedQuery)
+          rows.push(searchFavoriteRow)
+        }
+      }
+
       var extensionSuggestions = MenuModel.suggestExtensions(root.extensions, query)
       for (var suggestionIndex = extensionSuggestions.length - 1; suggestionIndex >= 0; suggestionIndex--) {
         var suggestion = extensionSuggestions[suggestionIndex]
@@ -1186,16 +1206,10 @@ Item {
         var seenFileFavorites = ({})
         for (var favoriteIndex = 0; favoriteIndex < favoriteIds.length; favoriteIndex++) {
           var favorite = MenuModel.fileFavorite(favoriteIds[favoriteIndex])
-          if (!favorite) continue
-          var favoriteId = MenuModel.fileFavoriteId(favorite.path, favorite.type, favorite.capability)
-          if (seenFileFavorites["$" + favoriteId]) continue
-          seenFileFavorites["$" + favoriteId] = true
-          var favoriteItem = root.normalizeItem(favoriteId, {
-            icon: favorite.type === "directory" ? "󰉋" : "󰈔",
-            label: MenuModel.fileFavoriteLabel(favorite.path),
-            description: favorite.path,
-            action: favorite.path
-          })
+          var favoriteItem = MenuModel.fileFavoriteItem(favoriteIds[favoriteIndex])
+          if (!favorite || !favoriteItem || seenFileFavorites["$" + favoriteItem.id]) continue
+          seenFileFavorites["$" + favoriteItem.id] = true
+          favoriteItem.icon = favorite.type === "directory" ? "󰉋" : "󰈔"
           var favoriteRow = root.displayRow(favoriteItem, favorite.path, favoriteItem.order || 0)
           favoriteRow.starred = true
           rows.push(favoriteRow)
