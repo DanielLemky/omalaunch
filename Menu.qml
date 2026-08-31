@@ -1402,7 +1402,10 @@ Item {
       }
 
       var activeExtensionCatalog = root.focusedExtension ? [root.focusedExtension] : root.extensions
-      var extensionSuggestions = MenuModel.suggestExtensions(activeExtensionCatalog, query)
+      // Focused extension inputs already establish which provider owns the
+      // query; showing its ordinary prefix suggestion/action row duplicates
+      // the dedicated result surface.
+      var extensionSuggestions = root.focusedExtension ? [] : MenuModel.suggestExtensions(activeExtensionCatalog, query)
       for (var suggestionIndex = extensionSuggestions.length - 1; suggestionIndex >= 0; suggestionIndex--) {
         var suggestion = extensionSuggestions[suggestionIndex]
         var suggestedExtension = suggestion.extension
@@ -1424,7 +1427,7 @@ Item {
         else diagnosticRows.push(suggestionRow)
       }
 
-      var extensionMatches = MenuModel.matchExtensions(activeExtensionCatalog, query)
+      var extensionMatches = root.focusedExtension ? [] : MenuModel.matchExtensions(activeExtensionCatalog, query)
       for (var extensionIndex = extensionMatches.length - 1; extensionIndex >= 0; extensionIndex--) {
         var extensionMatch = extensionMatches[extensionIndex]
         var extension = extensionMatch.extension
