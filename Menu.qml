@@ -2987,6 +2987,7 @@ Item {
             visible: displayModel.count === 0 && root.mode !== "input" && !root.workflowInputActive && (root.filterText || root.activeMenu !== "root") && !root.isPotentialExtensionQuery(root.filterText)
 
             Text {
+              visible: !root.focusedExtension
               text: "󰈉"
               color: root.selectedText
               opacity: 0.8
