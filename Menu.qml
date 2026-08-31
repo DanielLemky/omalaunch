@@ -1575,7 +1575,7 @@ Item {
         var pendingResultItem = root.normalizeItem("extension.result.pending", {
           icon: root.focusedExtension.icon,
           iconFont: root.focusedExtension.iconFont,
-          label: "= …",
+          label: "=",
           description: "Result will appear here"
         })
         rows.unshift(root.displayRow(pendingResultItem, pendingResultItem.description, -1))
