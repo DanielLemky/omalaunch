@@ -739,13 +739,13 @@ function searchMatchPriority(entry, query, metadata) {
   var needle = prepared.needle
   if (!entry || !needle) return 0
   var label = metadata ? metadata.labelLower : String(entry.label || "").toLowerCase()
-  var isApp = entry.kind === "app" || entry.parent === "apps"
+  var isApp = entry.kind === "app" || (entry.kind === "action" && entry.parent === "apps")
   if (label === needle) return isApp ? 90 : 50
   if (isApp && label.indexOf(needle) === 0) return 70
   if (isApp && (metadata ? hasWord(metadata.labelWords, needle) : label.split(/\s+/).indexOf(needle) >= 0)) return 60
-  // Any remaining match from the Apps menu came from app metadata such as
-  // GenericName or Keywords. Launchable apps still outrank management routes.
-  if (isApp) return 55
+  // Any remaining launchable-app match came from searchable metadata such as
+  // GenericName, Keywords, the generated id, or description text.
+  if (isApp && matchesQuery(entry, prepared, true, metadata)) return 55
 
   var aliases = metadata ? metadata.aliasesLower : []
   if (!metadata) {
@@ -807,6 +807,18 @@ function compareSearchRows(a, b, useHistory) {
 
   if (a.score !== b.score) return a.score - b.score
   return String(a.path || "").localeCompare(String(b.path || ""))
+}
+
+function rankSearchRows(rows, diagnosticRows, useHistory, maxRows) {
+  var ranked = Array.isArray(rows) ? rows.slice() : []
+  var diagnostics = Array.isArray(diagnosticRows) ? diagnosticRows.slice() : []
+  ranked.sort(function(a, b) { return compareSearchRows(a, b, useHistory) })
+  diagnostics.sort(function(a, b) { return compareSearchRows(a, b, false) })
+
+  var limit = Math.max(0, Number(maxRows) || 0)
+  if (!limit) return []
+  if (diagnostics.length >= limit) return diagnostics.slice(0, limit)
+  return ranked.slice(0, limit - diagnostics.length).concat(diagnostics)
 }
 
 function isImagePath(path) {
@@ -1006,6 +1018,7 @@ if (typeof module !== "undefined") {
     searchMatchPriority: searchMatchPriority,
     searchScore: searchScore,
     compareSearchRows: compareSearchRows,
+    rankSearchRows: rankSearchRows,
     isImagePath: isImagePath,
     localFileUrl: localFileUrl,
     displayRow: displayRow

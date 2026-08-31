@@ -995,6 +995,7 @@ Item {
     root.searchDivider = false
 
     if (query) {
+      var diagnosticRows = []
       var preparedQuery = MenuModel.prepareSearchQuery(query)
       var liveResult = root.extensionQuery === query ? root.extensionResult : ""
       for (var i = 0; i < root.itemOrder.length; i++) {
@@ -1031,7 +1032,8 @@ Item {
         })
         var suggestionRow = root.displayRow(suggestionItem, suggestionDetail, -3)
         suggestionRow.matchPriority = MenuModel.extensionSuggestionPriority(suggestion, query)
-        rows.push(suggestionRow)
+        if (suggestedExtension.available) rows.push(suggestionRow)
+        else diagnosticRows.push(suggestionRow)
       }
 
       var extensionMatches = MenuModel.matchExtensions(root.extensions, query)
@@ -1051,7 +1053,8 @@ Item {
         })
         var extensionRow = root.displayRow(extensionItem, extensionDetail, -2)
         extensionRow.matchPriority = MenuModel.extensionMatchPriority(extension)
-        rows.push(extensionRow)
+        if (extension.available) rows.push(extensionRow)
+        else diagnosticRows.push(extensionRow)
       }
 
       if (root.unavailableResultExtension) {
@@ -1064,7 +1067,7 @@ Item {
         })
         var unavailableRow = root.displayRow(unavailableItem, unavailableDetail, -1)
         unavailableRow.matchPriority = 0
-        rows.push(unavailableRow)
+        diagnosticRows.push(unavailableRow)
       }
 
       if (liveResult && root.resultExtension) {
@@ -1080,13 +1083,9 @@ Item {
         rows.push(resultRow)
       }
 
-      rows.sort(function(a, b) {
-        return MenuModel.compareSearchRows(a, b, query.length >= 3)
-      })
-      // ListView virtualizes delegates, but ListModel still pays for every
-      // append across the QML/JS boundary. Rank all item and extension rows
-      // together, then retain only the useful leading results.
-      if (rows.length > root.maxDisplayedResults) rows = rows.slice(0, root.maxDisplayedResults)
+      // Rank normal item and extension rows together. Diagnostic rows reserve
+      // space at the bottom so dependency/setup guidance survives the cap.
+      rows = MenuModel.rankSearchRows(rows, diagnosticRows, query.length >= 3, root.maxDisplayedResults)
     } else {
       for (var j = 0; j < root.itemOrder.length; j++) {
         var child = root.item(root.itemOrder[j])

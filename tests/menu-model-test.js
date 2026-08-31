@@ -267,6 +267,9 @@ assert(menu.searchMatchPriority({ kind: 'app', label: 'Apps', aliases: ['app', '
 assert(menu.searchMatchPriority({ kind: 'app', label: 'Apple Music', aliases: [] }, 'app') === 70, 'app title prefixes outrank menu shortcuts')
 assert(menu.searchMatchPriority({ kind: 'action', parent: 'apps', label: 'Work Browser', aliases: [] }, 'browser') === 60, 'whole-word titles in the Apps menu outrank exact menu shortcuts')
 assert(menu.searchMatchPriority({ kind: 'app', parent: 'apps', label: 'Chromium', aliases: ['Web Browser'] }, 'browser') === 55, 'apps matched through metadata outrank management shortcuts')
+assert(menu.searchMatchPriority({ kind: 'app', parent: 'tools', label: 'Chromium', aliases: ['Web Browser'] }, 'browser') === 55, 'desktop apps retain app ranking outside the Apps menu')
+assert(menu.searchMatchPriority({ kind: 'app', parent: 'apps', label: 'Chromium', aliases: ['Web Browser'] }, 'calculator') === 0, 'unmatched apps receive no metadata fallback priority')
+assert(menu.searchMatchPriority({ kind: 'menu', parent: 'apps', label: 'Other', aliases: ['Browser'] }, 'browser') === 40, 'submenus under Apps do not receive app ranking')
 assert(menu.searchMatchPriority({ kind: 'menu', label: 'Browser', aliases: [] }, 'browser') === 50, 'exact menu titles rank below matching apps')
 assert(menu.searchMatchPriority({ label: 'Utilities', aliases: ['app', 'applications'] }, 'app') === 40, 'exact aliases outrank menu title prefixes')
 assert(menu.searchMatchPriority({ label: 'Apps', aliases: ['app', 'applications'] }, 'ap') === 30, 'menu title prefixes outrank alias prefixes')
@@ -307,6 +310,41 @@ assert(menu.compareSearchRows(
   { matchPriority: 20, starred: true, usageCount: 10, lastUsedAt: 200, score: -3, path: 'Partial extension' },
   true
 ) < 0, 'app title words outrank partial extension suggestions')
+
+const crowdedRows = []
+for (let rowIndex = 0; rowIndex < 105; rowIndex++) {
+  crowdedRows.push({
+    itemId: `row-${rowIndex}`,
+    matchPriority: 0,
+    starred: false,
+    usageCount: 0,
+    lastUsedAt: 0,
+    score: rowIndex,
+    path: `Row ${rowIndex}`
+  })
+}
+const diagnosticRow = {
+  itemId: 'extension.unavailable.test',
+  matchPriority: 0,
+  starred: false,
+  usageCount: 0,
+  lastUsedAt: 0,
+  score: -3,
+  path: 'Unavailable extension'
+}
+const cappedRows = menu.rankSearchRows(crowdedRows, [diagnosticRow], true, 100)
+assert(cappedRows.length === 100, 'ranked search rows respect the result cap')
+assert(cappedRows[0].itemId === 'row-0', 'highest ordinary result remains first after capping')
+assert(cappedRows[98].itemId === 'row-98', 'diagnostics reserve space inside the result cap')
+assert(cappedRows[99].itemId === diagnosticRow.itemId, 'unavailable extension diagnostics remain visible at the bottom')
+
+const assembledRanking = menu.rankSearchRows([
+  { itemId: 'partial-extension', matchPriority: 20, starred: false, usageCount: 0, lastUsedAt: 0, score: -3, path: 'Partial extension' },
+  { itemId: 'exact-app', matchPriority: 90, starred: false, usageCount: 0, lastUsedAt: 0, score: 0, path: 'Exact app' },
+  { itemId: 'exact-extension', matchPriority: 95, starred: false, usageCount: 0, lastUsedAt: 0, score: -3, path: 'Exact extension' },
+  { itemId: 'live-result', matchPriority: 110, starred: false, usageCount: 0, lastUsedAt: 0, score: -1, path: 'Live result' }
+], [], true, 100)
+assert(assembledRanking.map(row => row.itemId).join(',') === 'live-result,exact-extension,exact-app,partial-extension', 'assembled rows apply extension and app priority tiers')
 
 assert(menu.compareSearchRows(
   { matchPriority: 0, starred: false, usageCount: 10, lastUsedAt: 200, score: 20, path: 'A' },
