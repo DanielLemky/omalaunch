@@ -7,6 +7,21 @@ Every optional launcher feature is an **extension**. Omalaunch supports two deli
 
 Both use the same extension format. An external extension with the same `capability` replaces a bundled extension; disabling or removing it restores the bundled extension.
 
+## Extensions directory
+
+Omalaunch gives every resolved bundled and external extension one shortcut in the fixed top-level **Extensions** directory. The directory is always present and cannot be starred. Its shortcuts are ordered with starred extensions first and then alphabetically.
+
+Extension shortcuts do not otherwise appear on the launcher's starting view. Press Ctrl+S on a shortcut to promote it there; the same shortcut remains in **Extensions**, and Ctrl+S removes it from both views. Favorites use the extension's stable `capability`, so replacing a bundled provider with an external provider preserves the shortcut and its starred state. Extension roots are also included in global search whether or not they are starred.
+
+Activating a shortcut enters the interface appropriate to its mode:
+
+- `files` opens the file browser.
+- A prefixed `query` or `prefix` extension focuses input with its prefix prepared.
+- A query-only extension focuses an empty, extension-specific input (for example Calculator and Currency conversion).
+- `workflow` opens its first host-rendered workflow stage.
+
+Unavailable extensions remain listed with their missing dependency detail. Only dependencies in Omalaunch's own trusted setup allow-list offer an installation confirmation; other unavailable shortcuts cannot dispatch a command.
+
 ## External plugin manifest
 
 An Omarchy plugin declares its extension files in `manifest.json`:
@@ -148,6 +163,8 @@ Workflow extensions contribute a launcher entry and a bounded tree of host-rende
 Supported node kinds are `menu`, `directoryPicker`, and `input`. Menus contain `items`; a directory picker requires a `next` node; an input may run `command` and then enter `next`. Directory selection supplies `{path}` and `{basename}`. Input supplies `{input}`. `{extensionDir}` is the contributing extension's source directory. A node's bounded string-only `context` is inherited by its descendants. `default` initializes an input, `maxLength` bounds it, and `allowEmpty` permits submission without text. `emptyCommand` selects a distinct argument array for empty input. `refreshExtensions` reloads dynamic catalogs after a successful action. `nextBackSteps` can collapse transient input/picker history after a successful save.
 
 Commands are executed directly as argument arrays. Placeholder substitution never invokes a shell, so paths, names, and prompts remain literal arguments. Workflow trees are capped at 256 nodes and eight levels. Extensions cannot contribute QML. Escape returns through workflow stages. The directory picker reuses the Files index/browse implementation but selects directories instead of opening them. Contextual workflow Ctrl+K actions are intentionally left as a future extension point; workflow definitions do not opt into the global Files Action Panel.
+
+A validated terminal leaf command whose executable is `xdg-terminal-exec` or `omarchy-launch-terminal` closes and resets Omalaunch as soon as it is dispatched; the launcher does not wait for a terminal wrapper to exit. Empty-input and other pre-dispatch validation failures leave the workflow open. Non-terminal commands and commands with a following stage wait for successful completion before navigating or closing.
 
 ## Live-query extension
 

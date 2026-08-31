@@ -106,6 +106,9 @@ Item {
   property string extensionQuery: ""
   property string extensionResult: ""
   property var resultExtension: null
+  // A root shortcut can focus one extension's input without creating a second
+  // favorites system or changing direct typed extension invocation.
+  property var focusedExtension: null
   property int extensionQuerySerial: 0
   property bool fileBrowserActive: false
   property bool directoryPickerActive: false
@@ -432,8 +435,9 @@ Item {
     if (root.dmenuActive) return
 
     var query = root.filterText.trim()
-    root.resultExtension = MenuModel.queryExtension(root.extensions, query)
-    root.unavailableResultExtension = MenuModel.unavailableQueryExtension(root.extensions, query)
+    var queryCatalog = root.focusedExtension ? [root.focusedExtension] : root.extensions
+    root.resultExtension = MenuModel.queryExtension(queryCatalog, query)
+    root.unavailableResultExtension = MenuModel.unavailableQueryExtension(queryCatalog, query)
     if (root.resultExtension) extensionQueryTimer.start()
     // Available queries rebuild when their process exits. Unavailable queries
     // start no process, so surface their actionable row immediately.
@@ -444,6 +448,54 @@ Item {
     for (var i = 0; i < root.extensions.length; i++)
       if (root.extensions[i].id === id) return root.extensions[i]
     return null
+  }
+
+  function extensionByCapability(capability) {
+    for (var i = 0; i < root.extensions.length; i++)
+      if (root.extensions[i].capability === capability) return root.extensions[i]
+    return null
+  }
+
+  function extensionForRootId(itemId) {
+    return root.extensionByCapability(MenuModel.extensionRootCapability(itemId))
+  }
+
+  function enterFocusedExtension(extension) {
+    if (!extension || !extension.available) return
+    root.focusedExtension = extension
+    root.activeMenu = "extensions"
+    root.navStack = ["root"]
+    root.filterText = MenuModel.extensionRootInput(extension)
+    root.selectedIndex = 0
+    root.cursorActive = false
+    root.rebuildDisplay()
+    root.scheduleExtensionQuery()
+    Qt.callLater(function() { keyCatcher.forceActiveFocus() })
+  }
+
+  function leaveFocusedExtension() {
+    root.focusedExtension = null
+    root.extensionQuery = ""
+    root.extensionResult = ""
+    root.resultExtension = null
+    root.unavailableResultExtension = null
+    root.setActiveMenu("extensions", false)
+  }
+
+  function activateExtensionRoot(extension) {
+    if (!extension) return
+    if (!extension.available) {
+      var setup = MenuModel.dependencySetup(extension)
+      if (setup) {
+        root.dependencyTarget = setup
+        root.dependencyConfirmOpen = true
+      }
+      return
+    }
+    var activation = MenuModel.extensionRootActivation(extension)
+    if (activation === "files") root.enterFileBrowser(extension)
+    else if (activation === "workflow") root.enterWorkflow(extension)
+    else if (activation === "input") root.enterFocusedExtension(extension)
   }
 
   function workflowValues(extra) {
@@ -465,6 +517,7 @@ Item {
 
   function enterWorkflow(extension) {
     if (!extension || !extension.available || extension.mode !== "workflow") return
+    root.focusedExtension = null
     root.leaveFileBrowser(false)
     root.workflowActive = true
     root.workflowExtension = extension
@@ -575,8 +628,17 @@ Item {
     workflowActionProc.refreshExtensions = node.refreshExtensions
     workflowActionProc.nextBackSteps = node.nextBackSteps
     workflowActionProc.closeAfter = !node.next
+    workflowActionProc.closeOnDispatch = MenuModel.workflowClosesOnDispatch(node, command)
     workflowActionProc.command = command
     workflowActionProc.running = true
+    // Terminal launchers may remain attached while their window is alive.
+    // Once a validated command has been dispatched, release exclusive focus
+    // immediately instead of waiting for the wrapper process to exit.
+    if (workflowActionProc.closeOnDispatch) root.closeWorkflowAfterDispatch()
+  }
+
+  function closeWorkflowAfterDispatch() {
+    root.cancel()
   }
 
   function filesExtensionForCapability(capability) {
@@ -628,6 +690,7 @@ Item {
 
   function enterFileBrowser(extension, startPath) {
     if (!extension || !extension.available) return
+    root.focusedExtension = null
     root.resetFileIndex()
     root.fileBrowserActive = true
     root.fileBrowserExtension = extension
@@ -889,13 +952,19 @@ Item {
       label: "Omarchy",
       title: "Omarchy"
     })
+    nextItems.extensions = root.normalizeItem("extensions", {
+      icon: "󰏗",
+      label: "Extensions",
+      title: "Extensions"
+    })
     for (var id in nextItems) {
-      if (id === "root" || id === "omarchy") continue
+      if (id === "root" || id === "omarchy" || id === "extensions") continue
       if (nextItems[id].parent === "root") nextItems[id] = Object.assign({}, nextItems[id], { parent: "omarchy" })
     }
-    var nextOrder = mergedMenu.itemOrder.filter(function(id) { return id !== "omarchy" })
+    var nextOrder = mergedMenu.itemOrder.filter(function(id) { return id !== "omarchy" && id !== "extensions" })
     var rootIndex = nextOrder.indexOf("root")
-    nextOrder.splice(rootIndex >= 0 ? rootIndex + 1 : 0, 0, "omarchy")
+    var insertAt = rootIndex >= 0 ? rootIndex + 1 : 0
+    nextOrder.splice(insertAt, 0, "omarchy", "extensions")
     root.items = nextItems
     root.itemOrder = nextOrder
     root.rebuildItemMetadata()
@@ -1271,7 +1340,7 @@ Item {
       var diagnosticRows = []
       var preparedQuery = MenuModel.prepareSearchQuery(query)
       var liveResult = root.extensionQuery === query ? root.extensionResult : ""
-      for (var i = 0; i < root.itemOrder.length; i++) {
+      for (var i = 0; !root.focusedExtension && i < root.itemOrder.length; i++) {
         var entry = root.item(root.itemOrder[i])
         if (!entry || entry.id === "root") continue
         if (MenuModel.isSearchExcluded(root.items, entry.id, root.searchExcludedRoots, root.itemMetadata)) continue
@@ -1290,7 +1359,7 @@ Item {
 
       // File favorites are synthetic starting-view rows rather than members of
       // the menu tree, so add matching ones explicitly during global search.
-      if (active === "root") {
+      if (!root.focusedExtension && active === "root") {
         var searchFavoriteIds = Object.keys(favorites.starredIds)
         var seenSearchFileFavorites = ({})
         for (var searchFavoriteIndex = 0; searchFavoriteIndex < searchFavoriteIds.length; searchFavoriteIndex++) {
@@ -1308,10 +1377,29 @@ Item {
         }
       }
 
-      var extensionSuggestions = MenuModel.suggestExtensions(root.extensions, query)
+      var matchedExtensionRoots = ({})
+      if (!root.focusedExtension && (active === "root" || active === "extensions")) {
+        for (var searchExtensionIndex = 0; searchExtensionIndex < root.extensions.length; searchExtensionIndex++) {
+          var searchExtension = root.extensions[searchExtensionIndex]
+          var searchExtensionItem = MenuModel.extensionRootItem(searchExtension)
+          if (!searchExtensionItem || !MenuModel.matchesQuery(searchExtensionItem, preparedQuery, true)) continue
+          var searchExtensionRow = root.displayRow(searchExtensionItem, searchExtensionItem.description,
+            MenuModel.searchScore(({ extensions: root.item("extensions") }), searchExtensionItem, preparedQuery))
+          searchExtensionRow.starred = favorites.isStarred(searchExtensionRow.itemId)
+          searchExtensionRow.matchPriority = MenuModel.searchMatchPriority(searchExtensionItem, preparedQuery)
+          searchExtensionRow.usageCount = usage.count(searchExtensionRow.itemId)
+          searchExtensionRow.lastUsedAt = usage.lastUsedAt(searchExtensionRow.itemId)
+          matchedExtensionRoots["$" + searchExtension.capability] = true
+          rows.push(searchExtensionRow)
+        }
+      }
+
+      var activeExtensionCatalog = root.focusedExtension ? [root.focusedExtension] : root.extensions
+      var extensionSuggestions = MenuModel.suggestExtensions(activeExtensionCatalog, query)
       for (var suggestionIndex = extensionSuggestions.length - 1; suggestionIndex >= 0; suggestionIndex--) {
         var suggestion = extensionSuggestions[suggestionIndex]
         var suggestedExtension = suggestion.extension
+        if (matchedExtensionRoots["$" + suggestedExtension.capability]) continue
         var suggestionDetail = suggestedExtension.available
           ? suggestedExtension.description
           : MenuModel.unavailableExtensionDetail(suggestedExtension)
@@ -1329,7 +1417,7 @@ Item {
         else diagnosticRows.push(suggestionRow)
       }
 
-      var extensionMatches = MenuModel.matchExtensions(root.extensions, query)
+      var extensionMatches = MenuModel.matchExtensions(activeExtensionCatalog, query)
       for (var extensionIndex = extensionMatches.length - 1; extensionIndex >= 0; extensionIndex--) {
         var extensionMatch = extensionMatches[extensionIndex]
         var extension = extensionMatch.extension
@@ -1384,7 +1472,7 @@ Item {
         var child = root.item(root.itemOrder[j])
         if (!child || child.id === "root") continue
         if (active === "root") {
-          if (child.id !== "omarchy" && !favorites.isStarred(child.id)) continue
+          if (child.id !== "omarchy" && child.id !== "extensions" && !favorites.isStarred(child.id)) continue
         } else if (child.parent !== active) continue
         if (!root.isVisible(child)) continue
         var childDetail = active === "root" ? root.parentPathFor(child.id) : child.description
@@ -1393,24 +1481,21 @@ Item {
         rows.push(childRow)
       }
 
-      if (active === "root") {
-        for (var workflowExtensionIndex = 0; workflowExtensionIndex < root.extensions.length; workflowExtensionIndex++) {
-          var rootWorkflowExtension = root.extensions[workflowExtensionIndex]
-          if (!rootWorkflowExtension || rootWorkflowExtension.mode !== "workflow") continue
-          var workflowDetail = rootWorkflowExtension.available
-            ? rootWorkflowExtension.description : MenuModel.unavailableExtensionDetail(rootWorkflowExtension)
-          var rootWorkflowItem = root.normalizeItem(
-            (rootWorkflowExtension.available ? "extension.workflow." : "extension.unavailable.") + rootWorkflowExtension.id,
-            {
-              icon: rootWorkflowExtension.icon,
-              iconFont: rootWorkflowExtension.iconFont,
-              label: rootWorkflowExtension.label,
-              description: workflowDetail
-            })
-          rootWorkflowItem.kind = "menu"
-          rows.push(root.displayRow(rootWorkflowItem, workflowDetail, -2))
+      if (active === "root" || active === "extensions") {
+        var extensionRootRows = []
+        for (var extensionRootIndex = 0; extensionRootIndex < root.extensions.length; extensionRootIndex++) {
+          var listedExtension = root.extensions[extensionRootIndex]
+          var listedExtensionItem = MenuModel.extensionRootItem(listedExtension)
+          if (!listedExtensionItem) continue
+          var listedExtensionRow = root.displayRow(listedExtensionItem, listedExtensionItem.description, extensionRootIndex)
+          listedExtensionRow.starred = favorites.isStarred(listedExtensionRow.itemId)
+          if (active === "extensions" || listedExtensionRow.starred) extensionRootRows.push(listedExtensionRow)
         }
+        extensionRootRows = MenuModel.sortExtensionRootRows(extensionRootRows)
+        rows = rows.concat(extensionRootRows)
+      }
 
+      if (active === "root") {
         var favoriteIds = Object.keys(favorites.starredIds)
         var seenFileFavorites = ({})
         for (var favoriteIndex = 0; favoriteIndex < favoriteIds.length; favoriteIndex++) {
@@ -1438,6 +1523,7 @@ Item {
 
         rows.sort(function(a, b) {
           if (a.itemId === "omarchy" || b.itemId === "omarchy") return a.itemId === "omarchy" ? -1 : 1
+          if (a.itemId === "extensions" || b.itemId === "extensions") return a.itemId === "extensions" ? -1 : 1
           var aLabel = String(a.label || "").toLowerCase()
           var bLabel = String(b.label || "").toLowerCase()
           if (aLabel < bLabel) return -1
@@ -1532,6 +1618,7 @@ Item {
 
   function setActiveMenu(id, pushHistory, fromPointer) {
     if (!root.item(id)) id = "root"
+    root.focusedExtension = null
     if (pushHistory && id !== root.activeMenu) root.navStack = root.navStack.concat([root.activeMenu])
     root.activeMenu = id
     root.filterText = ""
@@ -1575,6 +1662,12 @@ Item {
     if (index < 0 || index >= displayModel.count) return
 
     var row = displayModel.get(index)
+    var rootExtension = root.extensionForRootId(row.itemId)
+    if (rootExtension) {
+      if (rootExtension.available) usage.record(row.itemId)
+      root.activateExtensionRoot(rootExtension)
+      return
+    }
     if (root.actionPanelActive && row.itemId.indexOf("file.action.") === 0) {
       root.activateFileAction(row.action)
       return
@@ -1686,7 +1779,8 @@ Item {
   function toggleSelectedStar() {
     if (root.dmenuActive || !root.cursorActive || root.selectedIndex < 0 || root.selectedIndex >= displayModel.count) return
     var row = displayModel.get(root.selectedIndex)
-    if (!row || row.itemId === "omarchy" || row.itemId === "extension.result" || !favorites.loaded) return
+    if (!row || row.itemId === "omarchy" || row.itemId === "extensions"
+        || row.itemId === "extension.result" || !favorites.loaded) return
     if (root.fileBrowserActive) {
       var fileType = row.itemId.indexOf("file.directory.") === 0 ? "directory"
         : (row.itemId.indexOf("file.item.") === 0 ? "file" : "")
@@ -1757,6 +1851,11 @@ Item {
     root.workflowNode = null
     root.workflowContext = ({})
     root.workflowStack = []
+    root.focusedExtension = null
+    root.extensionQuery = ""
+    root.extensionResult = ""
+    root.resultExtension = null
+    root.unavailableResultExtension = null
     root.fileBrowserPath = ""
     root.fileEntries = []
     opened = false
@@ -1771,6 +1870,7 @@ Item {
     doneFile = ""
     activeMenu = root.item(initialMenu) ? initialMenu : "root"
     navStack = []
+    focusedExtension = null
     filterText = ""
     selectedIndex = 0
     cursorActive = true
@@ -1998,7 +2098,8 @@ Item {
     repeat: false
     onTriggered: {
       var query = root.filterText.trim()
-      var extension = MenuModel.queryExtension(root.extensions, query)
+      var queryCatalog = root.focusedExtension ? [root.focusedExtension] : root.extensions
+      var extension = MenuModel.queryExtension(queryCatalog, query)
       if (!extension) return
       root.resultExtension = extension
       extensionQueryProc.query = query
@@ -2053,6 +2154,11 @@ Item {
         : { extensions: [], diagnostics: [extensionProc.outputOverflow ? "Extension catalog exceeded the output limit" : "Extension loader exited with code " + exitCode] }
       root.extensions = catalog.extensions
       root.extensionDiagnostics = catalog.diagnostics
+      if (root.focusedExtension) {
+        var refreshedFocus = root.extensionByCapability(root.focusedExtension.capability)
+        if (refreshedFocus && refreshedFocus.available) root.focusedExtension = refreshedFocus
+        else root.leaveFocusedExtension()
+      }
       if (root.workflowActive && (!root.workflowExtension || !root.extensionById(root.workflowExtension.id)))
         root.leaveWorkflow()
       if (exitCode === 0 && !extensionProc.outputOverflow) root.extensionsLoadedAt = Date.now()
@@ -2091,6 +2197,7 @@ Item {
     property bool refreshExtensions: false
     property int nextBackSteps: 0
     property bool closeAfter: false
+    property bool closeOnDispatch: false
     onExited: function(exitCode) {
       if (exitCode !== 0) return
       if (workflowActionProc.refreshExtensions) root.loadExtensions(true)
@@ -2425,10 +2532,12 @@ Item {
           } else if (event.key === Qt.Key_Escape) {
             if (root.actionPanelActive) root.closeActionPanel()
             else if (root.workflowInputActive) root.workflowBack()
+            else if (root.focusedExtension) root.leaveFocusedExtension()
             else if (root.filterText) root.setFilter("")
             else if (root.directoryPickerActive) root.workflowBack()
             else if (root.fileBrowserActive) root.leaveFileBrowser()
             else if (root.workflowActive) root.workflowBack()
+            else if (root.activeMenu !== "root") root.goBack()
             else root.cancel()
             event.accepted = true
           } else if ((event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab)
@@ -2449,6 +2558,7 @@ Item {
                 root.scheduleFileScan()
               }
             } else if (root.workflowActive) root.workflowBack()
+            else if (root.focusedExtension) root.leaveFocusedExtension()
             else root.goBack()
             event.accepted = true
           } else if (event.key === Qt.Key_Up) {
@@ -2558,7 +2668,7 @@ Item {
 
           Text {
             id: starHint
-            visible: !root.actionPanelActive && !root.dmenuActive && !root.workflowActive && displayModel.count > 0 && root.cursorActive && root.selectedIndex >= 0 && root.selectedIndex < displayModel.count && (root.fileBrowserActive || (displayModel.get(root.selectedIndex).itemId !== "omarchy" && displayModel.get(root.selectedIndex).itemId !== "extension.result"))
+            visible: !root.actionPanelActive && !root.dmenuActive && !root.workflowActive && displayModel.count > 0 && root.cursorActive && root.selectedIndex >= 0 && root.selectedIndex < displayModel.count && (root.fileBrowserActive || (displayModel.get(root.selectedIndex).itemId !== "omarchy" && displayModel.get(root.selectedIndex).itemId !== "extensions" && displayModel.get(root.selectedIndex).itemId !== "extension.result"))
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
             text: root.fileBrowserActive

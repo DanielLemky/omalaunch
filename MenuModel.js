@@ -613,6 +613,70 @@ function workflowInputTransition(node, input, context) {
   return { node: node.next, context: Object.assign({}, context || ({}), { input: String(input || "") }) }
 }
 
+var EXTENSION_ROOT_PREFIX = "extension.root:"
+
+// Extension shortcuts are keyed by capability rather than provider id. A
+// replacement therefore inherits the same global favorite and does not leave
+// a stale shortcut behind when its bundled fallback becomes active again.
+function extensionRootId(extensionOrCapability) {
+  var capability = typeof extensionOrCapability === "object" && extensionOrCapability
+    ? extensionOrCapability.capability : extensionOrCapability
+  capability = String(capability || "").trim()
+  return capability ? EXTENSION_ROOT_PREFIX + JSON.stringify(capability) : ""
+}
+
+function extensionRootCapability(itemId) {
+  var value = String(itemId || "")
+  if (value.indexOf(EXTENSION_ROOT_PREFIX) !== 0) return ""
+  try {
+    var capability = JSON.parse(value.substring(EXTENSION_ROOT_PREFIX.length))
+    return typeof capability === "string" ? capability.trim() : ""
+  } catch (e) { return "" }
+}
+
+function extensionRootItem(extension) {
+  if (!extension || !extension.capability) return null
+  var id = extensionRootId(extension)
+  if (!id) return null
+  return normalizeItem(id, {
+    parent: "extensions",
+    icon: extension.icon,
+    iconFont: extension.iconFont,
+    label: extension.label,
+    description: extension.available ? extension.description : unavailableExtensionDetail(extension),
+    aliases: [extension.id, extension.capability].concat(extension.prefixes || []),
+    action: extension.capability
+  })
+}
+
+function sortExtensionRootRows(rows) {
+  var result = Array.isArray(rows) ? rows.slice() : []
+  result.sort(function(a, b) {
+    if (!!a.starred !== !!b.starred) return a.starred ? -1 : 1
+    var labels = String(a.label || "").toLowerCase().localeCompare(String(b.label || "").toLowerCase())
+    return labels || String(a.itemId || "").localeCompare(String(b.itemId || ""))
+  })
+  return result
+}
+
+function extensionRootActivation(extension) {
+  if (!extension || !extension.available) return ""
+  if (extension.mode === "files") return "files"
+  if (extension.mode === "workflow") return "workflow"
+  return "input"
+}
+
+function extensionRootInput(extension) {
+  if (!extension || !Array.isArray(extension.prefixes) || extension.prefixes.length === 0) return ""
+  return extension.prefixes[0] + " "
+}
+
+function workflowClosesOnDispatch(node, command) {
+  if (!node || node.kind !== "input" || node.next || !Array.isArray(command) || command.length === 0) return false
+  var executable = String(command[0] || "").split("/").pop()
+  return executable === "xdg-terminal-exec" || executable === "omarchy-launch-terminal"
+}
+
 function normalizeExtension(raw) {
   if (!raw || typeof raw !== "object" || raw.schemaVersion !== 1) return null
 
@@ -1261,6 +1325,13 @@ if (typeof module !== "undefined") {
     workflowCommand: workflowCommand,
     workflowDirectoryTransition: workflowDirectoryTransition,
     workflowInputTransition: workflowInputTransition,
+    workflowClosesOnDispatch: workflowClosesOnDispatch,
+    extensionRootId: extensionRootId,
+    extensionRootCapability: extensionRootCapability,
+    extensionRootItem: extensionRootItem,
+    sortExtensionRootRows: sortExtensionRootRows,
+    extensionRootActivation: extensionRootActivation,
+    extensionRootInput: extensionRootInput,
     normalizeExtension: normalizeExtension,
     resolveExtensions: resolveExtensions,
     parseExtensionCatalog: parseExtensionCatalog,

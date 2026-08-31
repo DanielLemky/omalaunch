@@ -78,6 +78,7 @@ assert(menu.extensionMatchPriority({ available: false }) === 0, 'unavailable ext
 assert(filesExtension[0].copyCommand[2] === '{path}', 'file browser copy path commands are retained')
 assert(filesExtension[0].copyFileCommand[1] === '{path}', 'file browser copy file commands are retained')
 assert(filesExtension[0].terminalCommand[1] === '--dir={path}', 'file browser terminal commands are retained')
+assert(menu.extensionRootActivation(filesExtension[0]) === 'files', 'Files root activation selects the browser')
 assert(menu.isImagePath('/tmp/Photo.JPEG'), 'image paths are recognized case-insensitively')
 assert(menu.isImagePath('/tmp/vector.svg'), 'SVG paths are recognized for previews')
 assert(!menu.isImagePath('/tmp/photo.jpeg.txt'), 'non-image paths do not get previews')
@@ -170,6 +171,29 @@ assert(menu.parseExtensions(JSON.stringify([bundledFixture, { ...replacementFixt
 assert(menu.parseExtensions(JSON.stringify([bundledFixture]))[0].id === 'bundled-fixture', 'removing a replacement restores the bundled extension')
 assert(menu.parseExtensions(JSON.stringify([bundledFixture, { ...replacementFixture, _missingRequires: ['fixture-calc'] }]))[0].id === 'bundled-fixture', 'unavailable replacements fall back to bundled extensions')
 
+const bundledRootId = menu.extensionRootId(bundledFixture)
+const replacementRootId = menu.extensionRootId(replacementFixture)
+assert(bundledRootId === replacementRootId, 'extension root ids remain stable across capability provider replacement')
+assert(menu.extensionRootCapability(bundledRootId) === 'calculator', 'extension root ids recover their capability')
+assert(menu.extensionRootCapability('extension.root:not-json') === '', 'malformed extension root ids are ignored')
+const replacementRootItem = menu.extensionRootItem(menu.parseExtensions(JSON.stringify([replacementFixture]))[0])
+assert(replacementRootItem.id === replacementRootId && replacementRootItem.parent === 'extensions', 'extension roots are children of the fixed Extensions directory')
+assert(menu.extensionRootActivation(menu.parseExtensions(JSON.stringify([replacementFixture]))[0]) === 'input', 'query-only extension roots select focused input')
+assert(menu.extensionRootInput(menu.parseExtensions(JSON.stringify([replacementFixture]))[0]) === '', 'query-only extension roots start with empty functional input')
+assert(replacementRootItem.aliases.includes('calculator') && replacementRootItem.aliases.includes('fixture-calculator'), 'extension roots are globally searchable by stable capability and provider id')
+assert(menu.matchesQuery(replacementRootItem, menu.prepareSearchQuery('calculator'), true), 'extension roots participate in global search')
+const unavailableRootExtension = menu.parseExtensions(JSON.stringify([{ ...replacementFixture, _missingRequires: ['fixture-calc'] }]))[0]
+const unavailableRootItem = menu.extensionRootItem(unavailableRootExtension)
+assert(unavailableRootItem.description === 'Missing dependency: fixture-calc', 'unavailable extension roots remain visible with dependency detail')
+assert(menu.extensionRootActivation(unavailableRootExtension) === '', 'unavailable extension roots cannot dispatch an activation')
+const sortedExtensionRoots = menu.sortExtensionRootRows([
+  { itemId: 'timezone', label: 'Timezone', starred: false },
+  { itemId: 'currency', label: 'Currency conversion', starred: false },
+  { itemId: 'files', label: 'Files', starred: true },
+  { itemId: 'calculator', label: 'Calculator', starred: true }
+])
+assert(sortedExtensionRoots.map(row => row.itemId).join(',') === 'calculator,files,currency,timezone', 'Extensions rows sort starred first and alphabetically within each group')
+
 const bundledExtensions = menu.parseExtensions(JSON.stringify([
   { ...JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'extensions', 'calculator', 'extension.json'), 'utf8')), _bundled: true },
   { ...JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'extensions', 'currency', 'extension.json'), 'utf8')), _bundled: true }
@@ -187,6 +211,7 @@ assert(menu.suggestExtensions(timezoneExtension, 'tim')[0].prefix === 'time', 'l
 assert(menu.queryExtension(timezoneExtension, 'time seattle').capability === 'timezone', 'timezone extension matches explicit time queries')
 assert(menu.queryExtension(timezoneExtension, 'timer') === null, 'timezone extension ignores unrelated searches')
 assert(timezoneExtension[0].sourceDir === '/tmp/timezone', 'extension source directories are retained for bundled scripts')
+assert(menu.extensionRootActivation(timezoneExtension[0]) === 'input' && menu.extensionRootInput(timezoneExtension[0]) === 'time ', 'Timezone root activation focuses its prepared prefix')
 
 const workflowExtensions = menu.parseExtensions(JSON.stringify([{
   schemaVersion: 1,
@@ -220,6 +245,7 @@ const workflowExtensions = menu.parseExtensions(JSON.stringify([{
   }
 }]))
 assert(workflowExtensions.length === 1 && workflowExtensions[0].mode === 'workflow', 'workflow extension menus are parsed')
+assert(menu.extensionRootActivation(workflowExtensions[0]) === 'workflow', 'workflow extension roots enter their host-rendered workflow')
 const projectsNode = workflowExtensions[0].workflow.items[0]
 assert(projectsNode.label === 'Projects' && projectsNode.items.length === 2, 'workflow navigation data retains Projects and Add Project stages')
 const directoryTransition = menu.workflowDirectoryTransition(projectsNode.items[1], '/tmp/Saved Project/', {})
@@ -231,6 +257,11 @@ const hostilePrompt = 'fix $(touch /tmp/nope); echo owned'
 const promptedCommand = menu.workflowCommand(sessionNode, hostilePrompt, { path: '/tmp/Saved Project' })
 assert(promptedCommand.length === 5 && promptedCommand[4] === hostilePrompt, 'nonempty prompts remain one literal command argument')
 assert(menu.workflowInputTransition(sessionNode, '', { path: '/tmp/Saved Project' }).context.input === '', 'empty workflow input is accepted when declared')
+assert(menu.workflowClosesOnDispatch(sessionNode, promptedCommand), 'terminal workflow leaf commands close immediately after dispatch')
+assert(menu.workflowClosesOnDispatch(sessionNode, ['/usr/bin/omarchy-launch-terminal', 'codex']), 'terminal workflow detection accepts absolute launcher paths')
+assert(!menu.workflowClosesOnDispatch({ ...sessionNode, next: { id: 'next', kind: 'menu', label: 'Next', items: [] } }, promptedCommand), 'workflow commands with a next stage stay open')
+assert(!menu.workflowClosesOnDispatch(sessionNode, ['helper', 'save']), 'non-terminal workflow commands wait for successful completion')
+assert(!menu.workflowClosesOnDispatch({ ...sessionNode, allowEmpty: false }, []), 'pre-dispatch validation failures do not request closure')
 assert(menu.normalizeWorkflow({ items: [{ id: 'bad', kind: 'directoryPicker', label: 'Bad' }] }) === null, 'directory picker stages require a declared next transition')
 
 const unavailableCatalog = menu.parseExtensionCatalog(JSON.stringify([
