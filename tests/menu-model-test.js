@@ -413,6 +413,29 @@ assert(boundedQmlDiagnostics.extensions.length === 0 && boundedQmlDiagnostics.di
 assert(boundedQmlDiagnostics.diagnostics[0].length <= 1024
   && boundedQmlDiagnostics.diagnostics.some(message => message.indexOf('Further extension diagnostics were omitted') >= 0),
   'QML catalog validation bounds diagnostic text and reports omissions')
+const fileActionHints = menu.actionBarHints({
+  fileBrowserActive: true,
+  hasSelection: true,
+  canStar: true,
+  starred: false
+})
+assert(fileActionHints.map(hint => `${hint.label}:${hint.shortcut}`).join(',')
+  === 'Open:Enter,Actions:Ctrl K,Copy Path:Ctrl C,Star:Ctrl S',
+  'the action bar lists every available file shortcut')
+const starredActionHints = menu.actionBarHints({ hasSelection: true, canStar: true, starred: true })
+assert(starredActionHints.some(hint => hint.label === 'Unstar' && hint.shortcut === 'Ctrl S'),
+  'the action bar reflects the selected favorite state')
+const inputActionHints = menu.actionBarHints({ dmenuActive: true, dmenuInput: true })
+assert(inputActionHints.map(hint => hint.label).join(',') === 'Submit',
+  'input requests only advertise their submit action')
+const panelActionHints = menu.actionBarHints({ fileBrowserActive: true, actionPanelActive: true, hasSelection: true })
+assert(panelActionHints.map(hint => hint.label).join(',') === 'Run',
+  'action panels hide file-browser shortcuts that they do not accept')
+assert(menu.compactActionBarHints(fileActionHints).map(hint => hint.label).join(',') === 'Open,Actions',
+  'narrow action bars retain the primary action and action-panel shortcut')
+assert(menu.compactActionBarHints(starredActionHints).map(hint => hint.label).join(',') === 'Open,Unstar',
+  'action bars with only two hints do not compact further')
+
 const resetOpenState = menu.openStateReset({ workflowActive: true, fileBrowserActive: true })
 assert(resetOpenState.workflowActive === false && resetOpenState.workflowNode === null && resetOpenState.workflowStack.length === 0, 'new opens reset workflow state')
 assert(resetOpenState.fileBrowserActive === false && resetOpenState.directoryPickerActive === false && resetOpenState.fileBrowserExtension === null, 'new opens reset file browser and directory picker state')
