@@ -130,6 +130,16 @@ Item {
   onAppLibraryChanged: {
     root.appIconIndexUpdatedAt = 0
     root.appIconRefreshPending = false
+    // A provider request can race shell injection. Reconcile loaded app rows
+    // after attachment or detachment; mergeAppRows() also clears stale rows
+    // when no library is attached.
+    if (root.providersLoaded["apps"]) {
+      var revision = root.providerRevision
+      Qt.callLater(function() {
+        if (revision === root.providerRevision && root.providersLoaded["apps"])
+          root.mergeAppRows()
+      })
+    }
   }
   property bool deleteConfirmOpen: false
   property bool dependencyConfirmOpen: false
@@ -745,7 +755,12 @@ Item {
       root.rebuildDisplay()
       if (!root.dmenuActive) {
         if (root.filterText.trim()) root.loadProvidersForSearch()
-        else root.loadProviderForMenu(root.activeMenu)
+        else {
+          root.loadProviderForMenu(root.activeMenu)
+          // Root includes favorite applications and global search starts here,
+          // so preserve openExistingMenu's Apps prefetch after each generation.
+          if (root.activeMenu === "root") root.loadProviderForMenu("apps")
+        }
       }
     }
   }
@@ -777,9 +792,9 @@ Item {
   // (DesktopEntries) instead of a bash enumeration, so they carry image
   // icons, launch feedback, and uninstall support like the launcher.
   function mergeAppRows() {
-    if (!root.appLibrary) return
-
-    var rows = root.appLibrary.sortedEntries("")
+    // An empty replacement removes rows from a detached AppLibrary instead of
+    // leaving stale, non-launchable applications in search and favorites.
+    var rows = root.appLibrary ? root.appLibrary.sortedEntries("") : []
     var appRows = []
     for (var j = 0; j < rows.length; j++) {
       var entry = rows[j].entry
@@ -1852,6 +1867,16 @@ Item {
     referenceItem: card
   }
 
+  // Desktop-entry and hidden-filter watchers can emit appsChanged several
+  // times in one burst. Each merge sorts every app, rebuilds derived search
+  // metadata, and may rebuild the visible ListModel, so coalesce the burst.
+  Timer {
+    id: appRowsMergeDebounce
+    interval: 100
+    repeat: false
+    onTriggered: if (root.providersLoaded["apps"]) root.mergeAppRows()
+  }
+
   Connections {
     target: root.appLibrary
     function onIconIndexChanged() {
@@ -1863,7 +1888,10 @@ Item {
     function onAppsChanged() {
       // AppLibrary owns app-change icon rescans; this signal can also mean only
       // hidden filters changed, so it must not advance the freshness window.
-      if (root.providersLoaded["apps"]) root.mergeAppRows()
+      // Bound staleness to one interval from the first signal. Later signals
+      // in the same window are already represented by the eventual snapshot.
+      if (root.providersLoaded["apps"] && !appRowsMergeDebounce.running)
+        appRowsMergeDebounce.start()
     }
   }
 
