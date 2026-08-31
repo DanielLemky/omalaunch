@@ -38,17 +38,18 @@ function normalizeItem(id, raw) {
   }
 }
 
-function parseMenuJsonc(raw) {
+function parseMenuJsoncSnapshot(raw) {
   var stripped = stripJsonc(raw)
-  if (!stripped.trim()) return []
+  if (!stripped.trim()) return { valid: false, items: [] }
 
   var parsed
   try {
     parsed = JSON.parse(stripped)
   } catch (e) {
-    return []
+    return { valid: false, items: [] }
   }
-  if (typeof parsed !== "object" || parsed === null) return []
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed))
+    return { valid: false, items: [] }
 
   var source = (parsed.items && typeof parsed.items === "object" && !Array.isArray(parsed.items))
     ? parsed.items
@@ -59,7 +60,11 @@ function parseMenuJsonc(raw) {
     if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue
     out.push(normalizeItem(id, entry))
   }
-  return out
+  return { valid: true, items: out }
+}
+
+function parseMenuJsonc(raw) {
+  return parseMenuJsoncSnapshot(raw).items
 }
 
 function mergeMenuSources(defaultItems, userItems) {
@@ -1072,6 +1077,7 @@ if (typeof module !== "undefined") {
     normalizeAliases: normalizeAliases,
     normalizeItem: normalizeItem,
     parseMenuJsonc: parseMenuJsonc,
+    parseMenuJsoncSnapshot: parseMenuJsoncSnapshot,
     mergeMenuSources: mergeMenuSources,
     mergeAppRows: mergeAppRows,
     swapProviderRows: swapProviderRows,

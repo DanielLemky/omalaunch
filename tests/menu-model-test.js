@@ -14,6 +14,12 @@ const context = { module: { exports: {} } }
 vm.runInNewContext(source, context)
 const menu = context.module.exports
 
+const validMenuSnapshot = menu.parseMenuJsoncSnapshot('{"items":{"root":{"label":"Root"}}}')
+assert(validMenuSnapshot.valid && validMenuSnapshot.items.length === 1, 'valid menu snapshots are identified')
+assert(menu.parseMenuJsoncSnapshot('{}').valid, 'empty menu objects remain valid snapshots')
+assert(!menu.parseMenuJsoncSnapshot('{"items":').valid, 'partial menu JSON is an invalid snapshot')
+assert(!menu.parseMenuJsoncSnapshot('').valid, 'empty menu files are invalid snapshots')
+
 const extensions = menu.parseExtensions(JSON.stringify([{
   schemaVersion: 1,
   id: 'pi-agent',
