@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass
 import json
+import math
 import os
 from pathlib import Path
 import selectors
@@ -25,6 +26,12 @@ MAX_PROVIDERS_PER_PLUGIN = 16
 MAX_TOTAL_PROVIDERS = 64
 MAX_TOTAL_DEFINITIONS = 1024
 MAX_STATIC_INPUT_BYTES = 1024 * 1024
+MAX_MANIFEST_INPUT_BYTES = 256 * 1024
+MAX_STATIC_ENTRIES_PER_PLUGIN = 128
+MAX_DEFINITIONS_PER_SOURCE = 256
+MAX_DIAGNOSTICS = 256
+MAX_DIAGNOSTIC_CHARS = 1024
+MAX_SAFE_JSON_INTEGER = 9007199254740991
 AGGREGATE_PROVIDER_SECONDS = 15.0
 
 
@@ -38,6 +45,11 @@ class Limits:
     definitions: int = MAX_TOTAL_DEFINITIONS
     static_input_bytes: int = MAX_STATIC_INPUT_BYTES
     aggregate_provider_seconds: float = AGGREGATE_PROVIDER_SECONDS
+    manifest_input_bytes: int = MAX_MANIFEST_INPUT_BYTES
+    static_entries_per_plugin: int = MAX_STATIC_ENTRIES_PER_PLUGIN
+    definitions_per_source: int = MAX_DEFINITIONS_PER_SOURCE
+    diagnostics: int = MAX_DIAGNOSTICS
+    diagnostic_chars: int = MAX_DIAGNOSTIC_CHARS
 
 
 class CatalogBuilder:
@@ -50,6 +62,7 @@ class CatalogBuilder:
         self.definition_bytes = 0
         self.definition_limit_reported = False
         self.byte_limit_reported = False
+        self.diagnostic_limit_reported = False
         # Reserve room for useful diagnostics. The final envelope still uses
         # the exact public catalog limit and trims diagnostics linearly.
         reserve = min(64 * 1024, max(64, limits.catalog_output_bytes // 4))
@@ -57,14 +70,30 @@ class CatalogBuilder:
 
     @staticmethod
     def encoded(value: Any) -> bytes:
-        return json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode()
+        return json.dumps(value, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode()
 
     def diagnostic(self, message: str) -> None:
-        self.diagnostics.append(message)
+        clean = str(message).replace("\x00", "�")
+        if len(clean) > self.limits.diagnostic_chars:
+            clean = clean[:max(0, self.limits.diagnostic_chars - 1)] + "…"
+        if len(self.diagnostics) < self.limits.diagnostics:
+            self.diagnostics.append(clean)
+        elif not self.diagnostic_limit_reported:
+            # Replace the final diagnostic so the bounded omission is visible
+            # without allowing adversarial manifests to grow this list.
+            notice = f"Further diagnostics were omitted after the {self.limits.diagnostics}-message limit"
+            if self.diagnostics:
+                self.diagnostics[-1] = notice[:self.limits.diagnostic_chars]
+            self.diagnostic_limit_reported = True
 
     def append(self, raw: Any, *, bundled: bool, source_dir: Path, source: str) -> None:
         values = raw if isinstance(raw, list) else [raw]
-        for value in values:
+        if len(values) > self.limits.definitions_per_source:
+            self.diagnostic(
+                f"{source} contains {len(values)} extension definitions; only the first "
+                f"{self.limits.definitions_per_source} were considered"
+            )
+        for value in values[:self.limits.definitions_per_source]:
             if len(self.catalog) >= self.limits.definitions:
                 if not self.definition_limit_reported:
                     self.diagnostic(
@@ -195,9 +224,45 @@ def command_for_provider(plugin_dir: Path, raw: Any) -> tuple[list[str] | None, 
     return command, None
 
 
-def read_json(path: Path) -> Any:
+def reject_json_constant(value: str) -> Any:
+    raise ValueError(f"non-finite JSON number {value!r} is not permitted")
+
+
+def strict_json_float(value: str) -> float:
+    result = float(value)
+    if not math.isfinite(result):
+        raise ValueError(f"non-finite or out-of-range JSON number {value!r} is not permitted")
+    return result
+
+
+def strict_json_int(value: str) -> int:
+    result = int(value)
+    if abs(result) > MAX_SAFE_JSON_INTEGER:
+        raise ValueError(f"JSON integer {value!r} exceeds the interoperable safe-integer range")
+    return result
+
+
+def parse_json(value: str | bytes) -> Any:
+    return json.loads(
+        value,
+        parse_constant=reject_json_constant,
+        parse_float=strict_json_float,
+        parse_int=strict_json_int,
+    )
+
+
+def read_json(path: Path, *, size_limit: int | None = None) -> Any:
+    if size_limit is not None:
+        size = path.stat().st_size
+        if size > size_limit:
+            raise ValueError(f"file is {size} bytes; limit is {size_limit} bytes")
     with path.open("r", encoding="utf-8") as handle:
-        return json.load(handle)
+        return json.load(
+            handle,
+            parse_constant=reject_json_constant,
+            parse_float=strict_json_float,
+            parse_int=strict_json_int,
+        )
 
 
 def annotate(raw: Any, *, bundled: bool, source_dir: Path, source: str) -> Any:
@@ -222,9 +287,9 @@ def enabled_plugin_ids(timeout: float) -> tuple[set[str], list[str], bool]:
         suffix = f": {detail}" if detail else ""
         return set(), [f"Could not list enabled Omarchy plugins ({status}){suffix}; external extensions were skipped"], False
     try:
-        plugins = json.loads(stdout)
-    except (json.JSONDecodeError, UnicodeDecodeError):
-        return set(), ["Could not list enabled Omarchy plugins: output was not valid JSON; external extensions were skipped"], False
+        plugins = parse_json(stdout)
+    except (ValueError, UnicodeDecodeError) as error:
+        return set(), [f"Could not list enabled Omarchy plugins: output was not valid JSON ({error}); external extensions were skipped"], False
     if not isinstance(plugins, list):
         return set(), ["Could not list enabled Omarchy plugins: expected a JSON array; external extensions were skipped"], False
     return {
@@ -265,7 +330,7 @@ def load_catalog(plugin_path: Path, omarchy_path: Path, home: Path, limits: Limi
         static_bytes += size
         try:
             builder.append(read_json(extension_file), bundled=bundled, source_dir=source_dir, source=source)
-        except (OSError, json.JSONDecodeError, UnicodeDecodeError) as error:
+        except (OSError, ValueError, UnicodeDecodeError) as error:
             builder.diagnostic(f"Could not load {source}: {error}")
 
     for extension_file in sorted(plugin_path.glob("extensions/*/extension.json")):
@@ -281,87 +346,114 @@ def load_catalog(plugin_path: Path, omarchy_path: Path, home: Path, limits: Limi
     provider_deadline_reported = False
     total_provider_limit_reported = False
 
+    # Root order is the explicit precedence: the Omarchy-managed shell root
+    # wins over the user plugin root, and lexical path order breaks ties inside
+    # one root. An enabled plugin id is materialized exactly once, so duplicate
+    # installs cannot multiply its static/provider budgets.
+    selected_manifests: dict[str, tuple[Path, dict[str, Any]]] = {}
     for root in manifest_roots:
         for manifest_path in sorted(root.glob("*/manifest.json")):
             try:
-                manifest = read_json(manifest_path)
-            except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+                manifest = read_json(manifest_path, size_limit=limits.manifest_input_bytes)
+            except (OSError, ValueError, UnicodeDecodeError) as error:
+                builder.diagnostic(f"Could not load plugin manifest {manifest_path}: {error}")
                 continue
-            if not isinstance(manifest, dict) or manifest.get("id") not in enabled:
+            if not isinstance(manifest, dict) or not isinstance(manifest.get("id"), str):
+                builder.diagnostic(f"Ignored invalid plugin manifest {manifest_path}: expected an object with a string id")
                 continue
             plugin_id = manifest["id"]
-            plugin_dir = manifest_path.parent.resolve()
-            omalaunch = manifest.get("omalaunch", {})
-            if not isinstance(omalaunch, dict):
-                builder.diagnostic(f"Plugin {plugin_id} has an invalid omalaunch manifest object")
+            if plugin_id not in enabled:
                 continue
-
-            static_entries: list[Any] = []
-            for field in ("extensions", "queryProviders"):
-                entries = omalaunch.get(field, [])
-                if not isinstance(entries, list):
-                    builder.diagnostic(f"Plugin {plugin_id} omalaunch.{field} must be an array")
-                    continue
-                static_entries.extend(entries)
-            for entry in static_entries:
-                extension_file = safe_plugin_file(plugin_dir, entry)
-                if extension_file is None:
-                    builder.diagnostic(f"Plugin {plugin_id} extension path is missing or unsafe: {entry!r}")
-                    continue
-                load_static(extension_file, bundled=False, source_dir=extension_file.parent,
-                            source=f"plugin {plugin_id} file {entry}")
-
-            providers = omalaunch.get("extensionProviders", [])
-            if not isinstance(providers, list):
-                builder.diagnostic(f"Plugin {plugin_id} omalaunch.extensionProviders must be an array")
-                continue
-            if len(providers) > limits.providers_per_plugin:
+            if plugin_id in selected_manifests:
+                selected_path = selected_manifests[plugin_id][0]
                 builder.diagnostic(
-                    f"Plugin {plugin_id} declares {len(providers)} extension providers; only the first "
-                    f"{limits.providers_per_plugin} were considered"
+                    f"Ignored shadowed manifest for plugin {plugin_id} at {manifest_path}; "
+                    f"using higher-precedence {selected_path}"
                 )
-            for index, raw_command in enumerate(providers[:limits.providers_per_plugin]):
-                source = f"plugin {plugin_id} provider #{index + 1}"
-                if total_providers >= limits.total_providers:
-                    if not total_provider_limit_reported:
-                        builder.diagnostic(
-                            f"Total extension provider limit ({limits.total_providers}) reached; remaining providers were skipped"
-                        )
-                        total_provider_limit_reported = True
-                    continue
-                total_providers += 1
-                remaining_runtime = limits.aggregate_provider_seconds - provider_runtime
-                if remaining_runtime <= 0:
-                    if not provider_deadline_reported:
-                        builder.diagnostic(
-                            f"Aggregate extension provider runtime limit ({limits.aggregate_provider_seconds:g} seconds) reached; remaining providers were skipped"
-                        )
-                        provider_deadline_reported = True
-                    continue
-                command, command_error = command_for_provider(plugin_dir, raw_command)
-                if command_error:
-                    builder.diagnostic(f"Extension provider {source} {command_error}")
-                    continue
-                assert command is not None
-                started = time.monotonic()
-                status, stdout, stderr = run_bounded(
-                    command, cwd=plugin_dir,
-                    timeout=max(0.01, min(limits.provider_timeout, remaining_runtime)),
-                    limit=limits.provider_output_bytes,
-                )
-                provider_runtime += time.monotonic() - started
-                if status != "ok":
-                    builder.diagnostic(provider_failure(source, status, stderr, limits.provider_output_bytes))
-                    continue
-                try:
-                    definitions = json.loads(stdout)
-                except (json.JSONDecodeError, UnicodeDecodeError) as error:
-                    builder.diagnostic(f"Extension provider {source} emitted invalid JSON: {error}")
-                    continue
-                if not isinstance(definitions, (dict, list)):
-                    builder.diagnostic(f"Extension provider {source} must emit one extension object or an array of extension objects")
-                    continue
-                builder.append(definitions, bundled=False, source_dir=plugin_dir, source=source)
+                continue
+            selected_manifests[plugin_id] = (manifest_path, manifest)
+
+    for plugin_id, (manifest_path, manifest) in selected_manifests.items():
+        plugin_dir = manifest_path.parent.resolve()
+        omalaunch = manifest.get("omalaunch", {})
+        if not isinstance(omalaunch, dict):
+            builder.diagnostic(f"Plugin {plugin_id} has an invalid omalaunch manifest object in {manifest_path}")
+            continue
+
+        static_entries: list[Any] = []
+        static_entries_declared = 0
+        for field in ("extensions", "queryProviders"):
+            entries = omalaunch.get(field, [])
+            if not isinstance(entries, list):
+                builder.diagnostic(f"Plugin {plugin_id} omalaunch.{field} must be an array in {manifest_path}")
+                continue
+            static_entries_declared += len(entries)
+            remaining = max(0, limits.static_entries_per_plugin - len(static_entries))
+            static_entries.extend(entries[:remaining])
+        if static_entries_declared > limits.static_entries_per_plugin:
+            builder.diagnostic(
+                f"Plugin {plugin_id} declares {static_entries_declared} static extension entries; only the first "
+                f"{limits.static_entries_per_plugin} were considered"
+            )
+        for entry in static_entries:
+            extension_file = safe_plugin_file(plugin_dir, entry)
+            if extension_file is None:
+                builder.diagnostic(f"Plugin {plugin_id} extension path is missing or unsafe: {entry!r}")
+                continue
+            load_static(extension_file, bundled=False, source_dir=extension_file.parent,
+                        source=f"plugin {plugin_id} file {entry}")
+
+        providers = omalaunch.get("extensionProviders", [])
+        if not isinstance(providers, list):
+            builder.diagnostic(f"Plugin {plugin_id} omalaunch.extensionProviders must be an array in {manifest_path}")
+            continue
+        if len(providers) > limits.providers_per_plugin:
+            builder.diagnostic(
+                f"Plugin {plugin_id} declares {len(providers)} extension providers; only the first "
+                f"{limits.providers_per_plugin} were considered"
+            )
+        for index, raw_command in enumerate(providers[:limits.providers_per_plugin]):
+            source = f"plugin {plugin_id} provider #{index + 1}"
+            if total_providers >= limits.total_providers:
+                if not total_provider_limit_reported:
+                    builder.diagnostic(
+                        f"Total extension provider limit ({limits.total_providers}) reached; remaining providers were skipped"
+                    )
+                    total_provider_limit_reported = True
+                continue
+            total_providers += 1
+            remaining_runtime = limits.aggregate_provider_seconds - provider_runtime
+            if remaining_runtime <= 0:
+                if not provider_deadline_reported:
+                    builder.diagnostic(
+                        f"Aggregate extension provider runtime limit ({limits.aggregate_provider_seconds:g} seconds) reached; remaining providers were skipped"
+                    )
+                    provider_deadline_reported = True
+                continue
+            command, command_error = command_for_provider(plugin_dir, raw_command)
+            if command_error:
+                builder.diagnostic(f"Extension provider {source} {command_error}")
+                continue
+            assert command is not None
+            started = time.monotonic()
+            status, stdout, stderr = run_bounded(
+                command, cwd=plugin_dir,
+                timeout=max(0.01, min(limits.provider_timeout, remaining_runtime)),
+                limit=limits.provider_output_bytes,
+            )
+            provider_runtime += time.monotonic() - started
+            if status != "ok":
+                builder.diagnostic(provider_failure(source, status, stderr, limits.provider_output_bytes))
+                continue
+            try:
+                definitions = parse_json(stdout)
+            except (ValueError, UnicodeDecodeError) as error:
+                builder.diagnostic(f"Extension provider {source} emitted invalid JSON: {error}")
+                continue
+            if not isinstance(definitions, (dict, list)):
+                builder.diagnostic(f"Extension provider {source} must emit one extension object or an array of extension objects")
+                continue
+            builder.append(definitions, bundled=False, source_dir=plugin_dir, source=source)
 
     return builder.finish(complete=complete)
 
@@ -391,7 +483,7 @@ def main() -> int:
         aggregate_provider_seconds=max(0, args.aggregate_provider_timeout),
     )
     result = load_catalog(args.plugin_path.resolve(), args.omarchy_path.resolve(), args.home.resolve(), limits)
-    json.dump(result, sys.stdout, ensure_ascii=False, separators=(",", ":"))
+    json.dump(result, sys.stdout, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
     sys.stdout.write("\n")
     return 0
 

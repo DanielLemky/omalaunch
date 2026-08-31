@@ -274,6 +274,15 @@ assert(!menu.workflowClosesOnDispatch({ ...sessionNode, next: { id: 'next', kind
 assert(!menu.workflowClosesOnDispatch(sessionNode, ['helper', 'save']), 'non-terminal workflow commands wait for successful completion')
 assert(!menu.workflowClosesOnDispatch({ ...sessionNode, allowEmpty: false }, []), 'pre-dispatch validation failures do not request closure')
 assert(menu.normalizeWorkflow({ items: [{ id: 'bad', kind: 'directoryPicker', label: 'Bad' }] }) === null, 'directory picker stages require a declared next transition')
+assert(menu.normalizeWorkflow({ items: [
+  { id: 'duplicate', kind: 'menu', label: 'First', items: [] },
+  { id: 'duplicate', kind: 'input', label: 'Second', command: ['true'] }
+] }) === null, 'duplicate sibling workflow ids are rejected even when kinds differ')
+assert(menu.normalizeWorkflow({ items: [{ id: 'parent', kind: 'menu', label: 'Parent', items: [
+  { id: 'duplicate', kind: 'menu', label: 'First', items: [] },
+  { id: 'duplicate', kind: 'menu', label: 'Second', items: [] }
+] }] }) === null, 'duplicate nested sibling workflow ids are rejected')
+assert(menu.normalizeWorkflow({ items: [{ id: 'huge', kind: 'input', label: 'Huge', maxLength: 1e400, command: ['true'] }] }) === null, 'non-finite workflow numeric fields are rejected')
 const truncatedWorkflow = menu.normalizeWorkflow({ items: [{
   id: 'short', kind: 'input', label: 'Short', default: 'abcdefgh', maxLength: 4,
   command: ['printf', '{input}']
@@ -285,9 +294,27 @@ for (let level = 6; level >= 0; level--) eightLevelNode = { id: `level${level}`,
 assert(menu.normalizeWorkflow({ items: [eightLevelNode] }) !== null, 'workflow trees accept exactly eight documented levels')
 eightLevelNode.items[0].items[0].items[0].items[0].items[0].items[0].items[0].items.push({ id: 'level8', kind: 'menu', label: 'Level 8', items: [] })
 assert(menu.normalizeWorkflow({ items: [eightLevelNode] }) === null, 'workflow trees reject a ninth level')
-const reboundWorkflow = menu.rebindWorkflow(workflowExtensions[0], [{ node: { id: 'root' }, context: {} }, { node: { id: 'projects' }, context: {} }], { id: 'saved' })
+const oldProjects = JSON.parse(JSON.stringify(projectsNode))
+const oldSaved = oldProjects.items[0]
+const oldRoot = { id: 'root', kind: 'menu', items: [oldProjects] }
+const reboundWorkflow = menu.rebindWorkflow(workflowExtensions[0], [{ node: oldRoot, context: {} }, { node: oldProjects, context: {} }], oldSaved)
 assert(reboundWorkflow && reboundWorkflow.node === workflowExtensions[0].workflow.items[0].items[0], 'catalog refresh rebinds active workflow paths to fresh node objects')
-assert(menu.rebindWorkflow({ ...workflowExtensions[0], available: false }, [], { id: 'root' }) === null, 'unavailable refreshed workflows cannot retain active state')
+const changedKindExtension = JSON.parse(JSON.stringify(workflowExtensions[0]))
+changedKindExtension.workflow.items[0].items[0].kind = 'input'
+changedKindExtension.workflow.items[0].items[0].command = ['true']
+assert(menu.rebindWorkflow(changedKindExtension, [{ node: oldRoot, context: {} }, { node: oldProjects, context: {} }], oldSaved) === null, 'menu to input kind changes invalidate workflow refresh state')
+const oldPicker = JSON.parse(JSON.stringify(projectsNode.items[1]))
+const pickerRoot = { id: 'root', kind: 'menu', items: [oldPicker] }
+const changedPickerExtension = JSON.parse(JSON.stringify(workflowExtensions[0]))
+changedPickerExtension.workflow.items = [{ id: 'add', kind: 'menu', label: 'Now menu', items: [] }]
+assert(menu.rebindWorkflow(changedPickerExtension, [{ node: pickerRoot, context: {} }], oldPicker) === null, 'directory picker to menu changes invalidate file-picker state')
+const oldInput = JSON.parse(JSON.stringify(sessionNode))
+const inputRoot = { id: 'root', kind: 'menu', items: [oldInput] }
+const changedCommandExtension = JSON.parse(JSON.stringify(workflowExtensions[0]))
+changedCommandExtension.workflow.items = [JSON.parse(JSON.stringify(oldInput))]
+changedCommandExtension.workflow.items[0].command = ['helper', 'changed']
+assert(menu.rebindWorkflow(changedCommandExtension, [{ node: inputRoot, context: {} }], oldInput) === null, 'changed active command stages cannot acquire refreshed behavior')
+assert(menu.rebindWorkflow({ ...workflowExtensions[0], available: false }, [], oldRoot) === null, 'unavailable refreshed workflows cannot retain active state')
 assert(menu.workflowActionIsCurrent(7, 7, true, 'codex-agent', workflowExtensions[0]), 'current workflow action generations may transition')
 assert(!menu.workflowActionIsCurrent(6, 7, true, 'codex-agent', workflowExtensions[0]), 'stale workflow action generations cannot transition')
 assert(!menu.workflowActionIsCurrent(7, 7, true, 'other-capability', workflowExtensions[0]), 'replacement capability mismatches cannot transition')
@@ -367,6 +394,21 @@ assert(hostileCatalog.diagnostics.some(message => message.indexOf("Duplicate ext
 assert(menu.resolveExtensions([{ capability: '__proto__', available: true, priority: 0, bundled: true }, { capability: '__proto__', available: true, priority: 1, bundled: false }])[0].priority === 1, 'hostile capability keys resolve replacements normally')
 assert(menu.parseExtensionCatalog('{bad').valid === false, 'malformed catalogs are marked invalid for last-known-good retention')
 assert(menu.parseExtensionCatalog(JSON.stringify({ extensions: [], diagnostics: [], complete: false })).complete === false, 'incomplete loader catalogs are marked transient')
+assert(menu.parseExtensions('[{"schemaVersion":1,"id":"overflow","label":"Overflow","prefixes":["overflow"],"command":["true"],"priority":1e400}]').length === 0, 'QML-side normalization rejects floating-point overflow from otherwise valid JSON')
+assert(menu.parseExtensions(JSON.stringify({ schemaVersion: 1, id: 'unsafe-int', label: 'Unsafe', prefixes: ['unsafe'], command: ['true'], priority: 9007199254740992 })).length === 0, 'QML-side normalization rejects numeric fields outside the interoperable safe range')
+const boundedQmlDiagnostics = menu.parseExtensionCatalog(JSON.stringify({
+  diagnostics: ['x'.repeat(5000)],
+  extensions: Array.from({ length: 1100 }, (_, index) => ({ _source: `invalid-${index}` }))
+}))
+assert(boundedQmlDiagnostics.extensions.length === 0 && boundedQmlDiagnostics.diagnostics.length === 256,
+  'QML catalog validation bounds definition use and aggregate diagnostics')
+assert(boundedQmlDiagnostics.diagnostics[0].length <= 1024
+  && boundedQmlDiagnostics.diagnostics.some(message => message.indexOf('Further extension diagnostics were omitted') >= 0),
+  'QML catalog validation bounds diagnostic text and reports omissions')
+const resetOpenState = menu.openStateReset({ workflowActive: true, fileBrowserActive: true })
+assert(resetOpenState.workflowActive === false && resetOpenState.workflowNode === null && resetOpenState.workflowStack.length === 0, 'new opens reset workflow state')
+assert(resetOpenState.fileBrowserActive === false && resetOpenState.directoryPickerActive === false && resetOpenState.fileBrowserExtension === null, 'new opens reset file browser and directory picker state')
+assert(resetOpenState.focusedExtension === null && resetOpenState.actionPanelActive === false && resetOpenState.resultExtension === null, 'new opens reset focused and action-panel state')
 
 const bundledMissingQalc = menu.parseExtensions(JSON.stringify([{
   ...JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'extensions', 'calculator', 'extension.json'), 'utf8')),

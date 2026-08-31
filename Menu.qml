@@ -22,12 +22,13 @@ Item {
   property bool routePendingForMenuSources: false
 
   function open(payloadJson) {
-    // Every accepted dmenu request must complete even if another summon
-    // replaces it before the caller has selected a result.
-    if (root.dmenuActive && root.requestActive) root.finishRequest(null)
-    root.loadExtensions(false)
+    // Parse first so resetting the old surface cannot discard the incoming
+    // request. Completion of a replaced dmenu is queued before its protocol
+    // fields are cleared and before the new surface is installed.
     var payload = ({})
     try { payload = JSON.parse(payloadJson || "{}") } catch (e) { payload = ({}) }
+    root.resetForOpen()
+    root.loadExtensions(false)
 
     if (payload.fontFamily) root.fontFamily = payload.fontFamily
 
@@ -122,6 +123,7 @@ Item {
   property var workflowStack: []
   property int workflowGeneration: 0
   readonly property int workflowActionTimeoutMs: 30 * 1000
+  readonly property int workflowTerminationGraceMs: 1000
   property int fileScanSerial: 0
   readonly property string fileIndexHelper: root.pluginPath + "/extensions/files/file-index.py"
   readonly property string extensionLoaderHelper: root.pluginPath + "/libexec/load-extensions.py"
@@ -670,6 +672,7 @@ Item {
   }
 
   function invalidateWorkflowAction(reason) {
+    if (workflowActionProc.stopping) return
     if (workflowActionProc.generation <= 0 && !workflowActionProc.running) return
     root.workflowGeneration += 1
     workflowActionTimeout.stop()
@@ -680,8 +683,14 @@ Item {
     workflowActionProc.nextBackSteps = 0
     workflowActionProc.closeAfter = false
     if (workflowActionProc.running) {
+      // `running = false` is Quickshell's supported SIGTERM path. Keep the
+      // Process reserved during a short grace period; a generation-matched
+      // timer escalates the same direct child with SIGKILL if it does not exit.
       workflowActionProc.stopping = true
+      workflowActionProc.stopGeneration = root.workflowGeneration
+      workflowActionKillTimer.generation = workflowActionProc.stopGeneration
       workflowActionProc.running = false
+      workflowActionKillTimer.restart()
     }
   }
 
@@ -1932,6 +1941,29 @@ Item {
     root.runAction(action)
   }
 
+  function resetForOpen() {
+    if (root.dmenuActive && root.requestActive) root.finishRequest(null)
+    root.invalidateWorkflowAction("new launcher session")
+    root.routePendingForMenuSources = false
+    root.resetFileIndex()
+    extensionQueryTimer.stop()
+    root.extensionQuerySerial += 1
+    if (extensionQueryProc.running) extensionQueryProc.running = false
+
+    var reset = MenuModel.openStateReset()
+    for (var key in reset) root[key] = reset[key]
+    root.mode = "menu"
+    root.requestActive = false
+    root.selectionFile = ""
+    root.doneFile = ""
+    root.dmenuPrompt = ""
+    root.dmenuOptions = []
+    root.dmenuRows = []
+    root.navStack = []
+    root.filterText = ""
+    root.opened = false
+  }
+
   function cancel() {
     root.invalidateWorkflowAction("launcher canceled")
     root.routePendingForMenuSources = false
@@ -1959,7 +1991,6 @@ Item {
   }
 
   function openExistingMenu(initialMenu) {
-    root.invalidateWorkflowAction("new launcher session")
     requestSerial += 1
     mode = "menu"
     requestActive = false
@@ -1987,7 +2018,6 @@ Item {
   }
 
   function openDmenu(payload) {
-    root.invalidateWorkflowAction("new dmenu session")
     root.routePendingForMenuSources = false
     requestSerial += 1
     mode = payload.mode === "input" ? "input" : "select"
@@ -2330,9 +2360,22 @@ Item {
     }
   }
 
+  Timer {
+    id: workflowActionKillTimer
+    interval: root.workflowTerminationGraceMs
+    repeat: false
+    property int generation: 0
+    onTriggered: {
+      if (!workflowActionProc.stopping || generation !== workflowActionProc.stopGeneration) return
+      console.warn("Omalaunch: workflow action ignored SIGTERM; sending SIGKILL to direct child")
+      workflowActionProc.signal(9)
+    }
+  }
+
   Process {
     id: workflowActionProc
     property int generation: 0
+    property int stopGeneration: 0
     property bool stopping: false
     property string extensionCapability: ""
     property var nextNode: null
@@ -2342,6 +2385,8 @@ Item {
     property bool closeAfter: false
     onExited: function(exitCode) {
       workflowActionTimeout.stop()
+      workflowActionKillTimer.stop()
+      workflowActionProc.stopGeneration = 0
       workflowActionProc.stopping = false
       if (!MenuModel.workflowActionIsCurrent(workflowActionProc.generation, root.workflowGeneration,
           root.workflowActive, workflowActionProc.extensionCapability, root.workflowExtension)) return

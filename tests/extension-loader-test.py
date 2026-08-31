@@ -3,6 +3,7 @@
 import json
 import os
 from pathlib import Path
+import shutil
 import stat
 import subprocess
 import tempfile
@@ -69,6 +70,16 @@ elif mode == 'timeout':
     time.sleep(2)
 elif mode == 'oversized':
     print('x' * (300 * 1024))
+elif mode == 'nan':
+    print('{"schemaVersion":1,"id":"nan","label":"NaN","prefixes":["nan"],"command":["true"],"priority":NaN}')
+elif mode == 'infinity':
+    print('{"schemaVersion":1,"id":"infinity","label":"Infinity","prefixes":["infinity"],"command":["true"],"priority":Infinity}')
+elif mode == 'negative-infinity':
+    print('{"schemaVersion":1,"id":"negative-infinity","label":"Negative Infinity","prefixes":["negative-infinity"],"command":["true"],"priority":-Infinity}')
+elif mode == 'float-overflow':
+    print('{"schemaVersion":1,"id":"float-overflow","label":"Float overflow","prefixes":["float-overflow"],"command":["true"],"priority":1e400}')
+elif mode == 'integer-overflow':
+    print('{"schemaVersion":1,"id":"integer-overflow","label":"Integer overflow","prefixes":["integer-overflow"],"command":["true"],"priority":9007199254740992}')
 """)
     static_file = plugin_dir / "static.json"
     static_file.write_text(json.dumps({
@@ -93,6 +104,11 @@ elif mode == 'oversized':
                 ["./provider.py", "oversized"],
                 ["missing-provider-command"],
                 ["../outside-provider"],
+                ["./provider.py", "nan"],
+                ["./provider.py", "infinity"],
+                ["./provider.py", "negative-infinity"],
+                ["./provider.py", "float-overflow"],
+                ["./provider.py", "integer-overflow"],
             ],
         },
     }
@@ -122,6 +138,12 @@ elif mode == 'oversized':
           "oversized provider output produces a diagnostic")
     check("was not found on PATH" in messages, "missing provider executables produce a diagnostic")
     check("escapes the plugin directory" in messages, "unsafe relative executable paths are rejected")
+    check(all(value in messages for value in ("NaN", "Infinity", "-Infinity"))
+          and not any(item.get("id") in {"nan", "infinity", "negative-infinity"} for item in catalog["extensions"]),
+          "provider JSON constants are rejected independently with provider provenance")
+    check("1e400" in messages and "9007199254740992" in messages
+          and not any(item.get("id") in {"float-overflow", "integer-overflow"} for item in catalog["extensions"]),
+          "provider numeric overflow is rejected before Python-to-QML serialization")
     check(all(item.get("_source") for item in catalog["extensions"]),
           "catalog definitions retain actionable source provenance")
     check(catalog["complete"] is True, "successful plugin discovery marks the catalog complete")
@@ -164,6 +186,108 @@ elif mode == 'oversized':
     byte_limited = json.loads(byte_limited_result.stdout)
     check(len(byte_limited_result.stdout) <= 901 and byte_limited["extensions"],
           "incremental catalog byte enforcement stays within the injected output limit and preserves valid entries")
+
+    # Strict static JSON is isolated exactly like provider output.
+    invalid_static = plugin_dir / "invalid-static.json"
+    invalid_static.write_text('{"schemaVersion":1,"id":"bad-static","label":"Bad","priority":NaN}', encoding="utf-8")
+    manifest["omalaunch"]["extensions"].append("invalid-static.json")
+    plugin_dir.joinpath("manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    strict_static = run_loader(plugin_root, omarchy_root, home, env)
+    check("plugin example.dynamic file invalid-static.json" in "\n".join(strict_static["diagnostics"])
+          and "NaN" in "\n".join(strict_static["diagnostics"])
+          and "bad-static" not in [item.get("id") for item in strict_static["extensions"]],
+          "non-finite static JSON is rejected with file provenance without poisoning other definitions")
+    manifest["omalaunch"]["extensions"].remove("invalid-static.json")
+    plugin_dir.joinpath("manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    invalid_static.unlink()
+
+    # The managed root has explicit precedence and duplicate ids consume one
+    # plugin budget rather than running both manifests.
+    managed_plugin = omarchy_root / "shell" / "plugins" / "managed-dynamic"
+    managed_plugin.mkdir(parents=True)
+    managed_plugin.joinpath("managed.json").write_text(json.dumps({
+        "schemaVersion": 1, "id": "managed", "label": "Managed",
+        "prefixes": ["managed"], "command": ["true"]
+    }), encoding="utf-8")
+    managed_plugin.joinpath("manifest.json").write_text(json.dumps({
+        "id": "example.dynamic", "omalaunch": {"extensions": ["managed.json"], "extensionProviders": []}
+    }), encoding="utf-8")
+    shadowed = run_loader(plugin_root, omarchy_root, home, env)
+    shadowed_ids = [item.get("id") for item in shadowed["extensions"]]
+    check("managed" in shadowed_ids and "static" not in shadowed_ids and "dynamic" not in shadowed_ids,
+          "higher-precedence duplicate manifest is the only materialized plugin definition set")
+    check("Ignored shadowed manifest for plugin example.dynamic" in "\n".join(shadowed["diagnostics"])
+          and str(managed_plugin / "manifest.json") in "\n".join(shadowed["diagnostics"]),
+          "shadowed manifests are diagnosed with deterministic selected provenance")
+    shutil.rmtree(omarchy_root / "shell")
+
+    # Per-source definition and per-plugin static declaration caps apply before
+    # all entries are materialized into the catalog.
+    cap_plugin = plugins_root / "caps"
+    cap_plugin.mkdir()
+    many_definitions = [{
+        "schemaVersion": 1, "id": f"cap-{index}", "label": f"Cap {index}",
+        "prefixes": [f"cap-{index}"], "command": ["true"]
+    } for index in range(257)]
+    cap_plugin.joinpath("many.json").write_text(json.dumps(many_definitions), encoding="utf-8")
+    cap_plugin.joinpath("one.json").write_text(json.dumps(many_definitions[0]), encoding="utf-8")
+    cap_plugin.joinpath("manifest.json").write_text(json.dumps({
+        "id": "example.caps", "omalaunch": {"extensions": ["many.json"] + ["one.json"] * 128}
+    }), encoding="utf-8")
+    enabled_file.write_text(json.dumps([
+        {"id": "example.dynamic", "enabled": True}, {"id": "example.caps", "enabled": True}
+    ]), encoding="utf-8")
+    capped = run_loader(plugin_root, omarchy_root, home, env)
+    capped_messages = "\n".join(capped["diagnostics"])
+    check(sum(1 for item in capped["extensions"] if str(item.get("id", "")).startswith("cap-")) == 383,
+          "per-source and static declaration limits bound materialization while preserving accepted entries")
+    check("only the first 256 were considered" in capped_messages
+          and "only the first 128 were considered" in capped_messages,
+          "definition and static declaration caps are diagnosed")
+    shutil.rmtree(cap_plugin)
+
+    # Manifests are size-bounded before parsing; malformed-manifest floods and
+    # individual diagnostic text are bounded as well.
+    oversized_plugin = plugins_root / "000-oversized-manifest"
+    oversized_plugin.mkdir()
+    oversized_plugin.joinpath("manifest.json").write_text(
+        '{"id":"example.oversized","padding":"' + ('x' * (256 * 1024)) + '"}', encoding="utf-8")
+    malformed_root = plugins_root / "malformed-000"
+    malformed_root.mkdir()
+    malformed_root.joinpath("manifest.json").write_text('{not-json', encoding="utf-8")
+    for index in range(1, 270):
+        malformed = plugins_root / f"malformed-{index:03d}"
+        malformed.mkdir()
+        malformed.joinpath("manifest.json").write_text('{not-json', encoding="utf-8")
+    bounded_diagnostics = run_loader(plugin_root, omarchy_root, home, env)
+    check(any("000-oversized-manifest/manifest.json" in message and "limit is 262144 bytes" in message
+              for message in bounded_diagnostics["diagnostics"]),
+          "manifest bytes are bounded before JSON loading with source provenance")
+    check(len(bounded_diagnostics["diagnostics"]) <= 256
+          and all(len(message) <= 1024 for message in bounded_diagnostics["diagnostics"])
+          and any("Further diagnostics were omitted" in message for message in bounded_diagnostics["diagnostics"]),
+          "diagnostic count and individual length are bounded under adversarial manifests")
+    shutil.rmtree(oversized_plugin)
+    for index in range(270):
+        shutil.rmtree(plugins_root / f"malformed-{index:03d}")
+
+    # Manifest and enabled-plugin JSON use the same strict parser.
+    strict_manifest = plugins_root / "strict-manifest"
+    strict_manifest.mkdir()
+    strict_manifest.joinpath("manifest.json").write_text(
+        '{"id":"example.strict","omalaunch":{},"priority":Infinity}', encoding="utf-8")
+    enabled_file.write_text(json.dumps([
+        {"id": "example.dynamic", "enabled": True}, {"id": "example.strict", "enabled": True}
+    ]), encoding="utf-8")
+    strict_manifest_catalog = run_loader(plugin_root, omarchy_root, home, env)
+    check(any("strict-manifest/manifest.json" in message and "Infinity" in message
+              for message in strict_manifest_catalog["diagnostics"]),
+          "non-finite manifest JSON is rejected with manifest provenance")
+    shutil.rmtree(strict_manifest)
+    enabled_file.write_text('[{"id":"example.dynamic","enabled":true,"value":-Infinity}]', encoding="utf-8")
+    strict_enabled = run_loader(plugin_root, omarchy_root, home, env)
+    check(strict_enabled["complete"] is False and "-Infinity" in "\n".join(strict_enabled["diagnostics"]),
+          "non-finite enabled-plugin registry JSON marks the catalog transient")
 
     enabled_file.write_text(json.dumps([{"id": "example.dynamic", "enabled": False}]), encoding="utf-8")
     disabled_catalog = run_loader(plugin_root, omarchy_root, home, env)
