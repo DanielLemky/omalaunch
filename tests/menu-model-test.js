@@ -150,6 +150,8 @@ const replacementFixture = {
   capability: 'calculator',
   mode: 'query',
   label: 'Fixture',
+  description: 'Copy calculated result',
+  rootDescription: 'Open fixture calculator',
   priority: 10,
   command: ['printf', 'fixture'],
   match: { all: ['^\\d'], any: ['[+]'] },
@@ -178,6 +180,7 @@ assert(menu.extensionRootCapability(bundledRootId) === 'calculator', 'extension 
 assert(menu.extensionRootCapability('extension.root:not-json') === '', 'malformed extension root ids are ignored')
 const replacementRootItem = menu.extensionRootItem(menu.parseExtensions(JSON.stringify([replacementFixture]))[0])
 assert(replacementRootItem.id === replacementRootId && replacementRootItem.parent === 'extensions', 'extension roots are children of the fixed Extensions directory')
+assert(replacementRootItem.description === 'Open fixture calculator', 'extension roots can describe activation separately from result actions')
 assert(menu.extensionRootActivation(menu.parseExtensions(JSON.stringify([replacementFixture]))[0]) === 'input', 'query-only extension roots select focused input')
 assert(menu.extensionRootInput(menu.parseExtensions(JSON.stringify([replacementFixture]))[0]) === '', 'query-only extension roots start with empty functional input')
 assert(replacementRootItem.aliases.includes('calculator') && replacementRootItem.aliases.includes('fixture-calculator'), 'extension roots are globally searchable by stable capability and provider id')

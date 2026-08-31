@@ -643,7 +643,7 @@ function extensionRootItem(extension) {
     icon: extension.icon,
     iconFont: extension.iconFont,
     label: extension.label,
-    description: extension.available ? extension.description : unavailableExtensionDetail(extension),
+    description: extension.available ? extension.rootDescription : unavailableExtensionDetail(extension),
     aliases: [extension.id, extension.capability].concat(extension.prefixes || []),
     action: extension.capability
   })
@@ -704,6 +704,7 @@ function normalizeExtension(raw) {
     icon: String(raw.icon || ""),
     iconFont: String(raw.iconFont || ""),
     description: String(raw.description || (mode === "prefix" ? "Start new session" : "Press Enter to copy")),
+    rootDescription: String(raw.rootDescription || raw.description || (mode === "prefix" ? "Start new session" : "Open extension")),
     command: command,
     priority: Number(raw.priority) || 0,
     bundled: raw._bundled === true,

@@ -214,6 +214,7 @@ The highest-priority matching live-query extension runs. Stale results are disca
 - `capability`: Stable behavior being supplied or replaced; defaults to `id`.
 - `mode`: `prefix`, `query`, `files`, or `workflow`; defaults to `prefix`.
 - `label`, `icon`, `iconFont`, `description`: Result presentation.
+- `rootDescription`: Optional description for the extension shortcut in Extensions and global search. Use it when activating the extension differs from activating one of its results; defaults to `description`.
 - `priority`: Selection priority; defaults to `0`.
 - `requires`: Executable names that must be available on `PATH`.
 - `command`: Argument array. Prefix mode supports `{prompt}`; query mode supports `{query}`.
