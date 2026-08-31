@@ -3378,7 +3378,7 @@ Item {
 
                     Item {
                       required property string modelData
-                      width: shortcutText.implicitWidth + Style.space(10)
+                      width: Math.max(height, shortcutText.implicitWidth + Style.space(10))
                       height: Math.max(Style.space(22), shortcutText.implicitHeight + Style.space(6))
 
                       Rectangle {
