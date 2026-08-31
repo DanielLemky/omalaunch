@@ -167,6 +167,13 @@ function item(items, id) {
   return items && items[id] ? items[id] : null
 }
 
+// Structural IDs are supplied by menu authors. Prefix them before using plain
+// objects as maps so names such as constructor, toString, and __proto__ cannot
+// collide with Object.prototype.
+function structuralKey(value) {
+  return "$" + String(value || "")
+}
+
 // Routes may name a real id (`system`, `setup.power`) or an alias declared in
 // JSONC (`power-menu`, `settings`). An exact id beats any alias, and app rows
 // are never routable: their aliases carry .desktop Keywords and GenericName
@@ -221,14 +228,18 @@ function pathFor(items, id) {
   return labels.join(" › ")
 }
 
-function parentPathFor(items, id) {
+function parentPathFor(items, id, metadata) {
+  var cached = metadata && metadata[id]
+  if (cached) return cached.parentPath
   var entry = item(items, id)
   if (!entry || !entry.parent || entry.parent === "root") return ""
   return pathFor(items, entry.parent)
 }
 
-function isDescendantOf(items, id, ancestorId) {
+function isDescendantOf(items, id, ancestorId, metadata) {
   if (ancestorId === "root") return id !== "root"
+  var cached = metadata && metadata[id]
+  if (cached) return cached.ancestorSet[structuralKey(ancestorId)] === true
 
   var current = item(items, id)
   var guard = 0
@@ -241,10 +252,10 @@ function isDescendantOf(items, id, ancestorId) {
   return false
 }
 
-function isSearchExcluded(items, id, excludedRoots) {
+function isSearchExcluded(items, id, excludedRoots, metadata) {
   var roots = Array.isArray(excludedRoots) ? excludedRoots : []
   for (var i = 0; i < roots.length; i++) {
-    if (id === roots[i] || isDescendantOf(items, id, roots[i])) return true
+    if (id === roots[i] || isDescendantOf(items, id, roots[i], metadata)) return true
   }
   return false
 }
@@ -301,6 +312,105 @@ function nameSearchText(entry) {
   return [entry.label, searchableToken(leafIdFor(entry.id)), aliases.join(" ")].join(" ").toLowerCase()
 }
 
+function wordSet(text) {
+  var result = ({})
+  var words = String(text || "").toLowerCase().split(/\s+/)
+  // Prefix keys so special object properties such as __proto__ remain ordinary
+  // searchable words in QML's plain JavaScript objects.
+  for (var i = 0; i < words.length; i++) if (words[i]) result["$" + words[i]] = true
+  return result
+}
+
+function hasWord(words, value) {
+  return words["$" + value] === true
+}
+
+// Menu structure and searchable strings change only when a source/provider or
+// application list changes. Precompute them there instead of rebuilding paths,
+// walking descendants, and normalizing the same strings on every keystroke.
+function buildItemMetadata(items, itemOrder, whenResults) {
+  var source = items || ({})
+  var order = Array.isArray(itemOrder) ? itemOrder : []
+  var children = ({})
+  var metadata = ({})
+
+  for (var i = 0; i < order.length; i++) {
+    var entry = item(source, order[i])
+    if (!entry || !entry.parent) continue
+    var parentKey = structuralKey(entry.parent)
+    if (!children[parentKey]) children[parentKey] = []
+    children[parentKey].push(entry.id)
+  }
+
+  function visible(id, depth, visiting) {
+    var entry = item(source, id)
+    var visitKey = structuralKey(id)
+    if (!entry || visiting[visitKey]) return false
+    if (entry.when && whenResults && whenResults[id] === false) return false
+    // Match isVisible's ordering: leaves and provider-backed menus remain
+    // visible even when reached at the recursion guard boundary.
+    if ((entry.kind !== "menu" && entry.kind !== "link") || entry.provider) return true
+    if (depth >= 32) return false
+
+    visiting[visitKey] = true
+    var target = entry.kind === "link" ? entry.target : id
+    var childIds = children[structuralKey(target)] || []
+    var result = false
+    for (var childIndex = 0; childIndex < childIds.length; childIndex++) {
+      if (visible(childIds[childIndex], depth + 1, visiting)) { result = true; break }
+    }
+    delete visiting[visitKey]
+    return result
+  }
+
+  for (var j = 0; j < order.length; j++) {
+    var current = item(source, order[j])
+    if (!current) continue
+    var labels = []
+    var ancestorSet = ({})
+    var cursor = current
+    var guard = 0
+    var depth = 0
+    while (cursor && cursor.id !== "root" && guard < 32) {
+      labels.unshift(cursor.label)
+      if (cursor.parent) ancestorSet[structuralKey(cursor.parent)] = true
+      if (cursor.parent && cursor.parent !== "root") depth += 1
+      cursor = item(source, cursor.parent)
+      guard += 1
+    }
+
+    var aliasesLower = []
+    var aliases = Array.isArray(current.aliases) ? current.aliases : []
+    for (var aliasIndex = 0; aliasIndex < aliases.length; aliasIndex++)
+      aliasesLower.push(String(aliases[aliasIndex] || "").toLowerCase().trim())
+    var descriptionText = String(current.description || "").toLowerCase()
+    var target = current.kind === "link" ? current.target : current.id
+    metadata[current.id] = {
+      depth: depth,
+      path: labels.join(" › "),
+      parentPath: current.parent && current.parent !== "root" && metadata[current.parent]
+        ? metadata[current.parent].path
+        : (current.parent && current.parent !== "root" ? pathFor(source, current.parent) : ""),
+      childCount: (children[structuralKey(target)] || []).length,
+      ancestorSet: ancestorSet,
+      visible: visible(current.id, 0, ({})),
+      nameText: nameSearchText(current),
+      descriptionText: descriptionText,
+      descriptionWords: wordSet(descriptionText),
+      labelLower: String(current.label || "").toLowerCase(),
+      labelWords: wordSet(current.label),
+      aliasesLower: aliasesLower
+    }
+  }
+
+  return metadata
+}
+
+function prepareSearchQuery(query) {
+  var needle = String(query || "").toLowerCase().trim()
+  return { needle: needle, terms: needle ? needle.split(/\s+/) : [] }
+}
+
 function termInSearchWords(term, text) {
   var words = String(text || "").toLowerCase().split(/\s+/)
   for (var i = 0; i < words.length; i++) {
@@ -314,6 +424,12 @@ function descriptionTextMatches(query, text) {
   for (var i = 0; i < terms.length; i++) {
     if (terms[i] && !termInSearchWords(terms[i], text)) return false
   }
+  return true
+}
+
+function termsInWordSet(terms, words) {
+  for (var i = 0; i < terms.length; i++)
+    if (terms[i] && !hasWord(words, terms[i])) return false
   return true
 }
 
@@ -588,63 +704,74 @@ function matchExtensions(extensions, query) {
   return matches
 }
 
-function matchesQuery(entry, query, visible) {
+function matchesQuery(entry, query, visible, metadata) {
   if (!entry || entry.id === "root") return false
   if (!visible) return false
 
-  var nameText = nameSearchText(entry)
-  var descriptionText = String(entry.description || "").toLowerCase()
-  var terms = String(query || "").toLowerCase().trim().split(/\s+/)
+  var prepared = query && typeof query === "object" ? query : prepareSearchQuery(query)
+  var nameText = metadata ? metadata.nameText : nameSearchText(entry)
+  var descriptionText = metadata ? metadata.descriptionText : String(entry.description || "").toLowerCase()
+  var descriptionWords = metadata ? metadata.descriptionWords : null
 
-  for (var i = 0; i < terms.length; i++) {
-    if (!terms[i]) continue
-    if (nameText.indexOf(terms[i]) >= 0) continue
-    if (termInSearchWords(terms[i], descriptionText)) continue
+  for (var i = 0; i < prepared.terms.length; i++) {
+    var term = prepared.terms[i]
+    if (!term) continue
+    if (nameText.indexOf(term) >= 0) continue
+    if (descriptionWords ? hasWord(descriptionWords, term) : termInSearchWords(term, descriptionText)) continue
     return false
   }
 
   return true
 }
 
-function searchMatchPriority(entry, query) {
-  var needle = String(query || "").toLowerCase().trim()
+function searchMatchPriority(entry, query, metadata) {
+  var prepared = query && typeof query === "object" ? query : prepareSearchQuery(query)
+  var needle = prepared.needle
   if (!entry || !needle) return 0
-  var label = String(entry.label || "").toLowerCase()
+  var label = metadata ? metadata.labelLower : String(entry.label || "").toLowerCase()
   if (label === needle) return 4
 
-  var aliases = Array.isArray(entry.aliases) ? entry.aliases : []
+  var aliases = metadata ? metadata.aliasesLower : []
+  if (!metadata) {
+    var sourceAliases = Array.isArray(entry.aliases) ? entry.aliases : []
+    for (var sourceIndex = 0; sourceIndex < sourceAliases.length; sourceIndex++)
+      aliases.push(String(sourceAliases[sourceIndex] || "").toLowerCase().trim())
+  }
   for (var i = 0; i < aliases.length; i++) {
-    if (String(aliases[i] || "").toLowerCase().trim() === needle) return 3
+    if (aliases[i] === needle) return 3
   }
   for (var j = 0; j < aliases.length; j++) {
-    if (String(aliases[j] || "").toLowerCase().trim().indexOf(needle) === 0) return 2
+    if (aliases[j].indexOf(needle) === 0) return 2
   }
   if (label.indexOf(needle) === 0) return 1
   return 0
 }
 
-function searchScore(items, entry, query) {
-  var needle = String(query || "").toLowerCase().trim()
-  var label = entry.label.toLowerCase()
-  var nameText = nameSearchText(entry)
-  var descriptionText = String(entry.description || "").toLowerCase()
+function searchScore(items, entry, query, metadata) {
+  var prepared = query && typeof query === "object" ? query : prepareSearchQuery(query)
+  var needle = prepared.needle
+  var label = metadata ? metadata.labelLower : entry.label.toLowerCase()
+  var nameText = metadata ? metadata.nameText : nameSearchText(entry)
+  var descriptionText = metadata ? metadata.descriptionText : String(entry.description || "").toLowerCase()
   var score = 80
 
   if (label === needle) score = entry.parent === "root" ? 2 : 0
   // An installed app whose name contains the query as a whole word ("zen"
   // for Zen Browser) beats exact-labeled menu entries like Install > Zen.
-  else if (entry.kind === "app" && label.split(/\s+/).indexOf(needle) >= 0) score = 0
+  else if (entry.kind === "app" && (metadata ? hasWord(metadata.labelWords, needle) : label.split(/\s+/).indexOf(needle) >= 0)) score = 0
   else if (label.indexOf(needle) === 0) score = 10
   else if (label.indexOf(needle) >= 0) score = 30
   else if (nameText.indexOf(needle) >= 0) score = 40
-  else if (descriptionTextMatches(needle, descriptionText)) score = 60
+  else if (metadata
+    ? termsInWordSet(prepared.terms, metadata.descriptionWords)
+    : descriptionTextMatches(needle, descriptionText)) score = 60
 
   if (entry.kind === "menu" || entry.kind === "link") score -= 2
   // App rows sort after all menu items, so they lose the tiebreak below to an
   // equal match. Outrank those, but stay inside the tier so better ones win.
   if (entry.kind === "app") score -= 5
 
-  return score * 1000 + depthFor(items, entry.id) * 25 + entry.order
+  return score * 1000 + (metadata ? metadata.depth : depthFor(items, entry.id)) * 25 + entry.order
 }
 
 function compareSearchRows(a, b, useHistory) {
@@ -678,7 +805,7 @@ function localFileUrl(path) {
   }).join("/")
 }
 
-function displayRow(items, itemOrder, checkedResults, entry, detail, score, section) {
+function displayRow(items, itemOrder, checkedResults, entry, detail, score, section, metadata) {
   var target = entry.kind === "link" ? entry.target : entry.id
   return {
     itemId: entry.id,
@@ -690,8 +817,9 @@ function displayRow(items, itemOrder, checkedResults, entry, detail, score, sect
     label: labelFor(entry, checkedResults),
     target: target,
     detail: detail || "",
-    path: pathFor(items, entry.id),
-    childCount: (entry.kind === "menu" || entry.kind === "link") ? childCount(items, itemOrder, target) : 0,
+    path: metadata ? metadata.path : pathFor(items, entry.id),
+    childCount: (entry.kind === "menu" || entry.kind === "link")
+      ? (metadata ? metadata.childCount : childCount(items, itemOrder, target)) : 0,
     action: entry.action || "",
     provider: entry.provider || "",
     score: score || 0,
@@ -832,6 +960,8 @@ if (typeof module !== "undefined") {
     pathFor: pathFor,
     parentPathFor: parentPathFor,
     isDescendantOf: isDescendantOf,
+    buildItemMetadata: buildItemMetadata,
+    prepareSearchQuery: prepareSearchQuery,
     isSearchExcluded: isSearchExcluded,
     childCount: childCount,
     isVisible: isVisible,

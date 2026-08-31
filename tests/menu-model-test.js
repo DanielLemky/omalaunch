@@ -192,6 +192,70 @@ assert(menu.isSearchExcluded(searchTree, 'setup.default', ['setup.default']), 'e
 assert(menu.isSearchExcluded(searchTree, 'setup.default.agent', ['setup.default']), 'descendants of excluded search roots are hidden')
 assert(!menu.isSearchExcluded(searchTree, 'setup.security', ['setup.default']), 'sibling menu results remain searchable')
 
+const metadataItems = {
+  root: menu.normalizeItem('root', { label: 'Go' }),
+  tools: menu.normalizeItem('tools', { label: 'Tools' }),
+  'tools.editor': menu.normalizeItem('tools.editor', {
+    label: 'Text Editor',
+    action: 'editor',
+    aliases: ['Edit'],
+    description: 'Open text files'
+  }),
+  hidden: menu.normalizeItem('hidden', { label: 'Hidden' }),
+  'hidden.child': menu.normalizeItem('hidden.child', { label: 'Guarded', action: 'guarded', when: 'false' }),
+  provider: menu.normalizeItem('provider', { label: 'Dynamic', provider: 'apps' })
+}
+const metadataOrder = ['root', 'tools', 'tools.editor', 'hidden', 'hidden.child', 'provider']
+metadataOrder.forEach((id, index) => { metadataItems[id].order = index })
+const itemMetadata = menu.buildItemMetadata(metadataItems, metadataOrder, { 'hidden.child': false })
+assert(itemMetadata['tools.editor'].path === 'Tools › Text Editor', 'derived metadata caches item paths')
+assert(itemMetadata['tools.editor'].parentPath === 'Tools', 'derived metadata caches parent paths')
+assert(itemMetadata['tools.editor'].depth === menu.depthFor(metadataItems, 'tools.editor'), 'derived metadata caches item depth')
+assert(itemMetadata.tools.childCount === 1, 'derived metadata caches direct child counts')
+assert(itemMetadata.tools.visible, 'derived metadata caches visible menu descendants')
+assert(!itemMetadata.hidden.visible, 'derived metadata propagates guarded descendant visibility')
+assert(itemMetadata.provider.visible, 'provider-backed menus remain visible in derived metadata')
+assert(menu.isDescendantOf(metadataItems, 'tools.editor', 'tools', itemMetadata), 'derived ancestry answers descendant checks')
+const preparedEditorQuery = menu.prepareSearchQuery('EDIT text')
+assert(menu.matchesQuery(metadataItems['tools.editor'], preparedEditorQuery, true, itemMetadata['tools.editor']), 'prepared queries use cached aliases and description words')
+assert(
+  menu.searchScore(metadataItems, metadataItems['tools.editor'], preparedEditorQuery, itemMetadata['tools.editor'])
+    === menu.searchScore(metadataItems, metadataItems['tools.editor'], 'EDIT text'),
+  'cached metadata preserves search scoring'
+)
+const specialWordItem = menu.normalizeItem('special', { label: 'Special', action: 'special', description: '__proto__' })
+specialWordItem.order = 0
+const specialWordMetadata = menu.buildItemMetadata({ special: specialWordItem }, ['special'], {}).special
+assert(menu.matchesQuery(specialWordItem, menu.prepareSearchQuery('__proto__'), true, specialWordMetadata), 'cached word sets retain special object-property names')
+
+const deepItems = { root: menu.normalizeItem('root', { label: 'Go' }) }
+const deepOrder = ['root']
+let deepParent = 'root'
+for (let depth = 0; depth < 34; depth++) {
+  const id = `deep.${depth}`
+  deepItems[id] = menu.normalizeItem(id, { label: `Depth ${depth}`, parent: deepParent })
+  deepItems[id].order = deepOrder.length
+  deepOrder.push(id)
+  deepParent = id
+}
+deepItems['deep.leaf'] = menu.normalizeItem('deep.leaf', { label: 'Leaf', parent: deepParent, action: 'leaf' })
+deepItems['deep.leaf'].order = deepOrder.length
+deepOrder.push('deep.leaf')
+const deepMetadata = menu.buildItemMetadata(deepItems, deepOrder, {})
+assert(deepOrder.every(id => deepMetadata[id].visible === menu.isVisible(deepItems, deepOrder, {}, deepItems[id])), 'cached visibility preserves recursion-boundary behavior')
+
+const specialParentItems = { root: menu.normalizeItem('root', { label: 'Go' }) }
+specialParentItems.constructor = menu.normalizeItem('constructor', { label: 'Constructor' })
+specialParentItems['constructor.child'] = menu.normalizeItem('constructor.child', { label: 'Child', parent: 'constructor', action: 'child' })
+specialParentItems['toString.child'] = menu.normalizeItem('toString.child', { label: 'String Child', parent: 'toString', action: 'child' })
+specialParentItems['__proto__.child'] = menu.normalizeItem('__proto__.child', { label: 'Proto Child', parent: '__proto__', action: 'child' })
+const specialParentOrder = ['root', 'constructor', 'constructor.child', 'toString.child', '__proto__.child']
+specialParentOrder.forEach((id, index) => { specialParentItems[id].order = index })
+const specialParentMetadata = menu.buildItemMetadata(specialParentItems, specialParentOrder, {})
+assert(specialParentMetadata.constructor.childCount === 1, 'derived child maps accept inherited object-property names')
+assert(specialParentMetadata['constructor.child'].ancestorSet.$constructor, 'derived ancestry accepts inherited object-property names')
+assert(specialParentMetadata['toString.child'].visible && specialParentMetadata['__proto__.child'].visible, 'special parent ids do not prevent metadata construction')
+
 assert(menu.searchMatchPriority({ label: 'Apps', aliases: ['app', 'applications'] }, 'apps') === 4, 'exact labels have highest priority')
 assert(menu.searchMatchPriority({ label: 'Apps', aliases: ['app', 'applications'] }, 'app') === 3, 'exact aliases outrank prefixes')
 assert(menu.searchMatchPriority({ label: 'Apps', aliases: ['app', 'applications'] }, 'ap') === 2, 'alias prefixes outrank label prefixes')

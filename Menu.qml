@@ -84,6 +84,7 @@ Item {
   readonly property int maxProcessOutputBytes: 1024 * 1024
   property var items: ({})
   property var itemOrder: []
+  property var itemMetadata: ({})
   property var searchExcludedRoots: ["setup.default"]
   property var navStack: []
   property var providersLoaded: ({})
@@ -620,6 +621,14 @@ Item {
     return MenuModel.normalizeItem(id, raw)
   }
 
+  function rebuildItemMetadata() {
+    root.itemMetadata = MenuModel.buildItemMetadata(root.items, root.itemOrder, root.whenResults)
+  }
+
+  function metadataFor(id) {
+    return root.itemMetadata[id] || null
+  }
+
   function parseMenuJsonc(raw) {
     return MenuModel.parseMenuJsonc(raw)
   }
@@ -648,6 +657,7 @@ Item {
     nextOrder.splice(rootIndex >= 0 ? rootIndex + 1 : 0, 0, "omarchy")
     root.items = nextItems
     root.itemOrder = nextOrder
+    root.rebuildItemMetadata()
     root.rowsLoaded = true
     root.evaluateGuards(true)
     if (root.opened) {
@@ -722,6 +732,7 @@ Item {
     var merged = MenuModel.mergeAppRows(root.items, root.itemOrder, appRows)
     root.items = merged.items
     root.itemOrder = merged.itemOrder
+    root.rebuildItemMetadata()
     if (root.opened) root.rebuildDisplay()
   }
 
@@ -787,6 +798,7 @@ Item {
     var merged = MenuModel.swapProviderRows(root.items, root.itemOrder, menuId, providerRows)
     root.items = merged.items
     root.itemOrder = merged.itemOrder
+    root.rebuildItemMetadata()
     if (root.opened) root.rebuildDisplay()
   }
 
@@ -843,30 +855,34 @@ Item {
   }
 
   function depthFor(id) {
-    return MenuModel.depthFor(root.items, id)
+    var metadata = root.metadataFor(id)
+    return metadata ? metadata.depth : MenuModel.depthFor(root.items, id)
   }
 
   function pathFor(id) {
-    return MenuModel.pathFor(root.items, id)
+    var metadata = root.metadataFor(id)
+    return metadata ? metadata.path : MenuModel.pathFor(root.items, id)
   }
 
   function parentPathFor(id) {
-    return MenuModel.parentPathFor(root.items, id)
+    return MenuModel.parentPathFor(root.items, id, root.itemMetadata)
   }
 
   function isDescendantOf(id, ancestorId) {
-    return MenuModel.isDescendantOf(root.items, id, ancestorId)
+    return MenuModel.isDescendantOf(root.items, id, ancestorId, root.itemMetadata)
   }
 
   function childCount(id) {
-    return MenuModel.childCount(root.items, root.itemOrder, id)
+    var metadata = root.metadataFor(id)
+    return metadata ? metadata.childCount : MenuModel.childCount(root.items, root.itemOrder, id)
   }
 
   // Guarded items are hidden when their `when:` evaluates false. Static
   // submenus are also hidden when none of their descendants are visible;
   // provider-backed menus stay visible because their rows load on demand.
   function isVisible(entry) {
-    return MenuModel.isVisible(root.items, root.itemOrder, root.whenResults, entry)
+    var metadata = entry ? root.metadataFor(entry.id) : null
+    return metadata ? metadata.visible : MenuModel.isVisible(root.items, root.itemOrder, root.whenResults, entry)
   }
 
   // Label with the ✓ marker baked in when `checked:` evaluated truthy.
@@ -895,15 +911,17 @@ Item {
   }
 
   function matchesQuery(entry, query) {
-    return MenuModel.matchesQuery(entry, query, root.isVisible(entry))
+    var metadata = entry ? root.metadataFor(entry.id) : null
+    return MenuModel.matchesQuery(entry, query, metadata ? metadata.visible : root.isVisible(entry), metadata)
   }
 
   function searchScore(entry, query) {
-    return MenuModel.searchScore(root.items, entry, query)
+    return MenuModel.searchScore(root.items, entry, query, root.metadataFor(entry.id))
   }
 
   function displayRow(entry, detail, score, section) {
-    return MenuModel.displayRow(root.items, root.itemOrder, root.checkedResults, entry, detail, score, section)
+    return MenuModel.displayRow(root.items, root.itemOrder, root.checkedResults,
+      entry, detail, score, section, root.metadataFor(entry.id))
   }
 
   function rebuildDmenuDisplay() {
@@ -977,18 +995,20 @@ Item {
     root.searchDivider = false
 
     if (query) {
+      var preparedQuery = MenuModel.prepareSearchQuery(query)
       var liveResult = root.extensionQuery === query ? root.extensionResult : ""
       for (var i = 0; i < root.itemOrder.length; i++) {
         var entry = root.item(root.itemOrder[i])
         if (!entry || entry.id === "root") continue
-        if (MenuModel.isSearchExcluded(root.items, entry.id, root.searchExcludedRoots)) continue
+        if (MenuModel.isSearchExcluded(root.items, entry.id, root.searchExcludedRoots, root.itemMetadata)) continue
         if (!root.isDescendantOf(entry.id, active)) continue
-        if (!root.matchesQuery(entry, query)) continue
+        if (!root.matchesQuery(entry, preparedQuery)) continue
 
         var detail = root.parentPathFor(entry.id)
-        var row = root.displayRow(entry, detail, root.searchScore(entry, query))
+        var metadata = root.metadataFor(entry.id)
+        var row = root.displayRow(entry, detail, root.searchScore(entry, preparedQuery))
         row.starred = favorites.isStarred(row.itemId)
-        row.matchPriority = MenuModel.searchMatchPriority(entry, query)
+        row.matchPriority = MenuModel.searchMatchPriority(entry, preparedQuery, metadata)
         row.usageCount = usage.count(row.itemId)
         row.lastUsedAt = usage.lastUsedAt(row.itemId)
         rows.push(row)
@@ -1769,6 +1789,7 @@ Item {
     if (!script) {
       root.whenResults = ({})
       root.checkedResults = ({})
+      root.rebuildItemMetadata()
       return
     }
     guardProc.collected = ""
@@ -1811,6 +1832,7 @@ Item {
       }
       root.whenResults = nextWhen
       root.checkedResults = nextChecked
+      root.rebuildItemMetadata()
       root.guardsEvaluatedAt = Date.now()
       if (root.opened) root.rebuildDisplay()
       // Run the evaluation that had to stand aside. Deferred by a turn so the
