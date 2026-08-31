@@ -817,7 +817,12 @@ function rankSearchRows(rows, diagnosticRows, useHistory, maxRows) {
 
   var limit = Math.max(0, Number(maxRows) || 0)
   if (!limit) return []
-  if (diagnostics.length >= limit) return diagnostics.slice(0, limit)
+  // Even a saturated diagnostic set must not hide the best actionable result,
+  // such as a live extension result. Reserve one slot when one is available.
+  if (diagnostics.length >= limit) {
+    if (ranked.length === 0) return diagnostics.slice(0, limit)
+    return ranked.slice(0, 1).concat(diagnostics.slice(0, limit - 1))
+  }
   return ranked.slice(0, limit - diagnostics.length).concat(diagnostics)
 }
 

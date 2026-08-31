@@ -338,6 +338,26 @@ assert(cappedRows[0].itemId === 'row-0', 'highest ordinary result remains first 
 assert(cappedRows[98].itemId === 'row-98', 'diagnostics reserve space inside the result cap')
 assert(cappedRows[99].itemId === diagnosticRow.itemId, 'unavailable extension diagnostics remain visible at the bottom')
 
+const saturatedDiagnostics = []
+for (let diagnosticIndex = 0; diagnosticIndex < 4; diagnosticIndex++) {
+  saturatedDiagnostics.push({
+    itemId: `diagnostic-${diagnosticIndex}`,
+    matchPriority: 0,
+    starred: false,
+    usageCount: 0,
+    lastUsedAt: 0,
+    score: diagnosticIndex,
+    path: `Diagnostic ${diagnosticIndex}`
+  })
+}
+const saturatedRows = menu.rankSearchRows([
+  { itemId: 'live-result', matchPriority: 110, starred: false, usageCount: 0, lastUsedAt: 0, score: -1, path: 'Live result' },
+  { itemId: 'ordinary-result', matchPriority: 0, starred: false, usageCount: 0, lastUsedAt: 0, score: 0, path: 'Ordinary result' }
+], saturatedDiagnostics, true, 3)
+assert(saturatedRows.length === 3, 'saturated diagnostics still respect the result cap')
+assert(saturatedRows[0].itemId === 'live-result', 'saturated diagnostics preserve the highest-ranked actionable result')
+assert(saturatedRows.slice(1).every(row => row.itemId.indexOf('diagnostic-') === 0), 'remaining saturated slots are reserved for diagnostics')
+
 const assembledRanking = menu.rankSearchRows([
   { itemId: 'partial-extension', matchPriority: 20, starred: false, usageCount: 0, lastUsedAt: 0, score: -3, path: 'Partial extension' },
   { itemId: 'exact-app', matchPriority: 90, starred: false, usageCount: 0, lastUsedAt: 0, score: 0, path: 'Exact app' },
