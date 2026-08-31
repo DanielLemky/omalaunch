@@ -98,6 +98,13 @@ assert(menu.fileFavoriteId('/tmp/notes.txt', 'file', '') === '', 'path favorites
 assert(menu.fileFavorite('file.favorite:not-json') === null, 'malformed path favorites are ignored')
 assert(menu.fileFavoriteLabel('/tmp/Projects/') === 'Projects', 'path favorites use their basename as a label')
 assert(menu.fileFavoriteLabel('/') === '/', 'the filesystem root has a useful favorite label')
+const favoriteSearchItem = menu.fileFavoriteItem('file.favorite.directory:/home/quantumfire/Downloads')
+assert(favoriteSearchItem.id === menu.fileFavoriteId('/home/quantumfire/Downloads', 'directory', 'files'), 'favorite search items canonicalize legacy ids')
+assert(favoriteSearchItem.label === 'Downloads' && favoriteSearchItem.action === '/home/quantumfire/Downloads', 'favorite search items retain their label and path action')
+assert(menu.matchesQuery(favoriteSearchItem, menu.prepareSearchQuery('downloads'), true), 'favorite search items match their visible labels')
+assert(menu.matchesQuery(favoriteSearchItem, menu.prepareSearchQuery('home quantumfire'), true), 'favorite search items match path components')
+assert(!menu.matchesQuery(favoriteSearchItem, menu.prepareSearchQuery('documents'), true), 'nonmatching file favorites remain hidden from search')
+assert(menu.fileFavoriteItem('app.example') === null, 'ordinary starred items do not become synthetic file rows')
 
 const queryExtensions = menu.parseExtensions(JSON.stringify([
   {
@@ -312,25 +319,25 @@ assert(menu.compareSearchRows(
   { matchPriority: 70, starred: false, usageCount: 0, lastUsedAt: 0, score: 20, path: 'Apple Music' },
   { matchPriority: 40, starred: true, usageCount: 10, lastUsedAt: 200, score: 0, path: 'Apps' },
   true
-) < 0, 'label prefixes remain ahead of exact aliases and learned ranking')
+) > 0, 'starred aliases outrank unstarred title prefixes')
 
 assert(menu.compareSearchRows(
   { matchPriority: 95, starred: false, usageCount: 0, lastUsedAt: 0, score: -3, path: 'Exact extension' },
   { matchPriority: 90, starred: true, usageCount: 10, lastUsedAt: 200, score: 0, path: 'Exact app' },
   true
-) < 0, 'exact extension activations outrank exact app titles')
+) > 0, 'starred exact apps outrank exact extension activations')
 
 assert(menu.compareSearchRows(
   { matchPriority: 95, starred: false, usageCount: 0, lastUsedAt: 0, score: -3, path: 'Exact extension' },
   { matchPriority: 70, starred: true, usageCount: 10, lastUsedAt: 200, score: 0, path: 'App prefix' },
   true
-) < 0, 'exact extension activations outrank app title prefixes')
+) > 0, 'starred app title prefixes outrank exact extension activations')
 
 assert(menu.compareSearchRows(
   { matchPriority: 60, starred: false, usageCount: 0, lastUsedAt: 0, score: 0, path: 'App word' },
   { matchPriority: 20, starred: true, usageCount: 10, lastUsedAt: 200, score: -3, path: 'Partial extension' },
   true
-) < 0, 'app title words outrank partial extension suggestions')
+) > 0, 'starred weak matches outrank unstarred app title words')
 
 const crowdedRows = []
 for (let rowIndex = 0; rowIndex < 105; rowIndex++) {
@@ -380,12 +387,13 @@ assert(saturatedRows[0].itemId === 'live-result', 'saturated diagnostics preserv
 assert(saturatedRows.slice(1).every(row => row.itemId.indexOf('diagnostic-') === 0), 'remaining saturated slots are reserved for diagnostics')
 
 const assembledRanking = menu.rankSearchRows([
+  { itemId: 'starred-favorite', matchPriority: 30, starred: true, usageCount: 0, lastUsedAt: 0, score: 10, path: 'Starred favorite' },
   { itemId: 'partial-extension', matchPriority: 20, starred: false, usageCount: 0, lastUsedAt: 0, score: -3, path: 'Partial extension' },
   { itemId: 'exact-app', matchPriority: 90, starred: false, usageCount: 0, lastUsedAt: 0, score: 0, path: 'Exact app' },
   { itemId: 'exact-extension', matchPriority: 95, starred: false, usageCount: 0, lastUsedAt: 0, score: -3, path: 'Exact extension' },
   { itemId: 'live-result', matchPriority: 110, starred: false, usageCount: 0, lastUsedAt: 0, score: -1, path: 'Live result' }
 ], [], true, 100)
-assert(assembledRanking.map(row => row.itemId).join(',') === 'live-result,exact-extension,exact-app,partial-extension', 'assembled rows apply extension and app priority tiers')
+assert(assembledRanking.map(row => row.itemId).join(',') === 'starred-favorite,live-result,exact-extension,exact-app,partial-extension', 'assembled rows rank starred matches before extension and app priority tiers')
 
 assert(menu.compareSearchRows(
   { matchPriority: 0, starred: false, usageCount: 10, lastUsedAt: 200, score: 20, path: 'A' },

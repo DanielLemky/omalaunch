@@ -791,10 +791,10 @@ function searchScore(items, entry, query, metadata) {
 }
 
 function compareSearchRows(a, b, useHistory) {
+  if (a.starred !== b.starred) return a.starred ? -1 : 1
   var aPriority = Math.max(0, Number(a.matchPriority) || 0)
   var bPriority = Math.max(0, Number(b.matchPriority) || 0)
   if (aPriority !== bPriority) return bPriority - aPriority
-  if (a.starred !== b.starred) return a.starred ? -1 : 1
 
   if (useHistory) {
     var aCount = Math.max(0, Number(a.usageCount) || 0)
@@ -914,6 +914,18 @@ function fileFavoriteLabel(path) {
   return value.substring(value.lastIndexOf("/") + 1)
 }
 
+function fileFavoriteItem(itemId) {
+  var favorite = fileFavorite(itemId)
+  if (!favorite) return null
+  var id = fileFavoriteId(favorite.path, favorite.type, favorite.capability)
+  return normalizeItem(id, {
+    label: fileFavoriteLabel(favorite.path),
+    description: favorite.path,
+    // Make each path component searchable without changing the visible path.
+    aliases: [favorite.path.replace(/[\/._-]+/g, " ")],
+    action: favorite.path
+  })
+}
 
 function displayRow(items, itemOrder, checkedResults, entry, detail, score, section, metadata) {
   var target = entry.kind === "link" ? entry.target : entry.id
@@ -1111,6 +1123,7 @@ if (typeof module !== "undefined") {
     fileFavoriteType: fileFavoriteType,
     fileFavoriteCapability: fileFavoriteCapability,
     fileFavoriteLabel: fileFavoriteLabel,
+    fileFavoriteItem: fileFavoriteItem,
     displayRow: displayRow
   }
 }
