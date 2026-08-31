@@ -46,6 +46,12 @@ Paths must be relative to the plugin directory, may not contain `..` segments, a
 
 The original `omalaunch.queryProviders` manifest field remains accepted as an alias for compatibility.
 
+### Development layout
+
+Develop every external extension in its own source repository. Do not develop inside `~/.config/omarchy/plugins/`: Omarchy watches that directory recursively and can repeatedly reload the shell while files change. For live testing, install a stable snapshot of the extension repository as the Omarchy plugin, then restore the normal installed plugin after the test.
+
+The extension directory repository lists available extensions; it does not contain their source code. One plugin repository can provide several extension definitions, but each definition provides one capability and has its own stable extension `id`.
+
 ## Dynamic extension catalogs
 
 An enabled plugin may generate extension definitions when Omalaunch loads or refreshes its catalog:
@@ -126,7 +132,7 @@ File browser extensions provide navigation, recursive search, opening, and path 
 }
 ```
 
-Ctrl+K opens the contextual Action Panel. `command` opens files, `directoryCommand` opens directories in the file manager, `terminalCommand` opens a terminal, `copyCommand` copies the path, and `copyFileCommand` places a file URI on the clipboard. All command fields support `{path}`. Files and directories can be starred from the Action Panel or with Ctrl+S and then opened directly from the launcher’s starting view. Each star retains the extension capability that created it, so the currently selected provider for that capability handles it. The bundled implementation starts at the home directory, uses `fd` traversal and fzf path ranking, omits hidden and ignored paths, and limits each ranked result set to 100 entries. Recursive candidates are indexed once per active directory and reused while typing; the index refreshes after 30 seconds or when navigation changes directories.
+Ctrl+K opens the contextual Action Panel. `command` opens files, `directoryCommand` opens directories in the file manager, `terminalCommand` opens a terminal, `copyCommand` copies the path, and `copyFileCommand` places a file URI on the clipboard. All command fields support `{path}`. Files and directories can be starred from the Action Panel or with Ctrl+S and then opened directly from the launcher’s starting view. Each star retains the extension capability that created it, so the currently selected provider for that capability handles it. The bundled implementation starts at the home directory, uses `fd` traversal and fzf path ranking, omits hidden and ignored paths, and limits each ranked result set to 100 entries. Exact basename matches rank before paths that match only through a parent directory, so many descendants cannot hide a matching file or directory. Recursive candidates are indexed once per active directory and reused while typing; the index refreshes after 30 seconds or when navigation changes directories.
 
 ## Workflow extension
 
@@ -207,9 +213,11 @@ The highest-priority matching live-query extension runs. Live queries debounce f
 
 `capability` identifies interchangeable behavior. For each capability Omalaunch selects one extension:
 
-1. Higher `priority` wins.
-2. At equal priority, an external extension wins over a bundled extension.
-3. If the external extension is disabled, the bundled extension becomes active again.
+1. An available provider selected in the user configuration wins.
+2. Without an available configured provider, higher `priority` wins.
+3. At equal priority, an external extension wins over a bundled extension.
+4. If the configured provider is missing or unavailable, Omalaunch reports a diagnostic and uses the normal rules above.
+5. If an external extension is disabled or removed, another available provider, including the bundled provider, becomes active.
 
 ## Common fields
 
@@ -233,7 +241,7 @@ Malformed extensions are ignored. Omarchy plugins are trusted local software and
 
 ## Configuration
 
-Omalaunch reads its core settings from the dedicated `~/.config/omarchy/omalaunch/config.jsonc` file. JSONC comments and trailing commas are accepted. Invalid, oversized (more than 64 KiB), over-depth, or unsupported configuration is ignored with a diagnostic.
+Omalaunch reads its core settings from the dedicated `~/.config/omarchy/omalaunch/config.jsonc` file. JSONC comments and trailing commas are accepted. Invalid, oversized (more than 64 KiB), over-depth, or unsupported configuration is ignored with a diagnostic. Only settings that Omalaunch validates are copied into its runtime configuration; other data does not become an extension setting.
 
 Select a provider by extension `id` in `config.jsonc`. The key is the capability identity. If the requested provider is missing or unavailable, Omalaunch reports it and uses normal priority and replacement resolution.
 
@@ -246,7 +254,7 @@ Select a provider by extension `id` in `config.jsonc`. The key is the capability
 }
 ```
 
-Capability settings are independent of the selected provider and have one file per capability. The first supported file is `extensions/files.jsonc`:
+Host-supported capability settings are independent of the selected provider and use one file per capability. Omalaunch does not load arbitrary configuration files for external capabilities. The first supported file is `~/.config/omarchy/omalaunch/extensions/files.jsonc`:
 
 ```jsonc
 {
