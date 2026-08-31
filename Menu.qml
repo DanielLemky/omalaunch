@@ -124,6 +124,13 @@ Item {
   // Shared application engine (entries, hidden filters, icons, launch,
   // removal), owned by the shell and also used by the standalone launcher.
   readonly property var appLibrary: root.shell ? root.shell.appLibrary : null
+  readonly property int appIconRefreshTtlMs: 30 * 1000
+  property double appIconIndexUpdatedAt: 0
+  property bool appIconRefreshPending: false
+  onAppLibraryChanged: {
+    root.appIconIndexUpdatedAt = 0
+    root.appIconRefreshPending = false
+  }
   property bool deleteConfirmOpen: false
   property bool dependencyConfirmOpen: false
   property string pendingStarSelectionId: ""
@@ -238,6 +245,14 @@ Item {
     if (!command) return
 
     Util.execDetached(command)
+  }
+
+  function refreshAppIconsIfStale() {
+    if (!root.appLibrary || root.appIconRefreshPending) return
+    if (root.appIconIndexUpdatedAt > 0
+        && Date.now() - root.appIconIndexUpdatedAt < root.appIconRefreshTtlMs) return
+    root.appIconRefreshPending = true
+    root.appLibrary.refreshIcons()
   }
 
   // Menu rows only surface their detail while a search is narrowing them;
@@ -1413,8 +1428,9 @@ Item {
     loadProviderForMenu(activeMenu)
     if (activeMenu === "root") root.loadProviderForMenu("apps")
     // The shell may start before first-install packages have finished placing
-    // their icons. Refresh here even when the desktop entry list did not change.
-    if (root.appLibrary) root.appLibrary.refreshIcons()
+    // their icons. Keep the open-time fallback, but avoid rescanning every icon
+    // directory on each rapid launcher invocation.
+    root.refreshAppIconsIfStale()
 
     Qt.callLater(function() { keyCatcher.forceActiveFocus() })
   }
@@ -1715,7 +1731,15 @@ Item {
 
   Connections {
     target: root.appLibrary
+    function onIconIndexChanged() {
+      // iconIndex is swapped only when AppLibrary's asynchronous scan exits.
+      // Start the freshness window from completion, not from the request.
+      root.appIconIndexUpdatedAt = Date.now()
+      root.appIconRefreshPending = false
+    }
     function onAppsChanged() {
+      // AppLibrary owns app-change icon rescans; this signal can also mean only
+      // hidden filters changed, so it must not advance the freshness window.
       if (root.providersLoaded["apps"]) root.mergeAppRows()
     }
   }
