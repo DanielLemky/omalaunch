@@ -838,6 +838,83 @@ function localFileUrl(path) {
   }).join("/")
 }
 
+var FILE_FAVORITE_PREFIX = "file.favorite:"
+var LEGACY_DIRECTORY_FAVORITE_PREFIX = "file.favorite.directory:"
+var LEGACY_FILE_FAVORITE_PREFIX = "file.favorite.file:"
+
+function normalizeFavoritePath(path) {
+  var value = String(path || "")
+  if (!value || value.charAt(0) !== "/") return ""
+  value = value.replace(/\/+$/, "")
+  return value || "/"
+}
+
+function fileFavoriteId(path, type, capability) {
+  var value = normalizeFavoritePath(path)
+  var behavior = String(capability || "").trim()
+  if (!value || !behavior || (type !== "directory" && type !== "file")) return ""
+  return FILE_FAVORITE_PREFIX + JSON.stringify([behavior, type, value])
+}
+
+function legacyFileFavoriteId(path, type) {
+  var value = normalizeFavoritePath(path)
+  if (!value || (type !== "directory" && type !== "file")) return ""
+  return (type === "directory" ? LEGACY_DIRECTORY_FAVORITE_PREFIX : LEGACY_FILE_FAVORITE_PREFIX) + value
+}
+
+function fileFavorite(itemId) {
+  var value = String(itemId || "")
+  var type = ""
+  var path = ""
+
+  // Stars created by the initial directory/file implementation implicitly
+  // belong to the canonical Files capability.
+  if (value.indexOf(LEGACY_DIRECTORY_FAVORITE_PREFIX) === 0) {
+    type = "directory"
+    path = value.substring(LEGACY_DIRECTORY_FAVORITE_PREFIX.length)
+  } else if (value.indexOf(LEGACY_FILE_FAVORITE_PREFIX) === 0) {
+    type = "file"
+    path = value.substring(LEGACY_FILE_FAVORITE_PREFIX.length)
+  } else if (value.indexOf(FILE_FAVORITE_PREFIX) === 0) {
+    try {
+      var parsed = JSON.parse(value.substring(FILE_FAVORITE_PREFIX.length))
+      if (!Array.isArray(parsed) || parsed.length !== 3) return null
+      var capability = String(parsed[0] || "").trim()
+      type = String(parsed[1] || "")
+      path = parsed[2]
+      if (!capability || (type !== "directory" && type !== "file")) return null
+      path = normalizeFavoritePath(path)
+      return path ? { capability: capability, type: type, path: path } : null
+    } catch (e) { return null }
+  } else return null
+
+  path = normalizeFavoritePath(path)
+  return path ? { capability: "files", type: type, path: path } : null
+}
+
+function fileFavoritePath(itemId) {
+  var favorite = fileFavorite(itemId)
+  return favorite ? favorite.path : ""
+}
+
+function fileFavoriteType(itemId) {
+  var favorite = fileFavorite(itemId)
+  return favorite ? favorite.type : ""
+}
+
+function fileFavoriteCapability(itemId) {
+  var favorite = fileFavorite(itemId)
+  return favorite ? favorite.capability : ""
+}
+
+function fileFavoriteLabel(path) {
+  var value = normalizeFavoritePath(path)
+  if (!value) return ""
+  if (value === "/") return "/"
+  return value.substring(value.lastIndexOf("/") + 1)
+}
+
+
 function displayRow(items, itemOrder, checkedResults, entry, detail, score, section, metadata) {
   var target = entry.kind === "link" ? entry.target : entry.id
   return {
@@ -1026,6 +1103,14 @@ if (typeof module !== "undefined") {
     rankSearchRows: rankSearchRows,
     isImagePath: isImagePath,
     localFileUrl: localFileUrl,
+    normalizeFavoritePath: normalizeFavoritePath,
+    fileFavoriteId: fileFavoriteId,
+    legacyFileFavoriteId: legacyFileFavoriteId,
+    fileFavorite: fileFavorite,
+    fileFavoritePath: fileFavoritePath,
+    fileFavoriteType: fileFavoriteType,
+    fileFavoriteCapability: fileFavoriteCapability,
+    fileFavoriteLabel: fileFavoriteLabel,
     displayRow: displayRow
   }
 }

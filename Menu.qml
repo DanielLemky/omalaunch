@@ -433,12 +433,60 @@ Item {
     return null
   }
 
-  function enterFileBrowser(extension) {
+  function filesExtensionForCapability(capability) {
+    for (var i = 0; i < root.extensions.length; i++) {
+      var extension = root.extensions[i]
+      if (extension && extension.mode === "files" && extension.capability === capability) return extension
+    }
+    return null
+  }
+
+  function activeFilesExtension() {
+    return root.filesExtensionForCapability("files")
+  }
+
+  function fileFavoriteId(path, type) {
+    if (!root.fileBrowserExtension) return ""
+    return MenuModel.fileFavoriteId(path, type, root.fileBrowserExtension.capability)
+  }
+
+  function fileFavoriteIds(path, type, capability) {
+    var ids = [MenuModel.fileFavoriteId(path, type, capability)]
+    if (capability === "files") ids.push(MenuModel.legacyFileFavoriteId(path, type))
+    return ids
+  }
+
+  function isFileFavoriteStarred(path, type) {
+    if (!root.fileBrowserExtension) return false
+    var ids = root.fileFavoriteIds(path, type, root.fileBrowserExtension.capability)
+    for (var i = 0; i < ids.length; i++)
+      if (ids[i] && favorites.isStarred(ids[i])) return true
+    return false
+  }
+
+  function toggleFileFavorite(path, type) {
+    if (!root.fileBrowserExtension) return
+    var ids = root.fileFavoriteIds(path, type, root.fileBrowserExtension.capability)
+    for (var i = 0; i < ids.length; i++) {
+      if (!ids[i] || !favorites.isStarred(ids[i])) continue
+      favorites.removeIds(ids)
+      return
+    }
+    favorites.toggle(ids[0])
+  }
+
+  function unstarFileFavorite(favorite) {
+    if (!favorite) return
+    favorites.removeIds(root.fileFavoriteIds(favorite.path, favorite.type, favorite.capability))
+  }
+
+  function enterFileBrowser(extension, startPath) {
     if (!extension || !extension.available) return
     root.resetFileIndex()
     root.fileBrowserActive = true
     root.fileBrowserExtension = extension
-    root.fileBrowserPath = extension.root === "~" ? Quickshell.env("HOME") : extension.root
+    var requestedPath = MenuModel.normalizeFavoritePath(startPath)
+    root.fileBrowserPath = requestedPath || (extension.root === "~" ? Quickshell.env("HOME") : extension.root)
     root.filterText = ""
     root.fileEntries = []
     root.selectedIndex = 0
@@ -533,7 +581,7 @@ Item {
         action: entry.path
       })
       var row = root.displayRow(item, item.description, i)
-      row.starred = false
+      row.starred = root.isFileFavoriteStarred(entry.path, entry.type)
       displayModel.append(row)
     }
     root.layoutSerial += 1
@@ -552,6 +600,12 @@ Item {
         ]
       : [{ id: "open", icon: "󰈔", label: "Open" }]
     actions = actions.concat([
+      {
+        id: "toggle-star",
+        icon: "★",
+        label: root.isFileFavoriteStarred(root.actionPanelFile.path, root.actionPanelFile.type)
+          ? "Unstar" : "Star"
+      },
       { id: "copy-path", icon: "󰆏", label: "Copy path" },
       { id: "copy-file", icon: "󰆏", label: "Copy file to clipboard" }
     ])
@@ -579,6 +633,7 @@ Item {
     if (!row || row.itemId.indexOf("file.") !== 0 || row.itemId.indexOf("file.action.") === 0) return
     root.actionPanelFile = {
       index: root.selectedIndex,
+      itemId: row.itemId,
       path: row.action,
       name: row.label,
       type: row.itemId.indexOf("file.directory.") === 0 ? "directory" : "file"
@@ -613,6 +668,17 @@ Item {
   function activateFileAction(action) {
     if (!root.actionPanelFile || !root.fileBrowserExtension) return
     var path = root.actionPanelFile.path
+    if (action === "toggle-star") {
+      var selectedItemId = root.actionPanelFile.itemId
+      var selectedType = root.actionPanelFile.type
+      var previousIndex = root.actionPanelFile.index
+      root.actionPanelActive = false
+      root.actionPanelFile = null
+      root.selectedIndex = previousIndex
+      root.pendingStarSelectionId = selectedItemId
+      root.toggleFileFavorite(path, selectedType)
+      return
+    }
     if (action === "copy-path" || action === "copy-file") {
       var command = action === "copy-path" ? root.fileBrowserExtension.copyCommand : root.fileBrowserExtension.copyFileCommand
       var message = action === "copy-path" ? "Copied path" : "Copied file"
@@ -1116,6 +1182,25 @@ Item {
       }
 
       if (active === "root") {
+        var favoriteIds = Object.keys(favorites.starredIds)
+        var seenFileFavorites = ({})
+        for (var favoriteIndex = 0; favoriteIndex < favoriteIds.length; favoriteIndex++) {
+          var favorite = MenuModel.fileFavorite(favoriteIds[favoriteIndex])
+          if (!favorite) continue
+          var favoriteId = MenuModel.fileFavoriteId(favorite.path, favorite.type, favorite.capability)
+          if (seenFileFavorites["$" + favoriteId]) continue
+          seenFileFavorites["$" + favoriteId] = true
+          var favoriteItem = root.normalizeItem(favoriteId, {
+            icon: favorite.type === "directory" ? "󰉋" : "󰈔",
+            label: MenuModel.fileFavoriteLabel(favorite.path),
+            description: favorite.path,
+            action: favorite.path
+          })
+          var favoriteRow = root.displayRow(favoriteItem, favorite.path, favoriteItem.order || 0)
+          favoriteRow.starred = true
+          rows.push(favoriteRow)
+        }
+
         var setupExtension = MenuModel.firstSetupExtension(root.extensions)
         if (setupExtension) {
           var dependencySetup = MenuModel.dependencySetup(setupExtension)
@@ -1291,6 +1376,20 @@ Item {
       Qt.callLater(function() { keyCatcher.forceActiveFocus() })
       return
     }
+    var favorite = MenuModel.fileFavorite(row.itemId)
+    if (favorite) {
+      var filesExtension = root.filesExtensionForCapability(favorite.capability)
+      if (!filesExtension || !filesExtension.available) return
+      if (favorite.type === "directory") {
+        root.enterFileBrowser(filesExtension, favorite.path)
+      } else {
+        var favoriteOpenCommand = root.shellCommand(filesExtension.command, { path: favorite.path })
+        root.applySerial = root.requestSerial
+        root.opened = false
+        root.runAction(favoriteOpenCommand)
+      }
+      return
+    }
     if (root.fileBrowserActive && row.itemId.indexOf("file.") === 0) {
       if (row.itemId.indexOf("file.directory.") === 0) {
         root.fileBrowserPath = row.action
@@ -1347,11 +1446,21 @@ Item {
   }
 
   function toggleSelectedStar() {
-    if (root.dmenuActive || root.fileBrowserActive || !root.cursorActive || root.selectedIndex < 0 || root.selectedIndex >= displayModel.count) return
+    if (root.dmenuActive || !root.cursorActive || root.selectedIndex < 0 || root.selectedIndex >= displayModel.count) return
     var row = displayModel.get(root.selectedIndex)
     if (!row || row.itemId === "omarchy" || row.itemId === "extension.result" || !favorites.loaded) return
+    if (root.fileBrowserActive) {
+      var fileType = row.itemId.indexOf("file.directory.") === 0 ? "directory"
+        : (row.itemId.indexOf("file.item.") === 0 ? "file" : "")
+      if (!fileType) return
+      root.pendingStarSelectionId = row.itemId
+      root.toggleFileFavorite(row.action, fileType)
+      return
+    }
+    var favorite = MenuModel.fileFavorite(row.itemId)
     root.pendingStarSelectionId = row.itemId
-    favorites.toggle(row.itemId)
+    if (favorite) root.unstarFileFavorite(favorite)
+    else favorites.toggle(row.itemId)
   }
 
   function requestDeleteSelected() {
@@ -2064,7 +2173,9 @@ Item {
             visible: !root.actionPanelActive && !root.dmenuActive && displayModel.count > 0 && root.cursorActive && root.selectedIndex >= 0 && root.selectedIndex < displayModel.count && (root.fileBrowserActive || (displayModel.get(root.selectedIndex).itemId !== "omarchy" && displayModel.get(root.selectedIndex).itemId !== "extension.result"))
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
-            text: root.fileBrowserActive ? "Ctrl+K  Actions" : (root.cursorActive && root.selectedIndex >= 0 && root.selectedIndex < displayModel.count && displayModel.get(root.selectedIndex).starred ? "Ctrl+S  Unstar" : "Ctrl+S  Star")
+            text: root.fileBrowserActive
+              ? (!root.selectedFileRow ? "" : (root.selectedFileRow.starred ? "Ctrl+S  Unstar · Ctrl+K  Actions" : "Ctrl+S  Star · Ctrl+K  Actions"))
+              : (root.cursorActive && root.selectedIndex >= 0 && root.selectedIndex < displayModel.count && displayModel.get(root.selectedIndex).starred ? "Ctrl+S  Unstar" : "Ctrl+S  Star")
             color: root.foreground
             opacity: 0.45
             font.family: root.fontFamily
