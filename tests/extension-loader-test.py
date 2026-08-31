@@ -350,8 +350,12 @@ elif mode == 'integer-overflow':
     manifest_fs_limited = run_loader(plugin_root, omarchy_root, home, env, extra_args=[
         "--max-manifest-fs-entries", "2"
     ])
-    check("filesystem entry limit (2)" in "\n".join(manifest_fs_limited["diagnostics"]),
-          "aggregate plugin-root filesystem work is bounded with one exhaustion diagnostic")
+    fs_limited_budget_ids = [item.get("id") for item in manifest_fs_limited["extensions"]
+                             if str(item.get("id", "")).startswith("budget-")]
+    check(len(fs_limited_budget_ids) == 2
+          and all(str(item_id).startswith("budget-managed-") for item_id in fs_limited_budget_ids)
+          and "filesystem entry limit (2)" in "\n".join(manifest_fs_limited["diagnostics"]),
+          "filesystem exhaustion preserves the bounded candidate batch before skipping later entries")
     shutil.rmtree(omarchy_root / "shell")
     for root_name in ("managed", "user"):
         for index in range(6):

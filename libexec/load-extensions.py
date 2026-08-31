@@ -408,15 +408,16 @@ def load_catalog(plugin_path: Path, omarchy_path: Path, home: Path, limits: Limi
     discovered_manifests = 0
     manifest_bytes = 0
     discovery_exhausted: str | None = None
+    filesystem_discovery_exhausted: str | None = None
     for manifest_root in manifest_roots:
-        if discovery_exhausted:
+        if discovery_exhausted or filesystem_discovery_exhausted:
             break
         candidates: list[Path] = []
         try:
             with os.scandir(manifest_root) as entries:
                 for entry in entries:
                     if filesystem_entries >= limits.manifest_filesystem_entries:
-                        discovery_exhausted = (
+                        filesystem_discovery_exhausted = (
                             f"filesystem entry limit ({limits.manifest_filesystem_entries})"
                         )
                         break
@@ -471,9 +472,10 @@ def load_catalog(plugin_path: Path, omarchy_path: Path, home: Path, limits: Limi
                 continue
             selected_manifests[plugin_id] = (manifest_path, manifest)
 
-    if discovery_exhausted:
+    exhausted_reason = discovery_exhausted or filesystem_discovery_exhausted
+    if exhausted_reason:
         builder.diagnostic(
-            f"Plugin manifest discovery budget exhausted at the {discovery_exhausted}; "
+            f"Plugin manifest discovery budget exhausted at the {exhausted_reason}; "
             "remaining manifests across both roots were skipped"
         )
 
