@@ -1474,7 +1474,10 @@ Item {
         if (active === "root") {
           if (child.id !== "omarchy" && child.id !== "extensions" && !favorites.isStarred(child.id)) continue
         } else if (child.parent !== active) continue
-        if (!root.isVisible(child)) continue
+        // Extension roots are generated at runtime rather than represented as
+        // static menu children, so the ordinary empty-menu visibility check
+        // cannot determine whether this directory has entries.
+        if (!root.isVisible(child) && !(child.id === "extensions" && root.extensions.length > 0)) continue
         var childDetail = active === "root" ? root.parentPathFor(child.id) : child.description
         var childRow = root.displayRow(child, childDetail, child.order)
         childRow.starred = favorites.isStarred(childRow.itemId)
