@@ -77,6 +77,19 @@ assert(menu.isImagePath('/tmp/vector.svg'), 'SVG paths are recognized for previe
 assert(!menu.isImagePath('/tmp/photo.jpeg.txt'), 'non-image paths do not get previews')
 assert(menu.localFileUrl('/tmp/My photo #1.png') === 'file:///tmp/My%20photo%20%231.png', 'local image URLs encode reserved characters')
 assert(menu.localFileUrl('relative.png') === '', 'relative paths are not converted to local file URLs')
+const directoryFavorite = menu.fileFavoriteId('/tmp/Projects///', 'directory')
+const fileFavorite = menu.fileFavoriteId('/tmp/Projects/notes.txt', 'file')
+assert(directoryFavorite === 'file.favorite.directory:/tmp/Projects', 'directory favorite ids use normalized absolute paths')
+assert(fileFavorite === 'file.favorite.file:/tmp/Projects/notes.txt', 'file favorite ids preserve their path type')
+assert(menu.fileFavoritePath(directoryFavorite) === '/tmp/Projects', 'directory favorite ids recover their paths')
+assert(menu.fileFavoritePath(fileFavorite) === '/tmp/Projects/notes.txt', 'file favorite ids recover their paths')
+assert(menu.fileFavoriteType(directoryFavorite) === 'directory', 'directory favorite ids recover their type')
+assert(menu.fileFavoriteType(fileFavorite) === 'file', 'file favorite ids recover their type')
+assert(menu.fileFavoritePath('app.example') === '', 'non-file-browser favorites do not produce paths')
+assert(menu.fileFavoriteId('relative/path', 'file') === '', 'relative paths cannot become file-browser favorites')
+assert(menu.fileFavoriteId('/tmp/notes.txt', 'other') === '', 'unknown path types cannot become file-browser favorites')
+assert(menu.fileFavoriteLabel('/tmp/Projects/') === 'Projects', 'path favorites use their basename as a label')
+assert(menu.fileFavoriteLabel('/') === '/', 'the filesystem root has a useful favorite label')
 
 const queryExtensions = menu.parseExtensions(JSON.stringify([
   {

@@ -42,7 +42,7 @@ This workaround can be removed once Omarchy supports setting a widget’s sectio
 - Pin favorites and rank frequently used results
 - Run arithmetic, unit conversions, and currency conversions with `qalc`
 - Copy calculation results directly to the clipboard
-- Browse, recursively search, open, and copy paths for local files
+- Browse, recursively search, open, copy paths, and pin local files and directories
 - Look up current times and convert times across DST-aware timezones
 - Accept dmenu-style select and input requests
 - Load extensions contributed by enabled Omarchy plugins
@@ -80,7 +80,7 @@ time 2026-11-15 8pm new york to london
 
 Type `files` and activate the **Files** result to browse from your home directory. Select folders to navigate, type to search recursively within the current folder, and select a file to open it with the default application. Supported image files show thumbnails in the result list and a larger preview pane when selected. Directory contents are ordered by most recently modified, while search uses `fd` with fzf's path-aware relevance ranking. A short-lived per-directory index is reused while typing so each query does not traverse the filesystem again. Hidden and ignored files are excluded.
 
-Press Ctrl+K on a selected item to open its Action Panel. Directories can be opened in Files or a terminal; files can be opened with their default application. Every item supports copying its path or copying the item to the file clipboard. Ctrl+C remains a shortcut for copying the selected path.
+Press Ctrl+K on a selected item to open its Action Panel. Directories can be opened in Files or a terminal, while files can be opened with their default application. Files and directories can also be pinned to the launcher’s starting view from the Action Panel or directly with Ctrl+S. Every item supports copying its path or copying the item to the file clipboard. Ctrl+C remains a shortcut for copying the selected path.
 
 ![Browsing files and using the contextual Action Panel in Omalaunch](assets/files-action-panel.gif)
 

@@ -433,12 +433,21 @@ Item {
     return null
   }
 
-  function enterFileBrowser(extension) {
+  function activeFilesExtension() {
+    for (var i = 0; i < root.extensions.length; i++) {
+      var extension = root.extensions[i]
+      if (extension && extension.mode === "files" && extension.capability === "files") return extension
+    }
+    return null
+  }
+
+  function enterFileBrowser(extension, startPath) {
     if (!extension || !extension.available) return
     root.resetFileIndex()
     root.fileBrowserActive = true
     root.fileBrowserExtension = extension
-    root.fileBrowserPath = extension.root === "~" ? Quickshell.env("HOME") : extension.root
+    var requestedPath = MenuModel.normalizeFavoritePath(startPath)
+    root.fileBrowserPath = requestedPath || (extension.root === "~" ? Quickshell.env("HOME") : extension.root)
     root.filterText = ""
     root.fileEntries = []
     root.selectedIndex = 0
@@ -533,7 +542,7 @@ Item {
         action: entry.path
       })
       var row = root.displayRow(item, item.description, i)
-      row.starred = false
+      row.starred = favorites.isStarred(MenuModel.fileFavoriteId(entry.path, entry.type))
       displayModel.append(row)
     }
     root.layoutSerial += 1
@@ -552,6 +561,12 @@ Item {
         ]
       : [{ id: "open", icon: "󰈔", label: "Open" }]
     actions = actions.concat([
+      {
+        id: "toggle-pin",
+        icon: "★",
+        label: favorites.isStarred(MenuModel.fileFavoriteId(root.actionPanelFile.path, root.actionPanelFile.type))
+          ? "Unpin from launcher" : "Pin to launcher"
+      },
       { id: "copy-path", icon: "󰆏", label: "Copy path" },
       { id: "copy-file", icon: "󰆏", label: "Copy file to clipboard" }
     ])
@@ -579,6 +594,7 @@ Item {
     if (!row || row.itemId.indexOf("file.") !== 0 || row.itemId.indexOf("file.action.") === 0) return
     root.actionPanelFile = {
       index: root.selectedIndex,
+      itemId: row.itemId,
       path: row.action,
       name: row.label,
       type: row.itemId.indexOf("file.directory.") === 0 ? "directory" : "file"
@@ -613,6 +629,17 @@ Item {
   function activateFileAction(action) {
     if (!root.actionPanelFile || !root.fileBrowserExtension) return
     var path = root.actionPanelFile.path
+    if (action === "toggle-pin") {
+      var selectedItemId = root.actionPanelFile.itemId
+      var selectedType = root.actionPanelFile.type
+      var previousIndex = root.actionPanelFile.index
+      root.actionPanelActive = false
+      root.actionPanelFile = null
+      root.selectedIndex = previousIndex
+      root.pendingStarSelectionId = selectedItemId
+      favorites.toggle(MenuModel.fileFavoriteId(path, selectedType))
+      return
+    }
     if (action === "copy-path" || action === "copy-file") {
       var command = action === "copy-path" ? root.fileBrowserExtension.copyCommand : root.fileBrowserExtension.copyFileCommand
       var message = action === "copy-path" ? "Copied path" : "Copied file"
@@ -1116,6 +1143,26 @@ Item {
       }
 
       if (active === "root") {
+        var filesExtension = root.activeFilesExtension()
+        if (filesExtension && filesExtension.available) {
+          var favoriteIds = Object.keys(favorites.starredIds)
+          for (var favoriteIndex = 0; favoriteIndex < favoriteIds.length; favoriteIndex++) {
+            var favoriteId = favoriteIds[favoriteIndex]
+            var favoritePath = MenuModel.fileFavoritePath(favoriteId)
+            var favoriteType = MenuModel.fileFavoriteType(favoriteId)
+            if (!favoritePath || !favoriteType) continue
+            var favoriteItem = root.normalizeItem(favoriteId, {
+              icon: favoriteType === "directory" ? "󰉋" : "󰈔",
+              label: MenuModel.fileFavoriteLabel(favoritePath),
+              description: favoritePath,
+              action: favoritePath
+            })
+            var favoriteRow = root.displayRow(favoriteItem, favoritePath, favoriteItem.order || 0)
+            favoriteRow.starred = true
+            rows.push(favoriteRow)
+          }
+        }
+
         var setupExtension = MenuModel.firstSetupExtension(root.extensions)
         if (setupExtension) {
           var dependencySetup = MenuModel.dependencySetup(setupExtension)
@@ -1291,6 +1338,21 @@ Item {
       Qt.callLater(function() { keyCatcher.forceActiveFocus() })
       return
     }
+    var favoritePath = MenuModel.fileFavoritePath(row.itemId)
+    var favoriteType = MenuModel.fileFavoriteType(row.itemId)
+    if (favoritePath && favoriteType) {
+      var filesExtension = root.activeFilesExtension()
+      if (!filesExtension || !filesExtension.available) return
+      if (favoriteType === "directory") {
+        root.enterFileBrowser(filesExtension, favoritePath)
+      } else {
+        var favoriteOpenCommand = root.shellCommand(filesExtension.command, { path: favoritePath })
+        root.applySerial = root.requestSerial
+        root.opened = false
+        root.runAction(favoriteOpenCommand)
+      }
+      return
+    }
     if (root.fileBrowserActive && row.itemId.indexOf("file.") === 0) {
       if (row.itemId.indexOf("file.directory.") === 0) {
         root.fileBrowserPath = row.action
@@ -1347,9 +1409,17 @@ Item {
   }
 
   function toggleSelectedStar() {
-    if (root.dmenuActive || root.fileBrowserActive || !root.cursorActive || root.selectedIndex < 0 || root.selectedIndex >= displayModel.count) return
+    if (root.dmenuActive || !root.cursorActive || root.selectedIndex < 0 || root.selectedIndex >= displayModel.count) return
     var row = displayModel.get(root.selectedIndex)
     if (!row || row.itemId === "omarchy" || row.itemId === "extension.result" || !favorites.loaded) return
+    if (root.fileBrowserActive) {
+      var fileType = row.itemId.indexOf("file.directory.") === 0 ? "directory"
+        : (row.itemId.indexOf("file.item.") === 0 ? "file" : "")
+      if (!fileType) return
+      root.pendingStarSelectionId = row.itemId
+      favorites.toggle(MenuModel.fileFavoriteId(row.action, fileType))
+      return
+    }
     root.pendingStarSelectionId = row.itemId
     favorites.toggle(row.itemId)
   }
@@ -2064,7 +2134,9 @@ Item {
             visible: !root.actionPanelActive && !root.dmenuActive && displayModel.count > 0 && root.cursorActive && root.selectedIndex >= 0 && root.selectedIndex < displayModel.count && (root.fileBrowserActive || (displayModel.get(root.selectedIndex).itemId !== "omarchy" && displayModel.get(root.selectedIndex).itemId !== "extension.result"))
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
-            text: root.fileBrowserActive ? "Ctrl+K  Actions" : (root.cursorActive && root.selectedIndex >= 0 && root.selectedIndex < displayModel.count && displayModel.get(root.selectedIndex).starred ? "Ctrl+S  Unstar" : "Ctrl+S  Star")
+            text: root.fileBrowserActive
+              ? (displayModel.get(root.selectedIndex).starred ? "Ctrl+S  Unpin · Ctrl+K  Actions" : "Ctrl+S  Pin · Ctrl+K  Actions")
+              : (root.cursorActive && root.selectedIndex >= 0 && root.selectedIndex < displayModel.count && displayModel.get(root.selectedIndex).starred ? "Ctrl+S  Unstar" : "Ctrl+S  Star")
             color: root.foreground
             opacity: 0.45
             font.family: root.fontFamily
