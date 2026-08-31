@@ -50,7 +50,7 @@ This workaround can be removed once Omarchy supports setting a widget’s sectio
 
 ## Starred favorites
 
-Star frequently used applications, commands, files, and directories on the launcher’s starting view. Matching starred items rank above unstarred search results, and starred files and directories are searchable by name or path.
+Star frequently used applications, commands, files, directories, and extension shortcuts on the launcher’s starting view. Matching starred items rank above unstarred search results, and starred files and directories are searchable by name or path.
 
 ![Starred favorites in Omalaunch](assets/starred-favorites.png)
 
@@ -88,7 +88,7 @@ Press Ctrl+K on a selected item to open its Action Panel. Directories can be ope
 
 - A current Omarchy installation with the manifest-based shell plugin system
 - [`libqalculate`](https://qalculate.github.io/) (`qalc`) to enable calculations and conversions
-- `fd`, `fzf`, `jq`, Python, Bash, and `wl-clipboard` (provided by a standard Omarchy installation)
+- `fd`, `fzf`, `jq`, Python 3, Bash, and `wl-clipboard` (provided by a standard Omarchy installation; Python drives extension loading and file indexing)
 
 Install the calculation dependency through Omarchy:
 
@@ -117,6 +117,10 @@ files
 Calculation results appear first and are copied to the clipboard when activated.
 
 ### Extensions
+
+Open the fixed top-level **Extensions** directory to find every active bundled and external extension, including Calculator, Currency conversion, Files, Timezone, and installed workflow integrations such as Codex. Star an extension with Ctrl+S to add the same shortcut to the starting view; it remains in **Extensions**, where starred shortcuts sort first and all others sort alphabetically. The directory itself cannot be starred. Global search finds extension shortcuts whether or not they are starred.
+
+Shortcut activation follows the extension type: Files opens its browser, Timezone prepares its prefix, Calculator and Currency conversion open focused query input, and workflow extensions open their workflow. A replacement provider keeps the same shortcut and favorite because identity is based on stable capability rather than provider id. Missing dependencies are shown on the shortcut without affecting unrelated extensions.
 
 Omalaunch includes replaceable bundled extensions. Every external Omalaunch extension is simply a standard Omarchy plugin, so it uses the same installation, enable/disable, update, and removal workflow as any other Omarchy plugin.
 

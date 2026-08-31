@@ -493,6 +493,319 @@ function safeExtensionPattern(pattern) {
   return true
 }
 
+var MAX_WORKFLOW_NODES = 256
+var MAX_WORKFLOW_DEPTH = 8
+var MAX_WORKFLOW_TEXT = 4096
+var MAX_SAFE_JSON_INTEGER = 9007199254740991
+
+function finiteExtensionNumber(value, fallback) {
+  if (value === undefined || value === null || value === "") return fallback
+  var number = Number(value)
+  return isFinite(number) && Math.abs(number) <= MAX_SAFE_JSON_INTEGER ? number : null
+}
+
+// Keep the state contract for a new summon explicit and independently
+// testable. QML performs the process/file-index side effects, then installs
+// these values before applying the incoming request.
+function openStateReset() {
+  return {
+    actionPanelActive: false,
+    actionPanelFile: null,
+    fileBrowserActive: false,
+    directoryPickerActive: false,
+    fileBrowserExtension: null,
+    fileBrowserPath: "",
+    fileEntries: [],
+    workflowActive: false,
+    workflowExtension: null,
+    workflowNode: null,
+    workflowContext: ({}),
+    workflowStack: [],
+    focusedExtension: null,
+    extensionQuery: "",
+    extensionResult: "",
+    resultExtension: null,
+    unavailableResultExtension: null
+  }
+}
+
+function boundedWorkflowText(value, limit) {
+  var text = String(value === undefined || value === null ? "" : value)
+  return text.length <= (limit || MAX_WORKFLOW_TEXT) ? text : ""
+}
+
+function workflowContext(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return ({})
+  var result = ({})
+  var keys = Object.keys(value)
+  if (keys.length > 16) return result
+  for (var i = 0; i < keys.length; i++) {
+    var key = String(keys[i] || "")
+    var text = boundedWorkflowText(value[key])
+    if (/^[A-Za-z][A-Za-z0-9_]*$/.test(key) && text) result[key] = text
+  }
+  return result
+}
+
+function normalizeWorkflowChildren(rawItems, state, depth) {
+  if (!Array.isArray(rawItems)) return null
+  var items = []
+  var siblingIds = ({})
+  for (var i = 0; i < rawItems.length; i++) {
+    var child = normalizeWorkflowNode(rawItems[i], state, depth)
+    if (!child) return null
+    var key = structuralKey(child.id)
+    if (siblingIds[key]) return null
+    siblingIds[key] = true
+    items.push(child)
+  }
+  return items
+}
+
+function normalizeWorkflowNode(raw, state, depth) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)
+      || depth >= MAX_WORKFLOW_DEPTH || state.count >= MAX_WORKFLOW_NODES) return null
+  var kind = String(raw.kind || "menu")
+  if (["menu", "directoryPicker", "input"].indexOf(kind) < 0) return null
+  var id = boundedWorkflowText(raw.id, 128).trim()
+  var label = boundedWorkflowText(raw.label, 256).trim()
+  if (!id || !label) return null
+  state.count += 1
+  var node = {
+    id: id,
+    kind: kind,
+    label: label,
+    description: boundedWorkflowText(raw.description, 512),
+    icon: boundedWorkflowText(raw.icon, 32),
+    iconFont: boundedWorkflowText(raw.iconFont, 128),
+    context: workflowContext(raw.context),
+    items: [],
+    next: null,
+    prompt: boundedWorkflowText(raw.prompt, 256),
+    defaultValue: "",
+    allowEmpty: raw.allowEmpty === true,
+    maxLength: MAX_WORKFLOW_TEXT,
+    command: stringArray(raw.command),
+    emptyCommand: stringArray(raw.emptyCommand),
+    refreshExtensions: raw.refreshExtensions === true,
+    nextBackSteps: 0
+  }
+  var maxLength = finiteExtensionNumber(raw.maxLength, MAX_WORKFLOW_TEXT)
+  var nextBackSteps = finiteExtensionNumber(raw.nextBackSteps, 0)
+  if (maxLength === null || nextBackSteps === null) return null
+  node.maxLength = Math.max(1, Math.min(MAX_WORKFLOW_TEXT, maxLength))
+  node.nextBackSteps = Math.max(0, Math.min(MAX_WORKFLOW_DEPTH, nextBackSteps))
+  node.defaultValue = boundedWorkflowText(raw.default, MAX_WORKFLOW_TEXT).substring(0, node.maxLength)
+  var commandFields = [node.command, node.emptyCommand]
+  for (var commandIndex = 0; commandIndex < commandFields.length; commandIndex++) {
+    if (commandFields[commandIndex].length > 32) return null
+    for (var argumentIndex = 0; argumentIndex < commandFields[commandIndex].length; argumentIndex++)
+      if (!boundedWorkflowText(commandFields[commandIndex][argumentIndex])) return null
+  }
+  if (kind === "menu") {
+    node.items = normalizeWorkflowChildren(raw.items, state, depth + 1)
+    if (!node.items) return null
+  } else if (raw.next !== undefined) {
+    node.next = normalizeWorkflowNode(raw.next, state, depth + 1)
+    if (!node.next) return null
+  }
+  if (kind === "directoryPicker" && !node.next) return null
+  if (kind === "input" && node.command.length === 0 && !node.next) return null
+  return node
+}
+
+function normalizeWorkflow(raw) {
+  if (!raw || typeof raw !== "object" || !Array.isArray(raw.items)) return null
+  var state = { count: 0 }
+  var items = normalizeWorkflowChildren(raw.items, state, 0)
+  if (!items) return null
+  return items.length > 0 ? { items: items } : null
+}
+
+function workflowInterpolate(value, context) {
+  var result = String(value || "")
+  var values = context || ({})
+  var keys = Object.keys(values)
+  for (var i = 0; i < keys.length; i++)
+    result = result.split("{" + keys[i] + "}").join(String(values[keys[i]]))
+  return result
+}
+
+function workflowInitialInput(node, context) {
+  if (!node || node.kind !== "input") return ""
+  return workflowInterpolate(node.defaultValue, context || ({})).substring(0, node.maxLength)
+}
+
+function workflowCommand(node, input, context) {
+  if (!node || node.kind !== "input") return []
+  var value = String(input === undefined || input === null ? "" : input).substring(0, node.maxLength)
+  var source = value ? node.command : (node.emptyCommand.length > 0 ? node.emptyCommand : node.command)
+  var replacements = Object.assign({}, context || ({}), { input: value })
+  return source.map(function(argument) { return workflowInterpolate(argument, replacements) })
+}
+
+function workflowDirectoryTransition(node, path, context) {
+  if (!node || node.kind !== "directoryPicker" || !node.next) return null
+  var selectedPath = normalizeFavoritePath(path)
+  if (!selectedPath) return null
+  var slash = selectedPath.lastIndexOf("/")
+  return {
+    node: node.next,
+    context: Object.assign({}, context || ({}), {
+      path: selectedPath,
+      basename: selectedPath === "/" ? "/" : selectedPath.substring(slash + 1)
+    })
+  }
+}
+
+function workflowInputTransition(node, input, context) {
+  var value = node ? String(input || "").substring(0, node.maxLength) : ""
+  if (!node || node.kind !== "input" || (!value && !node.allowEmpty)) return null
+  return { node: node.next, context: Object.assign({}, context || ({}), { input: value }) }
+}
+
+function workflowChild(node, id) {
+  var children = node && node.kind === "menu" ? node.items : (node && node.next ? [node.next] : [])
+  for (var i = 0; i < children.length; i++) if (children[i].id === id) return children[i]
+  return null
+}
+
+function workflowArraysEqual(left, right) {
+  if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) return false
+  for (var i = 0; i < left.length; i++) if (left[i] !== right[i]) return false
+  return true
+}
+
+function workflowNodeRebindCompatible(previous, fresh) {
+  if (!previous || !fresh || previous.id !== fresh.id) return false
+  // Synthetic roots from the active host are always menus. Older tests and
+  // callers may only retain their reserved id.
+  var previousKind = previous.id === "root" && !previous.kind ? "menu" : previous.kind
+  if (previousKind !== fresh.kind) return false
+  if (fresh.kind === "input"
+      && (!workflowArraysEqual(previous.command, fresh.command)
+        || !workflowArraysEqual(previous.emptyCommand, fresh.emptyCommand))) return false
+  if (fresh.kind !== "menu") {
+    var previousNext = previous.next
+    var freshNext = fresh.next
+    if (!!previousNext !== !!freshNext) return false
+    if (previousNext && (previousNext.id !== freshNext.id || previousNext.kind !== freshNext.kind)) return false
+  }
+  return true
+}
+
+// Rebind every active node only along the same unambiguous structural path.
+// Context values remain session data, but kind changes and changed command
+// stages invalidate the session instead of silently acquiring new behavior.
+function rebindWorkflow(extension, stack, current) {
+  if (!extension || !extension.available || extension.mode !== "workflow" || !extension.workflow || !current) return null
+  var freshRoot = { id: "root", kind: "menu", items: extension.workflow.items }
+  var oldStack = Array.isArray(stack) ? stack : []
+  var reboundStack = []
+  var cursor = freshRoot
+  for (var i = 0; i < oldStack.length; i++) {
+    var oldEntry = oldStack[i]
+    if (!oldEntry || !oldEntry.node) return null
+    if (oldEntry.node.id === "root") {
+      if (i !== 0 || !workflowNodeRebindCompatible(oldEntry.node, freshRoot)) return null
+      reboundStack.push({ node: freshRoot, context: oldEntry.context || ({}) })
+      continue
+    }
+    var freshEntry = workflowChild(cursor, oldEntry.node.id)
+    if (!workflowNodeRebindCompatible(oldEntry.node, freshEntry)) return null
+    cursor = freshEntry
+    reboundStack.push({ node: cursor, context: oldEntry.context || ({}) })
+  }
+  var reboundCurrent = current.id === "root" ? freshRoot : workflowChild(cursor, current.id)
+  if (!workflowNodeRebindCompatible(current, reboundCurrent)) return null
+  return { node: reboundCurrent, stack: reboundStack }
+}
+
+function workflowActionIsCurrent(actionGeneration, generation, workflowActive, expectedCapability, extension) {
+  return actionGeneration > 0 && actionGeneration === generation && workflowActive === true
+    && !!extension && extension.available === true && extension.mode === "workflow"
+    && extension.capability === expectedCapability
+}
+
+var EXTENSION_ROOT_PREFIX = "extension.root:"
+
+// Extension shortcuts are keyed by capability rather than provider id. A
+// replacement therefore inherits the same global favorite and does not leave
+// a stale shortcut behind when its bundled fallback becomes active again.
+function extensionRootId(extensionOrCapability) {
+  var capability = typeof extensionOrCapability === "object" && extensionOrCapability
+    ? extensionOrCapability.capability : extensionOrCapability
+  capability = String(capability || "").trim()
+  return capability ? EXTENSION_ROOT_PREFIX + JSON.stringify(capability) : ""
+}
+
+function extensionRootCapability(itemId) {
+  var value = String(itemId || "")
+  if (value.indexOf(EXTENSION_ROOT_PREFIX) !== 0) return ""
+  try {
+    var capability = JSON.parse(value.substring(EXTENSION_ROOT_PREFIX.length))
+    return typeof capability === "string" ? capability.trim() : ""
+  } catch (e) { return "" }
+}
+
+function extensionRootItem(extension) {
+  if (!extension || !extension.capability) return null
+  var id = extensionRootId(extension)
+  if (!id) return null
+  return normalizeItem(id, {
+    parent: "extensions",
+    icon: extension.icon,
+    iconFont: extension.iconFont,
+    label: extension.label,
+    description: extension.available ? extension.rootDescription : unavailableExtensionDetail(extension),
+    aliases: [extension.id, extension.capability].concat(extension.prefixes || []),
+    action: extension.capability
+  })
+}
+
+function sortExtensionRootRows(rows) {
+  var result = Array.isArray(rows) ? rows.slice() : []
+  result.sort(function(a, b) {
+    if (!!a.starred !== !!b.starred) return a.starred ? -1 : 1
+    var labels = String(a.label || "").toLowerCase().localeCompare(String(b.label || "").toLowerCase())
+    return labels || String(a.itemId || "").localeCompare(String(b.itemId || ""))
+  })
+  return result
+}
+
+function extensionRootActivation(extension) {
+  if (!extension || !extension.available) return ""
+  if (extension.mode === "files") return "files"
+  if (extension.mode === "workflow") return "workflow"
+  return "input"
+}
+
+function extensionRootInput(extension) {
+  return ""
+}
+
+// A focused extension owns its input, so users should not need to see or type
+// the global-search prefix. Add it only to the query sent to the provider.
+function focusedExtensionQuery(extension, input) {
+  var query = String(input || "").trim()
+  if (!extension || extension.mode !== "query" || !Array.isArray(extension.prefixes) || extension.prefixes.length === 0) return query
+  var prefix = String(extension.prefixes[0] || "").trim()
+  if (!prefix || query === prefix || query.indexOf(prefix + " ") === 0) return query || prefix
+  return query ? prefix + " " + query : prefix
+}
+
+function focusedPrefixMatch(extension, input) {
+  var prompt = String(input || "").trim()
+  return extension && extension.mode === "prefix" && extension.available && prompt
+    ? { extension: extension, prompt: prompt } : null
+}
+
+function workflowClosesOnDispatch(node, command) {
+  if (!node || node.kind !== "input" || node.next || !Array.isArray(command) || command.length === 0) return false
+  var executable = String(command[0] || "").split("/").pop()
+  return executable === "xdg-terminal-exec" || executable === "omarchy-launch-terminal"
+}
+
 function normalizeExtension(raw) {
   if (!raw || typeof raw !== "object" || raw.schemaVersion !== 1) return null
 
@@ -500,7 +813,11 @@ function normalizeExtension(raw) {
   var label = String(raw.label || "").trim()
   var mode = String(raw.mode || "prefix")
   var command = stringArray(raw.command)
-  if (!id || !label || command.length === 0 || ["prefix", "query", "files"].indexOf(mode) < 0) return null
+  if (!id || !label || ["prefix", "query", "files", "workflow"].indexOf(mode) < 0) return null
+  if (mode !== "workflow" && command.length === 0) return null
+
+  var priority = finiteExtensionNumber(raw.priority, 0)
+  if (priority === null) return null
 
   var extension = {
     id: id,
@@ -510,15 +827,17 @@ function normalizeExtension(raw) {
     icon: String(raw.icon || ""),
     iconFont: String(raw.iconFont || ""),
     description: String(raw.description || (mode === "prefix" ? "Start new session" : "Press Enter to copy")),
+    rootDescription: String(raw.rootDescription || raw.description || (mode === "prefix" ? "Start new session" : "Open extension")),
     command: command,
-    priority: Number(raw.priority) || 0,
+    priority: priority,
     bundled: raw._bundled === true,
     sourceDir: String(raw._sourceDir || ""),
+    source: String(raw._source || ""),
     requires: stringArray(raw.requires),
     missingRequires: stringArray(raw._missingRequires)
   }
 
-  if (mode === "prefix" || mode === "files") {
+  if (mode === "prefix" || mode === "files" || mode === "workflow") {
     var sourcePrefixes = Array.isArray(raw.prefixes) ? raw.prefixes : [raw.prefix]
     extension.prefixes = []
     for (var i = 0; i < sourcePrefixes.length; i++) {
@@ -526,7 +845,10 @@ function normalizeExtension(raw) {
       if (prefix && extension.prefixes.indexOf(prefix) < 0) extension.prefixes.push(prefix)
     }
     if (extension.prefixes.length === 0) return null
-    if (mode === "files") {
+    if (mode === "workflow") {
+      extension.workflow = normalizeWorkflow(raw.workflow)
+      if (!extension.workflow) return null
+    } else if (mode === "files") {
       extension.root = String(raw.root || "~")
       extension.directoryCommand = stringArray(raw.directoryCommand)
       if (extension.directoryCommand.length === 0) extension.directoryCommand = extension.command
@@ -571,47 +893,91 @@ function normalizeExtension(raw) {
   return extension
 }
 
+function lookupKey(value) {
+  return "$" + String(value || "")
+}
+
 function resolveExtensions(extensions) {
   var selected = ({})
+  var order = []
   var values = Array.isArray(extensions) ? extensions : []
   for (var i = 0; i < values.length; i++) {
     var extension = values[i]
-    var current = selected[extension.capability]
+    var key = lookupKey(extension.capability)
+    var current = selected[key]
+    if (!current) order.push(key)
     if (!current
         || (extension.available && !current.available)
         || (extension.available === current.available && extension.priority > current.priority)
         || (extension.available === current.available && extension.priority === current.priority
           && current.bundled && !extension.bundled))
-      selected[extension.capability] = extension
+      selected[key] = extension
   }
   var result = []
-  for (var capability in selected) result.push(selected[capability])
+  for (var orderIndex = 0; orderIndex < order.length; orderIndex++) result.push(selected[order[orderIndex]])
   return result
 }
 
+function extensionSource(raw, index) {
+  var source = raw && typeof raw === "object" ? String(raw._source || "").trim() : ""
+  return source || "catalog index " + index
+}
+
+var MAX_EXTENSION_DIAGNOSTICS = 256
+var MAX_EXTENSION_DIAGNOSTIC_TEXT = 1024
+var MAX_EXTENSION_CATALOG_VALUES = 1024
+
+function appendExtensionDiagnostic(diagnostics, message, state) {
+  var text = String(message || "").replace(/\0/g, "�")
+  if (text.length > MAX_EXTENSION_DIAGNOSTIC_TEXT) text = text.substring(0, MAX_EXTENSION_DIAGNOSTIC_TEXT - 1) + "…"
+  if (diagnostics.length < MAX_EXTENSION_DIAGNOSTICS) diagnostics.push(text)
+  else if (!state.omitted) {
+    diagnostics[diagnostics.length - 1] = "Further extension diagnostics were omitted after the "
+      + MAX_EXTENSION_DIAGNOSTICS + "-message limit"
+    state.omitted = true
+  }
+}
+
 function parseExtensionCatalog(text) {
-  var values
-  try { values = JSON.parse(String(text || "[]")) }
-  catch (e) { return { extensions: [], diagnostics: ["Extension catalog is not valid JSON"] } }
-  if (!Array.isArray(values)) values = [values]
+  var parsed
+  try { parsed = JSON.parse(String(text || "[]")) }
+  catch (e) { return { extensions: [], diagnostics: ["Extension catalog is not valid JSON"], valid: false, complete: false } }
+
+  var diagnostics = []
+  var diagnosticState = { omitted: false }
+  var complete = true
+  var values = parsed
+  if (parsed && typeof parsed === "object" && !Array.isArray(parsed) && Array.isArray(parsed.extensions)) {
+    values = parsed.extensions
+    complete = parsed.complete !== false
+    if (Array.isArray(parsed.diagnostics)) {
+      for (var d = 0; d < parsed.diagnostics.length; d++)
+        if (typeof parsed.diagnostics[d] === "string" && parsed.diagnostics[d])
+          appendExtensionDiagnostic(diagnostics, parsed.diagnostics[d], diagnosticState)
+    }
+  } else if (!Array.isArray(values)) values = [values]
 
   var extensions = []
-  var diagnostics = []
   var ids = ({})
-  for (var i = 0; i < values.length; i++) {
+  if (values.length > MAX_EXTENSION_CATALOG_VALUES)
+    appendExtensionDiagnostic(diagnostics, "Extension catalog contains more than " + MAX_EXTENSION_CATALOG_VALUES
+      + " definitions; trailing definitions were ignored", diagnosticState)
+  for (var i = 0; i < Math.min(values.length, MAX_EXTENSION_CATALOG_VALUES); i++) {
     var extension = normalizeExtension(values[i])
     if (!extension) {
-      diagnostics.push("Ignored invalid extension at catalog index " + i)
+      appendExtensionDiagnostic(diagnostics, "Ignored invalid extension from " + extensionSource(values[i], i), diagnosticState)
       continue
     }
-    if (ids[extension.id]) {
-      diagnostics.push("Ignored duplicate extension id: " + extension.id)
+    var idKey = lookupKey(extension.id)
+    if (ids[idKey]) {
+      appendExtensionDiagnostic(diagnostics, "Ignored duplicate extension id '" + extension.id + "' from " + extensionSource(values[i], i)
+        + "; already supplied by " + ids[idKey], diagnosticState)
       continue
     }
-    ids[extension.id] = true
+    ids[idKey] = extensionSource(values[i], i)
     extensions.push(extension)
     if (!extension.available)
-      diagnostics.push(extension.id + " is missing: " + extension.missingRequires.join(", "))
+      appendExtensionDiagnostic(diagnostics, extension.id + " is missing: " + extension.missingRequires.join(", "), diagnosticState)
   }
 
   var resolved = resolveExtensions(extensions)
@@ -621,11 +987,13 @@ function parseExtensionCatalog(text) {
     if (!current.prefixes || current.prefixes.length === 0) continue
     for (var k = 0; k < current.prefixes.length; k++) {
       var prefix = current.prefixes[k]
-      if (prefixes[prefix]) diagnostics.push("Duplicate extension prefix '" + prefix + "': " + prefixes[prefix] + ", " + current.id)
-      else prefixes[prefix] = current.id
+      var prefixKey = lookupKey(prefix)
+      if (prefixes[prefixKey]) appendExtensionDiagnostic(diagnostics, "Duplicate extension prefix '" + prefix + "': " + prefixes[prefixKey]
+        + ", " + current.id + " (" + (current.source || "unknown source") + ")", diagnosticState)
+      else prefixes[prefixKey] = current.id + " (" + (current.source || "unknown source") + ")"
     }
   }
-  return { extensions: resolved, diagnostics: diagnostics }
+  return { extensions: resolved, diagnostics: diagnostics, valid: true, complete: complete }
 }
 
 function parseExtensions(text) {
@@ -670,6 +1038,14 @@ function queryExtension(extensions, query) {
 function unavailableQueryExtension(extensions, query) {
   var matches = matchingQueryExtensions(extensions, query)
   return matches.length > 0 && !matches[0].available ? matches[0] : null
+}
+
+function extensionQueryRunIsCurrent(revision, currentRevision, query, effectiveQuery,
+                                    extensionId, resultExtension, stopping, opened) {
+  return opened === true && stopping !== true
+    && revision === currentRevision
+    && query === effectiveQuery
+    && !!resultExtension && extensionId === resultExtension.id
 }
 
 function extensionSuggestionPriority(suggestion, query) {
@@ -1116,6 +1492,24 @@ if (typeof module !== "undefined") {
     unavailableExtensionDetail: unavailableExtensionDetail,
     firstSetupExtension: firstSetupExtension,
     safeExtensionPattern: safeExtensionPattern,
+    openStateReset: openStateReset,
+    normalizeWorkflow: normalizeWorkflow,
+    workflowInterpolate: workflowInterpolate,
+    workflowInitialInput: workflowInitialInput,
+    workflowCommand: workflowCommand,
+    workflowDirectoryTransition: workflowDirectoryTransition,
+    workflowInputTransition: workflowInputTransition,
+    rebindWorkflow: rebindWorkflow,
+    workflowActionIsCurrent: workflowActionIsCurrent,
+    workflowClosesOnDispatch: workflowClosesOnDispatch,
+    extensionRootId: extensionRootId,
+    extensionRootCapability: extensionRootCapability,
+    extensionRootItem: extensionRootItem,
+    sortExtensionRootRows: sortExtensionRootRows,
+    extensionRootActivation: extensionRootActivation,
+    extensionRootInput: extensionRootInput,
+    focusedExtensionQuery: focusedExtensionQuery,
+    focusedPrefixMatch: focusedPrefixMatch,
     normalizeExtension: normalizeExtension,
     resolveExtensions: resolveExtensions,
     parseExtensionCatalog: parseExtensionCatalog,
@@ -1123,6 +1517,7 @@ if (typeof module !== "undefined") {
     matchesRules: matchesRules,
     queryExtension: queryExtension,
     unavailableQueryExtension: unavailableQueryExtension,
+    extensionQueryRunIsCurrent: extensionQueryRunIsCurrent,
     extensionSuggestionPriority: extensionSuggestionPriority,
     extensionMatchPriority: extensionMatchPriority,
     suggestExtensions: suggestExtensions,

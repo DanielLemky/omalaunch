@@ -6,6 +6,7 @@
   "label": "Calculator",
   "icon": "󰃬",
   "description": "Press Enter to copy",
+  "rootDescription": "Calculate numbers, units, and more",
   "priority": 10,
   "requires": ["qalc", "wl-copy"],
   "match": {

@@ -22,12 +22,13 @@ Item {
   property bool routePendingForMenuSources: false
 
   function open(payloadJson) {
-    // Every accepted dmenu request must complete even if another summon
-    // replaces it before the caller has selected a result.
-    if (root.dmenuActive && root.requestActive) root.finishRequest(null)
-    root.loadExtensions(false)
+    // Parse first so resetting the old surface cannot discard the incoming
+    // request. Completion of a replaced dmenu is queued before its protocol
+    // fields are cleared and before the new surface is installed.
     var payload = ({})
     try { payload = JSON.parse(payloadJson || "{}") } catch (e) { payload = ({}) }
+    root.resetForOpen()
+    root.loadExtensions(false)
 
     if (payload.fontFamily) root.fontFamily = payload.fontFamily
 
@@ -76,6 +77,7 @@ Item {
   property bool opened: false
   property string mode: "menu"
   readonly property bool dmenuActive: mode === "select" || mode === "input"
+  readonly property bool workflowInputActive: workflowActive && workflowNode && workflowNode.kind === "input"
   property string dmenuPrompt: ""
   property var dmenuOptions: []
   property var dmenuRows: []
@@ -105,13 +107,30 @@ Item {
   property string extensionQuery: ""
   property string extensionResult: ""
   property var resultExtension: null
+  // A root shortcut can focus one extension's input without creating a second
+  // favorites system or changing direct typed extension invocation.
+  property var focusedExtension: null
   property int extensionQuerySerial: 0
+  property int extensionQueryGeneration: 0
+  property var pendingExtensionQuery: null
+  readonly property int extensionQueryTimeoutMs: 5000
+  readonly property int extensionQueryTerminationGraceMs: 500
   property bool fileBrowserActive: false
+  property bool directoryPickerActive: false
   property var fileBrowserExtension: null
   property string fileBrowserPath: ""
   property var fileEntries: []
+  property bool workflowActive: false
+  property var workflowExtension: null
+  property var workflowNode: null
+  property var workflowContext: ({})
+  property var workflowStack: []
+  property int workflowGeneration: 0
+  readonly property int workflowActionTimeoutMs: 30 * 1000
+  readonly property int workflowTerminationGraceMs: 1000
   property int fileScanSerial: 0
   readonly property string fileIndexHelper: root.pluginPath + "/extensions/files/file-index.py"
+  readonly property string extensionLoaderHelper: root.pluginPath + "/libexec/load-extensions.py"
   readonly property string fileIndexInstanceId: Date.now() + "-" + Math.floor(Math.random() * 1000000000)
   readonly property string fileIndexPathPrefix: Quickshell.env("XDG_RUNTIME_DIR")
     ? Quickshell.env("XDG_RUNTIME_DIR") + "/omalaunch-file-index-" + root.fileIndexInstanceId
@@ -159,6 +178,8 @@ Item {
   property var deleteTarget: null
   property var dependencyTarget: null
   onOpenedChanged: if (!opened) {
+    root.invalidateWorkflowAction("launcher closed")
+    root.invalidateExtensionQuery("launcher closed")
     deleteConfirmOpen = false
     deleteTarget = null
     dependencyConfirmOpen = false
@@ -175,8 +196,7 @@ Item {
     target: currencyRates
     function onRefreshed() {
       if (!root.resultExtension || root.resultExtension.capability !== "currency") return
-      root.extensionQuerySerial += 1
-      extensionQueryTimer.restart()
+      root.scheduleExtensionQuery()
     }
   }
 
@@ -208,7 +228,7 @@ Item {
     ? Style.space(root.dmenuWidth)
     : Style.space(root.imagePreviewActive ? 900 : 600), panel.width - Style.gapsOut * 2)
   readonly property bool emptyRoot: !root.dmenuActive && root.activeMenu === "root" && !root.filterText && displayModel.count === 0
-  property int visibleRowsHeight: root.emptyRoot ? 0 : (root.dmenuActive ? dmenuRowListHeight(layoutSerial, displayModel.count, filterText) : rowListHeight(layoutSerial, displayModel.count, filterText, searchDivider))
+  property int visibleRowsHeight: root.emptyRoot || root.workflowInputActive ? 0 : (root.dmenuActive ? dmenuRowListHeight(layoutSerial, displayModel.count, filterText) : rowListHeight(layoutSerial, displayModel.count, filterText, searchDivider))
   property int cardHeight: root.dmenuActive
     ? Math.min(contentMargin * 2 + headerHeight + (mode === "input" ? 0 : contentSpacing + visibleRowsHeight), panel.height - Style.gapsOut * 2)
     : Math.min(contentMargin * 2 + headerHeight + (visibleRowsHeight > 0 ? contentSpacing + visibleRowsHeight : 0), panel.height - Style.gapsOut * 2)
@@ -400,26 +420,9 @@ Item {
     root.extensionsReloadPending = false
     extensionProc.collected = ""
     extensionProc.outputOverflow = false
-    var script = "emit_extension() { "
-      + "local file=$1 bundled=$2 raw requirement missing_json source_dir; local -a missing=(); source_dir=${file%/*}; "
-      + "raw=$(jq -c '.' \"$file\" 2>/dev/null) || return; "
-      + "while IFS= read -r requirement; do [[ -z $requirement ]] || command -v \"$requirement\" &>/dev/null || missing+=(\"$requirement\"); done < <(jq -r '.requires[]? // empty' <<<\"$raw\"); "
-      + "missing_json=$(printf '%s\\n' \"${missing[@]}\" | jq -Rsc 'split(\"\\n\") | map(select(length > 0))'); "
-      + "jq -c --argjson bundled \"$bundled\" --argjson missing \"$missing_json\" --arg sourceDir \"$source_dir\" '. + {_bundled:$bundled,_missingRequires:$missing,_sourceDir:$sourceDir}' <<<\"$raw\"; "
-      + "}; { shopt -s nullglob; "
-      + "for bundled in " + root.shellQuote(root.pluginPath) + "/extensions/*/extension.json; do emit_extension \"$bundled\" true; done; "
-      + "declare -A enabled=(); "
-      + "while IFS= read -r id; do enabled[\"$id\"]=1; done < <(omarchy plugin list --json | jq -r '.[] | select(.enabled == true) | .id'); "
-      + "shopt -s nullglob; "
-      + "for manifest in " + root.shellQuote(root.omarchyPath) + "/shell/plugins/*/manifest.json \"$HOME\"/.config/omarchy/plugins/*/manifest.json; do "
-      + "id=$(jq -r '.id // empty' \"$manifest\" 2>/dev/null); [[ $id && ${enabled[$id]+yes} ]] || continue; "
-      + "dir=${manifest%/manifest.json}; "
-      + "while IFS= read -r provider; do "
-      + "[[ $provider && $provider != /* && $provider != *..* ]] || continue; "
-      + "file=$dir/$provider; [[ -f $file ]] && emit_extension \"$file\" false; "
-      + "done < <(jq -r '((.omalaunch.extensions // []) + (.omalaunch.queryProviders // []))[]? // empty' \"$manifest\" 2>/dev/null); "
-      + "done; } | jq -s '.'"
-    extensionProc.command = ["bash", "-lc", script]
+    // The helper invokes provider argument arrays directly. No provider value
+    // is interpolated into a shell command.
+    extensionProc.command = [root.extensionLoaderHelper, root.pluginPath, root.omarchyPath]
     extensionProc.running = true
   }
 
@@ -430,20 +433,89 @@ Item {
       || MenuModel.unavailableQueryExtension(root.extensions, query) !== null
   }
 
-  function scheduleExtensionQuery() {
+  function stopExtensionQuery(reason) {
+    extensionQueryTimeout.stop()
+    if (!extensionQueryProc.running || extensionQueryProc.stopping) return
+    // Keep every field describing this child immutable until onExited. Setting
+    // running false is Quickshell's SIGTERM path; only the matching generation
+    // may escalate the same direct child after the grace period.
+    extensionQueryProc.stopping = true
+    extensionQueryProc.stopGeneration = extensionQueryProc.generation
+    extensionQueryKillTimer.generation = extensionQueryProc.stopGeneration
+    extensionQueryProc.running = false
+    extensionQueryKillTimer.restart()
+  }
+
+  function invalidateExtensionQuery(reason) {
     root.extensionQuerySerial += 1
+    extensionQueryTimer.stop()
+    root.pendingExtensionQuery = null
+    root.stopExtensionQuery(reason)
+  }
+
+  function dispatchPendingExtensionQuery() {
+    if (extensionQueryProc.running || extensionQueryProc.stopping || !root.pendingExtensionQuery) return
+    var request = root.pendingExtensionQuery
+    root.pendingExtensionQuery = null
+    if (!root.opened || request.revision !== root.extensionQuerySerial
+        || request.query !== root.effectiveExtensionQuery()
+        || !root.resultExtension || request.extensionId !== root.resultExtension.id) return
+
+    root.extensionQueryGeneration += 1
+    extensionQueryProc.generation = root.extensionQueryGeneration
+    extensionQueryProc.revision = request.revision
+    extensionQueryProc.query = request.query
+    extensionQueryProc.extensionId = request.extensionId
+    extensionQueryProc.collected = ""
+    extensionQueryProc.outputOverflow = false
+    extensionQueryProc.command = request.command
+    extensionQueryProc.running = true
+    extensionQueryTimeout.generation = extensionQueryProc.generation
+    extensionQueryTimeout.restart()
+  }
+
+  function queueExtensionQuery(extension, query, revision) {
+    root.pendingExtensionQuery = {
+      extensionId: extension.id,
+      query: query,
+      revision: revision,
+      command: root.commandArguments(extension.command, { query: query, extensionDir: extension.sourceDir })
+    }
+    if (extensionQueryProc.running && !extensionQueryProc.stopping)
+      root.stopExtensionQuery("newer query queued")
+    else if (!extensionQueryProc.stopping)
+      root.dispatchPendingExtensionQuery()
+  }
+
+  function collectExtensionQuery(data) {
+    if (extensionQueryProc.outputOverflow || extensionQueryProc.stopping) return
+    var next = extensionQueryProc.collected + data + "\n"
+    if (next.length > root.maxProcessOutputBytes) {
+      extensionQueryProc.outputOverflow = true
+      extensionQueryProc.collected = ""
+      root.stopExtensionQuery("query output exceeded limit")
+      return
+    }
+    extensionQueryProc.collected = next
+  }
+
+  function scheduleExtensionQuery() {
+    root.invalidateExtensionQuery("query context changed")
     root.extensionQuery = ""
     root.extensionResult = ""
     root.resultExtension = null
     root.unavailableResultExtension = null
-    extensionQueryTimer.stop()
-    if (extensionQueryProc.running) extensionQueryProc.running = false
-    if (root.dmenuActive) return
+    if (root.dmenuActive || !root.opened) return
+    if (root.focusedExtension && root.focusedExtension.mode === "prefix") {
+      root.rebuildDisplay()
+      return
+    }
 
-    var query = root.filterText.trim()
-    root.resultExtension = MenuModel.queryExtension(root.extensions, query)
-    root.unavailableResultExtension = MenuModel.unavailableQueryExtension(root.extensions, query)
-    if (root.resultExtension) extensionQueryTimer.start()
+    var query = root.effectiveExtensionQuery()
+    var queryCatalog = root.focusedExtension ? [root.focusedExtension] : root.extensions
+    root.resultExtension = MenuModel.queryExtension(queryCatalog, query)
+    root.unavailableResultExtension = MenuModel.unavailableQueryExtension(queryCatalog, query)
+    if (root.resultExtension) extensionQueryTimer.restart()
     // Available queries rebuild when their process exits. Unavailable queries
     // start no process, so surface their actionable row immediately.
     else if (root.unavailableResultExtension) root.rebuildDisplay()
@@ -453,6 +525,247 @@ Item {
     for (var i = 0; i < root.extensions.length; i++)
       if (root.extensions[i].id === id) return root.extensions[i]
     return null
+  }
+
+  function extensionByCapability(capability) {
+    for (var i = 0; i < root.extensions.length; i++)
+      if (root.extensions[i].capability === capability) return root.extensions[i]
+    return null
+  }
+
+  function extensionForRootId(itemId) {
+    return root.extensionByCapability(MenuModel.extensionRootCapability(itemId))
+  }
+
+  function focusedExtensionPlaceholder() {
+    if (!root.focusedExtension) return ""
+    if (root.focusedExtension.capability === "calculator") return "Enter a calculation…"
+    if (root.focusedExtension.capability === "currency") return "Enter a conversion…"
+    if (root.focusedExtension.capability === "timezone") return "Enter a timezone query…"
+    return "Start typing…"
+  }
+
+  function effectiveExtensionQuery() {
+    return root.focusedExtension
+      ? MenuModel.focusedExtensionQuery(root.focusedExtension, root.filterText)
+      : root.filterText.trim()
+  }
+
+  function enterFocusedExtension(extension) {
+    if (!extension || !extension.available) return
+    root.focusedExtension = extension
+    root.activeMenu = "extensions"
+    root.navStack = ["root"]
+    root.filterText = MenuModel.extensionRootInput(extension)
+    root.selectedIndex = 0
+    root.cursorActive = true
+    root.rebuildDisplay()
+    root.scheduleExtensionQuery()
+    Qt.callLater(function() { keyCatcher.forceActiveFocus() })
+  }
+
+  function leaveFocusedExtension() {
+    root.invalidateExtensionQuery("left focused extension")
+    root.focusedExtension = null
+    root.extensionQuery = ""
+    root.extensionResult = ""
+    root.resultExtension = null
+    root.unavailableResultExtension = null
+    root.setActiveMenu("extensions", false)
+  }
+
+  function activateExtensionRoot(extension) {
+    if (!extension) return
+    if (!extension.available) {
+      var setup = MenuModel.dependencySetup(extension)
+      if (setup) {
+        root.dependencyTarget = setup
+        root.dependencyConfirmOpen = true
+      }
+      return
+    }
+    var activation = MenuModel.extensionRootActivation(extension)
+    if (activation === "files") root.enterFileBrowser(extension)
+    else if (activation === "workflow") root.enterWorkflow(extension)
+    else if (activation === "input") root.enterFocusedExtension(extension)
+  }
+
+  function workflowValues(extra) {
+    return Object.assign({}, root.workflowContext || ({}), {
+      extensionDir: root.workflowExtension ? root.workflowExtension.sourceDir : ""
+    }, extra || ({}))
+  }
+
+  function workflowText(value, extra) {
+    return MenuModel.workflowInterpolate(value, root.workflowValues(extra))
+  }
+
+  function workflowNodeContext(node, base) {
+    var result = Object.assign({}, base || ({}))
+    var values = node && node.context ? node.context : ({})
+    for (var key in values) result[key] = MenuModel.workflowInterpolate(values[key], Object.assign({}, result, { extensionDir: root.workflowExtension ? root.workflowExtension.sourceDir : "" }))
+    return result
+  }
+
+  function enterWorkflow(extension) {
+    if (!extension || !extension.available || extension.mode !== "workflow") return
+    root.invalidateExtensionQuery("entered workflow")
+    root.invalidateWorkflowAction("entered workflow")
+    root.focusedExtension = null
+    root.leaveFileBrowser(false)
+    root.workflowActive = true
+    root.workflowExtension = extension
+    root.workflowStack = []
+    root.workflowContext = ({})
+    root.workflowNode = {
+      id: "root",
+      kind: "menu",
+      label: extension.label,
+      description: extension.description,
+      items: extension.workflow.items
+    }
+    root.filterText = ""
+    root.selectedIndex = 0
+    root.cursorActive = true
+    root.rebuildDisplay()
+  }
+
+  function leaveWorkflow() {
+    root.invalidateWorkflowAction("left workflow")
+    root.resetFileIndex()
+    root.fileBrowserActive = false
+    root.directoryPickerActive = false
+    root.fileBrowserExtension = null
+    root.workflowActive = false
+    root.workflowExtension = null
+    root.workflowNode = null
+    root.workflowContext = ({})
+    root.workflowStack = []
+    root.filterText = ""
+    root.rebuildDisplay()
+  }
+
+  function showWorkflowNode(node, context, pushCurrent) {
+    if (!node) return
+    if (pushCurrent && root.workflowNode)
+      root.workflowStack = root.workflowStack.concat([{ node: root.workflowNode, context: root.workflowContext }])
+    root.resetFileIndex()
+    root.fileBrowserActive = false
+    root.directoryPickerActive = false
+    root.fileBrowserExtension = null
+    root.workflowNode = node
+    root.workflowContext = root.workflowNodeContext(node, context)
+    root.filterText = node.kind === "input"
+      ? MenuModel.workflowInitialInput(node, root.workflowValues()) : ""
+    root.selectedIndex = 0
+    root.cursorActive = node.kind !== "input"
+    if (node.kind === "directoryPicker") root.enterDirectoryPicker(root.workflowContext.path || "")
+    else root.rebuildDisplay()
+  }
+
+  function workflowBack() {
+    if (!root.workflowActive) return false
+    root.invalidateWorkflowAction("workflow navigation changed")
+    root.resetFileIndex()
+    root.fileBrowserActive = false
+    root.directoryPickerActive = false
+    root.fileBrowserExtension = null
+    if (root.workflowStack.length === 0) {
+      root.leaveWorkflow()
+      return true
+    }
+    var previous = root.workflowStack[root.workflowStack.length - 1]
+    root.workflowStack = root.workflowStack.slice(0, root.workflowStack.length - 1)
+    root.showWorkflowNode(previous.node, previous.context, false)
+    return true
+  }
+
+  function activateWorkflowChild(index) {
+    if (!root.workflowNode || root.workflowNode.kind !== "menu") return
+    var child = root.workflowNode.items[index]
+    if (!child) return
+    root.showWorkflowNode(child, root.workflowContext, true)
+  }
+
+  function enterDirectoryPicker(startPath) {
+    root.directoryPickerActive = true
+    root.fileBrowserActive = true
+    root.fileBrowserExtension = root.activeFilesExtension()
+    var requestedPath = MenuModel.normalizeFavoritePath(startPath)
+    root.fileBrowserPath = requestedPath || Quickshell.env("HOME")
+    root.filterText = ""
+    root.fileEntries = []
+    root.selectedIndex = 0
+    root.cursorActive = true
+    root.scheduleFileScan()
+  }
+
+  function selectWorkflowDirectory(path) {
+    if (!root.directoryPickerActive || !root.workflowNode || !root.workflowNode.next) return
+    var transition = MenuModel.workflowDirectoryTransition(root.workflowNode, path, root.workflowContext)
+    if (!transition) return
+    root.workflowStack = root.workflowStack.concat([{ node: root.workflowNode, context: transition.context }])
+    root.showWorkflowNode(transition.node, transition.context, false)
+  }
+
+  function submitWorkflowInput() {
+    var node = root.workflowNode
+    if (!root.workflowActive || !node || node.kind !== "input" || workflowActionProc.running || workflowActionProc.stopping) return
+    var value = String(root.filterText || "").substring(0, node.maxLength)
+    var transition = MenuModel.workflowInputTransition(node, value, root.workflowContext)
+    // Validation happens before any generation change or launcher close.
+    if (!transition) return
+    var context = root.workflowValues({ input: value })
+    var command = MenuModel.workflowCommand(node, value, context)
+    if (command.length === 0) {
+      if (node.next) root.showWorkflowNode(node.next, transition.context, true)
+      return
+    }
+    if (MenuModel.workflowClosesOnDispatch(node, command)) {
+      // Do not attach a long-lived terminal wrapper to the reusable Process.
+      // Argument arrays preserve prompt/path values literally.
+      Quickshell.execDetached(command)
+      root.closeWorkflowAfterDispatch()
+      return
+    }
+    root.workflowGeneration += 1
+    workflowActionProc.generation = root.workflowGeneration
+    workflowActionProc.extensionCapability = root.workflowExtension.capability
+    workflowActionProc.nextNode = node.next
+    workflowActionProc.nextContext = transition.context
+    workflowActionProc.refreshExtensions = node.refreshExtensions
+    workflowActionProc.nextBackSteps = node.nextBackSteps
+    workflowActionProc.closeAfter = !node.next
+    workflowActionProc.command = command
+    workflowActionProc.running = true
+    workflowActionTimeout.restart()
+  }
+
+  function invalidateWorkflowAction(reason) {
+    if (workflowActionProc.stopping) return
+    if (workflowActionProc.generation <= 0 && !workflowActionProc.running) return
+    root.workflowGeneration += 1
+    workflowActionTimeout.stop()
+    workflowActionProc.generation = 0
+    workflowActionProc.nextNode = null
+    workflowActionProc.nextContext = ({})
+    workflowActionProc.refreshExtensions = false
+    workflowActionProc.nextBackSteps = 0
+    workflowActionProc.closeAfter = false
+    if (workflowActionProc.running) {
+      // `running = false` is Quickshell's supported SIGTERM path. Keep the
+      // Process reserved during a short grace period; a generation-matched
+      // timer escalates the same direct child with SIGKILL if it does not exit.
+      workflowActionProc.stopping = true
+      workflowActionProc.stopGeneration = root.workflowGeneration
+      workflowActionKillTimer.generation = workflowActionProc.stopGeneration
+      workflowActionProc.running = false
+      workflowActionKillTimer.restart()
+    }
+  }
+
+  function closeWorkflowAfterDispatch() {
+    root.cancel()
   }
 
   function filesExtensionForCapability(capability) {
@@ -504,6 +817,8 @@ Item {
 
   function enterFileBrowser(extension, startPath) {
     if (!extension || !extension.available) return
+    root.invalidateExtensionQuery("entered file browser")
+    root.focusedExtension = null
     root.resetFileIndex()
     root.fileBrowserActive = true
     root.fileBrowserExtension = extension
@@ -516,16 +831,17 @@ Item {
     root.scheduleFileScan()
   }
 
-  function leaveFileBrowser() {
+  function leaveFileBrowser(rebuild) {
     root.resetFileIndex()
     root.actionPanelActive = false
     root.actionPanelFile = null
     root.fileBrowserActive = false
+    root.directoryPickerActive = false
     root.fileBrowserExtension = null
     root.fileBrowserPath = ""
     root.fileEntries = []
     root.filterText = ""
-    root.rebuildDisplay()
+    if (rebuild !== false) root.rebuildDisplay()
   }
 
   function parentPath(path) {
@@ -573,7 +889,7 @@ Item {
     fileIndexProc.revision = root.fileIndexSerial
     fileIndexProc.indexRoot = path
     fileIndexProc.indexPath = root.fileIndexPath
-    fileIndexProc.command = ["python", root.fileIndexHelper, "index", path, fileIndexProc.indexPath]
+    fileIndexProc.command = ["python", root.fileIndexHelper, root.directoryPickerActive ? "index-dirs" : "index", path, fileIndexProc.indexPath]
     fileIndexProc.running = true
   }
 
@@ -591,6 +907,15 @@ Item {
   function rebuildFileDisplay() {
     displayModel.clear()
     root.searchDivider = false
+    if (root.directoryPickerActive) {
+      var selectItem = root.normalizeItem("workflow.directory.select", {
+        icon: "✓",
+        label: "Select this directory",
+        description: root.fileBrowserPath,
+        action: root.fileBrowserPath
+      })
+      displayModel.append(root.displayRow(selectItem, root.fileBrowserPath, -1))
+    }
     for (var i = 0; i < root.fileEntries.length; i++) {
       var entry = root.fileEntries[i]
       var isDirectory = entry.type === "directory"
@@ -603,7 +928,7 @@ Item {
         action: entry.path
       })
       var row = root.displayRow(item, item.description, i)
-      row.starred = root.isFileFavoriteStarred(entry.path, entry.type)
+      row.starred = !root.directoryPickerActive && root.isFileFavoriteStarred(entry.path, entry.type)
       displayModel.append(row)
     }
     root.layoutSerial += 1
@@ -755,13 +1080,19 @@ Item {
       label: "Omarchy",
       title: "Omarchy"
     })
+    nextItems.extensions = root.normalizeItem("extensions", {
+      icon: "󰏗",
+      label: "Extensions",
+      title: "Extensions"
+    })
     for (var id in nextItems) {
-      if (id === "root" || id === "omarchy") continue
+      if (id === "root" || id === "omarchy" || id === "extensions") continue
       if (nextItems[id].parent === "root") nextItems[id] = Object.assign({}, nextItems[id], { parent: "omarchy" })
     }
-    var nextOrder = mergedMenu.itemOrder.filter(function(id) { return id !== "omarchy" })
+    var nextOrder = mergedMenu.itemOrder.filter(function(id) { return id !== "omarchy" && id !== "extensions" })
     var rootIndex = nextOrder.indexOf("root")
-    nextOrder.splice(rootIndex >= 0 ? rootIndex + 1 : 0, 0, "omarchy")
+    var insertAt = rootIndex >= 0 ? rootIndex + 1 : 0
+    nextOrder.splice(insertAt, 0, "omarchy", "extensions")
     root.items = nextItems
     root.itemOrder = nextOrder
     root.rebuildItemMetadata()
@@ -1097,6 +1428,27 @@ Item {
       root.rebuildFileDisplay()
       return
     }
+    if (root.workflowActive) {
+      displayModel.clear()
+      root.searchDivider = false
+      if (root.workflowNode && root.workflowNode.kind === "menu") {
+        for (var workflowIndex = 0; workflowIndex < root.workflowNode.items.length; workflowIndex++) {
+          var workflowChild = root.workflowNode.items[workflowIndex]
+          var workflowItem = root.normalizeItem("workflow.node." + workflowIndex, {
+            icon: workflowChild.icon,
+            iconFont: workflowChild.iconFont,
+            label: root.workflowText(workflowChild.label),
+            description: root.workflowText(workflowChild.description),
+            action: String(workflowIndex)
+          })
+          if (workflowChild.kind === "menu" || workflowChild.kind === "directoryPicker") workflowItem.kind = "menu"
+          displayModel.append(root.displayRow(workflowItem, workflowItem.description, workflowIndex))
+        }
+      }
+      root.layoutSerial += 1
+      root.selectedIndex = displayModel.count > 0 ? Math.min(root.selectedIndex, displayModel.count - 1) : 0
+      return
+    }
     if (root.dmenuActive) {
       root.rebuildDmenuDisplay()
       return
@@ -1115,8 +1467,8 @@ Item {
     if (query) {
       var diagnosticRows = []
       var preparedQuery = MenuModel.prepareSearchQuery(query)
-      var liveResult = root.extensionQuery === query ? root.extensionResult : ""
-      for (var i = 0; i < root.itemOrder.length; i++) {
+      var liveResult = root.extensionQuery === root.effectiveExtensionQuery() ? root.extensionResult : ""
+      for (var i = 0; !root.focusedExtension && i < root.itemOrder.length; i++) {
         var entry = root.item(root.itemOrder[i])
         if (!entry || entry.id === "root") continue
         if (MenuModel.isSearchExcluded(root.items, entry.id, root.searchExcludedRoots, root.itemMetadata)) continue
@@ -1135,7 +1487,7 @@ Item {
 
       // File favorites are synthetic starting-view rows rather than members of
       // the menu tree, so add matching ones explicitly during global search.
-      if (active === "root") {
+      if (!root.focusedExtension && active === "root") {
         var searchFavoriteIds = Object.keys(favorites.starredIds)
         var seenSearchFileFavorites = ({})
         for (var searchFavoriteIndex = 0; searchFavoriteIndex < searchFavoriteIds.length; searchFavoriteIndex++) {
@@ -1153,10 +1505,47 @@ Item {
         }
       }
 
-      var extensionSuggestions = MenuModel.suggestExtensions(root.extensions, query)
+      var matchedExtensionRoots = ({})
+      if (!root.focusedExtension && (active === "root" || active === "extensions")) {
+        for (var searchExtensionIndex = 0; searchExtensionIndex < root.extensions.length; searchExtensionIndex++) {
+          var searchExtension = root.extensions[searchExtensionIndex]
+          var searchExtensionItem = MenuModel.extensionRootItem(searchExtension)
+          if (!searchExtensionItem || !MenuModel.matchesQuery(searchExtensionItem, preparedQuery, true)) continue
+          var searchExtensionRow = root.displayRow(searchExtensionItem, searchExtensionItem.description,
+            MenuModel.searchScore(({ extensions: root.item("extensions") }), searchExtensionItem, preparedQuery))
+          searchExtensionRow.starred = favorites.isStarred(searchExtensionRow.itemId)
+          searchExtensionRow.matchPriority = MenuModel.searchMatchPriority(searchExtensionItem, preparedQuery)
+          searchExtensionRow.usageCount = usage.count(searchExtensionRow.itemId)
+          searchExtensionRow.lastUsedAt = usage.lastUsedAt(searchExtensionRow.itemId)
+          matchedExtensionRoots["$" + searchExtension.capability] = true
+          rows.push(searchExtensionRow)
+        }
+      }
+
+      var activeExtensionCatalog = root.focusedExtension ? [root.focusedExtension] : root.extensions
+      // A focused prefix extension has a hidden global prefix and one literal
+      // prompt action. It must not rediscover its own root/suggestion rows.
+      var focusedPrefix = MenuModel.focusedPrefixMatch(root.focusedExtension, query)
+      if (focusedPrefix) {
+        var focusedPrefixItem = root.normalizeItem("extension.focused.prefix", {
+          icon: focusedPrefix.extension.icon,
+          iconFont: focusedPrefix.extension.iconFont,
+          label: focusedPrefix.extension.label + ": " + focusedPrefix.prompt,
+          description: focusedPrefix.extension.description,
+          action: root.extensionAction(focusedPrefix.extension, focusedPrefix.prompt)
+        })
+        var focusedPrefixRow = root.displayRow(focusedPrefixItem, focusedPrefixItem.description, -1)
+        focusedPrefixRow.matchPriority = 110
+        rows.push(focusedPrefixRow)
+      }
+      // Focused extension inputs already establish which provider owns the
+      // query; showing its ordinary prefix suggestion/action row duplicates
+      // the dedicated result surface.
+      var extensionSuggestions = root.focusedExtension ? [] : MenuModel.suggestExtensions(activeExtensionCatalog, query)
       for (var suggestionIndex = extensionSuggestions.length - 1; suggestionIndex >= 0; suggestionIndex--) {
         var suggestion = extensionSuggestions[suggestionIndex]
         var suggestedExtension = suggestion.extension
+        if (matchedExtensionRoots["$" + suggestedExtension.capability]) continue
         var suggestionDetail = suggestedExtension.available
           ? suggestedExtension.description
           : MenuModel.unavailableExtensionDetail(suggestedExtension)
@@ -1174,7 +1563,7 @@ Item {
         else diagnosticRows.push(suggestionRow)
       }
 
-      var extensionMatches = MenuModel.matchExtensions(root.extensions, query)
+      var extensionMatches = root.focusedExtension ? [] : MenuModel.matchExtensions(activeExtensionCatalog, query)
       for (var extensionIndex = extensionMatches.length - 1; extensionIndex >= 0; extensionIndex--) {
         var extensionMatch = extensionMatches[extensionIndex]
         var extension = extensionMatch.extension
@@ -1224,18 +1613,39 @@ Item {
       // Rank normal item and extension rows together. Diagnostic rows reserve
       // space at the bottom so dependency/setup guidance survives the cap.
       rows = MenuModel.rankSearchRows(rows, diagnosticRows, query.length >= 3, root.maxDisplayedResults)
+    } else if (root.focusedExtension) {
+      // A focused query extension is an input surface, not the Extensions
+      // directory with an invisible focus change. Keep its initial result list
+      // empty until the user enters a query.
     } else {
       for (var j = 0; j < root.itemOrder.length; j++) {
         var child = root.item(root.itemOrder[j])
         if (!child || child.id === "root") continue
         if (active === "root") {
-          if (child.id !== "omarchy" && !favorites.isStarred(child.id)) continue
+          if (child.id !== "omarchy" && child.id !== "extensions" && !favorites.isStarred(child.id)) continue
         } else if (child.parent !== active) continue
-        if (!root.isVisible(child)) continue
+        // Extension roots are generated at runtime rather than represented as
+        // static menu children, so the ordinary empty-menu visibility check
+        // cannot determine whether this directory has entries.
+        if (!root.isVisible(child) && !(child.id === "extensions" && root.extensions.length > 0)) continue
         var childDetail = active === "root" ? root.parentPathFor(child.id) : child.description
         var childRow = root.displayRow(child, childDetail, child.order)
         childRow.starred = favorites.isStarred(childRow.itemId)
         rows.push(childRow)
+      }
+
+      if (active === "root" || active === "extensions") {
+        var extensionRootRows = []
+        for (var extensionRootIndex = 0; extensionRootIndex < root.extensions.length; extensionRootIndex++) {
+          var listedExtension = root.extensions[extensionRootIndex]
+          var listedExtensionItem = MenuModel.extensionRootItem(listedExtension)
+          if (!listedExtensionItem) continue
+          var listedExtensionRow = root.displayRow(listedExtensionItem, listedExtensionItem.description, extensionRootIndex)
+          listedExtensionRow.starred = favorites.isStarred(listedExtensionRow.itemId)
+          if (active === "extensions" || listedExtensionRow.starred) extensionRootRows.push(listedExtensionRow)
+        }
+        extensionRootRows = MenuModel.sortExtensionRootRows(extensionRootRows)
+        rows = rows.concat(extensionRootRows)
       }
 
       if (active === "root") {
@@ -1266,6 +1676,7 @@ Item {
 
         rows.sort(function(a, b) {
           if (a.itemId === "omarchy" || b.itemId === "omarchy") return a.itemId === "omarchy" ? -1 : 1
+          if (a.itemId === "extensions" || b.itemId === "extensions") return a.itemId === "extensions" ? -1 : 1
           var aLabel = String(a.label || "").toLowerCase()
           var bLabel = String(b.label || "").toLowerCase()
           if (aLabel < bLabel) return -1
@@ -1288,6 +1699,27 @@ Item {
           if (aId > bId) return 1
           return 0
         })
+      }
+    }
+
+    if (root.focusedExtension) {
+      var focusedActionId = root.focusedExtension.mode === "prefix" ? "extension.focused.prefix" : "extension.result"
+      var hasResultRow = false
+      for (var focusedRowIndex = 0; focusedRowIndex < rows.length; focusedRowIndex++) {
+        if (rows[focusedRowIndex].itemId === focusedActionId) {
+          hasResultRow = true
+          break
+        }
+      }
+      if (!hasResultRow) {
+        var prefixMode = root.focusedExtension.mode === "prefix"
+        var pendingResultItem = root.normalizeItem("extension.result.pending", {
+          icon: root.focusedExtension.icon,
+          iconFont: root.focusedExtension.iconFont,
+          label: prefixMode ? root.focusedExtension.label : "=",
+          description: prefixMode ? "Enter a prompt" : "Result will appear here"
+        })
+        rows.unshift(root.displayRow(pendingResultItem, pendingResultItem.description, -1))
       }
     }
 
@@ -1340,6 +1772,8 @@ Item {
 
   function setFilter(nextFilter) {
     if (root.actionPanelActive) return
+    if (root.workflowActive && root.workflowNode && root.workflowNode.kind === "input")
+      nextFilter = String(nextFilter || "").substring(0, root.workflowNode.maxLength)
     root.filterText = nextFilter
     root.selectedIndex = 0
     root.cursorActive = root.mode !== "input"
@@ -1358,6 +1792,8 @@ Item {
 
   function setActiveMenu(id, pushHistory, fromPointer) {
     if (!root.item(id)) id = "root"
+    root.invalidateExtensionQuery("active menu changed")
+    root.focusedExtension = null
     if (pushHistory && id !== root.activeMenu) root.navStack = root.navStack.concat([root.activeMenu])
     root.activeMenu = id
     root.filterText = ""
@@ -1401,6 +1837,12 @@ Item {
     if (index < 0 || index >= displayModel.count) return
 
     var row = displayModel.get(index)
+    var rootExtension = root.extensionForRootId(row.itemId)
+    if (rootExtension) {
+      if (rootExtension.available) usage.record(row.itemId)
+      root.activateExtensionRoot(rootExtension)
+      return
+    }
     if (root.actionPanelActive && row.itemId.indexOf("file.action.") === 0) {
       root.activateFileAction(row.action)
       return
@@ -1420,9 +1862,11 @@ Item {
       }
       return
     }
+    if (row.itemId === "extension.result.pending") return
     if (row.itemId.indexOf("extension.prepare.") === 0) {
       var preparedExtension = root.extensionById(row.itemId.substring("extension.prepare.".length))
       if (preparedExtension && preparedExtension.mode === "files") root.enterFileBrowser(preparedExtension)
+      else if (preparedExtension && preparedExtension.mode === "workflow") root.enterWorkflow(preparedExtension)
       else root.setFilter(row.action)
       Qt.callLater(function() { keyCatcher.forceActiveFocus() })
       return
@@ -1439,6 +1883,18 @@ Item {
         root.opened = false
         root.runAction(favoriteOpenCommand)
       }
+      return
+    }
+    if (row.itemId.indexOf("extension.workflow.") === 0) {
+      root.enterWorkflow(root.extensionById(row.itemId.substring("extension.workflow.".length)))
+      return
+    }
+    if (root.workflowActive && !root.fileBrowserActive && row.itemId.indexOf("workflow.node.") === 0) {
+      root.activateWorkflowChild(Number(row.action))
+      return
+    }
+    if (root.directoryPickerActive && row.itemId === "workflow.directory.select") {
+      root.selectWorkflowDirectory(row.action)
       return
     }
     if (root.fileBrowserActive && row.itemId.indexOf("file.") === 0) {
@@ -1499,7 +1955,8 @@ Item {
   function toggleSelectedStar() {
     if (root.dmenuActive || !root.cursorActive || root.selectedIndex < 0 || root.selectedIndex >= displayModel.count) return
     var row = displayModel.get(root.selectedIndex)
-    if (!row || row.itemId === "omarchy" || row.itemId === "extension.result" || !favorites.loaded) return
+    if (!row || row.itemId === "omarchy" || row.itemId === "extensions"
+        || row.itemId === "extension.result" || row.itemId === "extension.result.pending" || !favorites.loaded) return
     if (root.fileBrowserActive) {
       var fileType = row.itemId.indexOf("file.directory.") === 0 ? "directory"
         : (row.itemId.indexOf("file.item.") === 0 ? "file" : "")
@@ -1556,14 +2013,47 @@ Item {
     root.runAction(action)
   }
 
+  function resetForOpen() {
+    if (root.dmenuActive && root.requestActive) root.finishRequest(null)
+    root.invalidateWorkflowAction("new launcher session")
+    root.routePendingForMenuSources = false
+    root.resetFileIndex()
+    root.invalidateExtensionQuery("new launcher session")
+
+    var reset = MenuModel.openStateReset()
+    for (var key in reset) root[key] = reset[key]
+    root.mode = "menu"
+    root.requestActive = false
+    root.selectionFile = ""
+    root.doneFile = ""
+    root.dmenuPrompt = ""
+    root.dmenuOptions = []
+    root.dmenuRows = []
+    root.navStack = []
+    root.filterText = ""
+    root.opened = false
+  }
+
   function cancel() {
+    root.invalidateWorkflowAction("launcher canceled")
     root.routePendingForMenuSources = false
     if (root.dmenuActive) root.finishRequest(null)
     root.resetFileIndex()
     root.actionPanelActive = false
     root.actionPanelFile = null
     root.fileBrowserActive = false
+    root.directoryPickerActive = false
     root.fileBrowserExtension = null
+    root.workflowActive = false
+    root.workflowExtension = null
+    root.workflowNode = null
+    root.workflowContext = ({})
+    root.workflowStack = []
+    root.focusedExtension = null
+    root.extensionQuery = ""
+    root.extensionResult = ""
+    root.resultExtension = null
+    root.unavailableResultExtension = null
     root.fileBrowserPath = ""
     root.fileEntries = []
     opened = false
@@ -1578,6 +2068,7 @@ Item {
     doneFile = ""
     activeMenu = root.item(initialMenu) ? initialMenu : "root"
     navStack = []
+    focusedExtension = null
     filterText = ""
     selectedIndex = 0
     cursorActive = true
@@ -1732,7 +2223,7 @@ Item {
       fileScanProc.outputOverflow = false
       fileScanProc.command = needle
         ? ["python", root.fileIndexHelper, "query", root.fileIndexPath, needle]
-        : ["python", root.fileIndexHelper, "browse", base]
+        : ["python", root.fileIndexHelper, root.directoryPickerActive ? "browse-dirs" : "browse", base]
       fileScanProc.running = true
     }
   }
@@ -1804,26 +2295,39 @@ Item {
     interval: 140
     repeat: false
     onTriggered: {
-      var query = root.filterText.trim()
-      var extension = MenuModel.queryExtension(root.extensions, query)
-      if (!extension) return
+      var revision = root.extensionQuerySerial
+      var query = root.effectiveExtensionQuery()
+      var queryCatalog = root.focusedExtension ? [root.focusedExtension] : root.extensions
+      var extension = MenuModel.queryExtension(queryCatalog, query)
+      if (!extension || revision !== root.extensionQuerySerial) return
       root.resultExtension = extension
-      extensionQueryProc.query = query
-      extensionQueryProc.extensionId = extension.id
-      extensionQueryProc.revision = root.extensionQuerySerial
-      extensionQueryProc.collected = ""
-      extensionQueryProc.outputOverflow = false
-      extensionQueryProc.command = root.commandArguments(extension.command, { query: query, extensionDir: extension.sourceDir })
-      extensionQueryProc.running = true
-      extensionQueryTimeout.restart()
+      root.queueExtensionQuery(extension, query, revision)
     }
   }
 
   Timer {
     id: extensionQueryTimeout
-    interval: 5000
+    interval: root.extensionQueryTimeoutMs
     repeat: false
-    onTriggered: if (extensionQueryProc.running) extensionQueryProc.running = false
+    property int generation: 0
+    onTriggered: {
+      if (generation !== extensionQueryProc.generation || extensionQueryProc.stopping) return
+      console.warn("Omalaunch: live query timed out after " + interval + "ms")
+      root.stopExtensionQuery("query timed out")
+    }
+  }
+
+  Timer {
+    id: extensionQueryKillTimer
+    interval: root.extensionQueryTerminationGraceMs
+    repeat: false
+    property int generation: 0
+    onTriggered: {
+      if (!extensionQueryProc.stopping || generation !== extensionQueryProc.stopGeneration
+          || generation !== extensionQueryProc.generation) return
+      console.warn("Omalaunch: live query ignored SIGTERM; sending SIGKILL to direct child")
+      extensionQueryProc.signal(9)
+    }
   }
 
   Process {
@@ -1833,17 +2337,38 @@ Item {
     property string collected: ""
     property bool outputOverflow: false
     property int revision: 0
+    property int generation: 0
+    property int stopGeneration: 0
+    property bool stopping: false
     stdout: SplitParser {
-      onRead: function(data) { root.collectBounded(extensionQueryProc, data) }
+      onRead: function(data) { root.collectExtensionQuery(data) }
     }
     onExited: function(exitCode) {
-      extensionQueryTimeout.stop()
-      if (extensionQueryProc.revision !== root.extensionQuerySerial || extensionQueryProc.query !== root.filterText.trim()) return
-      if (!root.resultExtension || extensionQueryProc.extensionId !== root.resultExtension.id) return
-      root.extensionQuery = extensionQueryProc.query
-      root.extensionResult = exitCode === 0 && !extensionQueryProc.outputOverflow ? extensionQueryProc.collected.trim() : ""
-      root.rebuildDisplay()
-      if (root.extensionResult && root.resultExtension.capability === "currency") currencyRates.refreshIfStale()
+      var exitedGeneration = extensionQueryProc.generation
+      var wasStopping = extensionQueryProc.stopping
+      if (extensionQueryTimeout.generation === exitedGeneration) extensionQueryTimeout.stop()
+      if (extensionQueryKillTimer.generation === exitedGeneration) extensionQueryKillTimer.stop()
+
+      var accept = MenuModel.extensionQueryRunIsCurrent(
+        extensionQueryProc.revision, root.extensionQuerySerial,
+        extensionQueryProc.query, root.effectiveExtensionQuery(),
+        extensionQueryProc.extensionId, root.resultExtension,
+        wasStopping, root.opened
+      )
+      if (accept) {
+        root.extensionQuery = extensionQueryProc.query
+        root.extensionResult = exitCode === 0 && !extensionQueryProc.outputOverflow ? extensionQueryProc.collected.trim() : ""
+        root.rebuildDisplay()
+        if (root.extensionResult && root.resultExtension.capability === "currency") currencyRates.refreshIfStale()
+      }
+
+      // Only onExited makes this reusable. No request metadata or command is
+      // changed before these flags are released, and rapid input has retained
+      // exactly one latest request in pendingExtensionQuery.
+      extensionQueryProc.stopping = false
+      extensionQueryProc.stopGeneration = 0
+      extensionQueryProc.generation = 0
+      root.dispatchPendingExtensionQuery()
     }
   }
 
@@ -1857,10 +2382,49 @@ Item {
     onExited: function(exitCode) {
       var catalog = exitCode === 0 && !extensionProc.outputOverflow
         ? MenuModel.parseExtensionCatalog(extensionProc.collected)
-        : { extensions: [], diagnostics: [extensionProc.outputOverflow ? "Extension catalog exceeded the output limit" : "Extension loader exited with code " + exitCode] }
-      root.extensions = catalog.extensions
+        : { extensions: [], diagnostics: [extensionProc.outputOverflow ? "Extension catalog exceeded the output limit" : "Extension loader exited with code " + exitCode], valid: false, complete: false }
+      var haveKnownGood = root.extensionsLoadedAt > 0
+      var acceptCatalog = catalog.valid && (catalog.complete || !haveKnownGood)
+      if (acceptCatalog) {
+        // Catalog changes invalidate commands and node objects captured by an
+        // in-flight action before any refreshed state is installed.
+        root.invalidateWorkflowAction("extension catalog changed")
+        var focusedCapability = root.focusedExtension ? root.focusedExtension.capability : ""
+        var focusedId = root.focusedExtension ? root.focusedExtension.id : ""
+        var workflowCapability = root.workflowExtension ? root.workflowExtension.capability : ""
+        var workflowId = root.workflowExtension ? root.workflowExtension.id : ""
+        var fileCapability = root.fileBrowserExtension ? root.fileBrowserExtension.capability : ""
+        var fileId = root.fileBrowserExtension ? root.fileBrowserExtension.id : ""
+        var oldWorkflowNode = root.workflowNode
+        var oldWorkflowStack = root.workflowStack
+        root.extensions = catalog.extensions
+
+        if (focusedCapability) {
+          var refreshedFocus = root.extensionByCapability(focusedCapability) || root.extensionById(focusedId)
+          if (refreshedFocus && refreshedFocus.available
+              && (refreshedFocus.mode === "prefix" || refreshedFocus.mode === "query")) root.focusedExtension = refreshedFocus
+          else root.leaveFocusedExtension()
+        }
+        if (root.workflowActive) {
+          var refreshedWorkflow = root.extensionByCapability(workflowCapability) || root.extensionById(workflowId)
+          var rebound = MenuModel.rebindWorkflow(refreshedWorkflow, oldWorkflowStack, oldWorkflowNode)
+          if (rebound) {
+            root.workflowExtension = refreshedWorkflow
+            root.workflowNode = rebound.node
+            root.workflowStack = rebound.stack
+          } else root.leaveWorkflow()
+        }
+        if (root.fileBrowserActive) {
+          var refreshedFiles = root.filesExtensionForCapability(fileCapability) || root.extensionById(fileId)
+          if (refreshedFiles && refreshedFiles.available && refreshedFiles.mode === "files") root.fileBrowserExtension = refreshedFiles
+          else if (root.directoryPickerActive && root.workflowActive) root.workflowBack()
+          else root.leaveFileBrowser(false)
+        }
+        if (catalog.complete) root.extensionsLoadedAt = Date.now()
+      } else {
+        catalog.diagnostics.unshift("Retained the last known-good extension catalog after a transient loader failure")
+      }
       root.extensionDiagnostics = catalog.diagnostics
-      if (exitCode === 0 && !extensionProc.outputOverflow) root.extensionsLoadedAt = Date.now()
       for (var i = 0; i < catalog.diagnostics.length; i++) console.warn("Omalaunch: " + catalog.diagnostics[i])
       if (root.opened && !root.dmenuActive) {
         root.scheduleExtensionQuery()
@@ -1886,6 +2450,61 @@ Item {
         if (root.filterText.trim()) root.loadProvidersForSearch()
       }
       root.startNextProvider()
+    }
+  }
+
+  Timer {
+    id: workflowActionTimeout
+    interval: root.workflowActionTimeoutMs
+    repeat: false
+    onTriggered: {
+      console.warn("Omalaunch: workflow action timed out after " + interval + "ms")
+      root.invalidateWorkflowAction("workflow action timed out")
+    }
+  }
+
+  Timer {
+    id: workflowActionKillTimer
+    interval: root.workflowTerminationGraceMs
+    repeat: false
+    property int generation: 0
+    onTriggered: {
+      if (!workflowActionProc.stopping || generation !== workflowActionProc.stopGeneration) return
+      console.warn("Omalaunch: workflow action ignored SIGTERM; sending SIGKILL to direct child")
+      workflowActionProc.signal(9)
+    }
+  }
+
+  Process {
+    id: workflowActionProc
+    property int generation: 0
+    property int stopGeneration: 0
+    property bool stopping: false
+    property string extensionCapability: ""
+    property var nextNode: null
+    property var nextContext: ({})
+    property bool refreshExtensions: false
+    property int nextBackSteps: 0
+    property bool closeAfter: false
+    onExited: function(exitCode) {
+      workflowActionTimeout.stop()
+      workflowActionKillTimer.stop()
+      workflowActionProc.stopGeneration = 0
+      workflowActionProc.stopping = false
+      if (!MenuModel.workflowActionIsCurrent(workflowActionProc.generation, root.workflowGeneration,
+          root.workflowActive, workflowActionProc.extensionCapability, root.workflowExtension)) return
+      workflowActionProc.generation = 0
+      if (exitCode !== 0) return
+      if (workflowActionProc.refreshExtensions) root.loadExtensions(true)
+      if (workflowActionProc.closeAfter) {
+        root.cancel()
+      } else if (workflowActionProc.nextNode) {
+        if (workflowActionProc.nextBackSteps > 0) {
+          var removeCount = workflowActionProc.nextBackSteps - 1
+          root.workflowStack = root.workflowStack.slice(0, Math.max(0, root.workflowStack.length - removeCount))
+          root.showWorkflowNode(workflowActionProc.nextNode, workflowActionProc.nextContext, false)
+        } else root.showWorkflowNode(workflowActionProc.nextNode, workflowActionProc.nextContext, true)
+      }
     }
   }
 
@@ -2192,13 +2811,13 @@ Item {
             return
           }
 
-          if (root.fileBrowserActive && !root.actionPanelActive && event.key === Qt.Key_K && (event.modifiers & Qt.ControlModifier)) {
+          if (root.fileBrowserActive && !root.directoryPickerActive && !root.actionPanelActive && event.key === Qt.Key_K && (event.modifiers & Qt.ControlModifier)) {
             root.openActionPanel()
             event.accepted = true
-          } else if (root.fileBrowserActive && !root.actionPanelActive && event.key === Qt.Key_C && (event.modifiers & Qt.ControlModifier)) {
+          } else if (root.fileBrowserActive && !root.directoryPickerActive && !root.actionPanelActive && event.key === Qt.Key_C && (event.modifiers & Qt.ControlModifier)) {
             root.copySelectedFilePath()
             event.accepted = true
-          } else if (!root.dmenuActive && event.key === Qt.Key_S && (event.modifiers & Qt.ControlModifier)) {
+          } else if (!root.dmenuActive && !root.workflowActive && event.key === Qt.Key_S && (event.modifiers & Qt.ControlModifier)) {
             root.toggleSelectedStar()
             event.accepted = true
           } else if (event.key === Qt.Key_Delete) {
@@ -2206,8 +2825,13 @@ Item {
             event.accepted = true
           } else if (event.key === Qt.Key_Escape) {
             if (root.actionPanelActive) root.closeActionPanel()
+            else if (root.workflowInputActive) root.workflowBack()
+            else if (root.focusedExtension) root.leaveFocusedExtension()
             else if (root.filterText) root.setFilter("")
+            else if (root.directoryPickerActive) root.workflowBack()
             else if (root.fileBrowserActive) root.leaveFileBrowser()
+            else if (root.workflowActive) root.workflowBack()
+            else if (root.activeMenu !== "root") root.goBack()
             else root.cancel()
             event.accepted = true
           } else if ((event.key === Qt.Key_Tab || event.key === Qt.Key_Backtab)
@@ -2220,14 +2844,18 @@ Item {
           } else if ((event.key === Qt.Key_Backspace || event.key === Qt.Key_Left) && !root.filterText) {
             if (root.actionPanelActive) root.closeActionPanel()
             else if (root.fileBrowserActive) {
-              if (root.fileBrowserPath === "/") root.leaveFileBrowser()
-              else {
+              if (root.fileBrowserPath === "/") {
+                if (root.directoryPickerActive) root.workflowBack()
+                else root.leaveFileBrowser()
+              } else {
                 root.fileBrowserPath = root.parentPath(root.fileBrowserPath)
                 root.fileEntries = []
                 root.selectedIndex = 0
                 root.scheduleFileScan()
               }
-            } else root.goBack()
+            } else if (root.workflowActive) root.workflowBack()
+            else if (root.focusedExtension) root.leaveFocusedExtension()
+            else root.goBack()
             event.accepted = true
           } else if (event.key === Qt.Key_Up) {
             root.select(-1)
@@ -2242,7 +2870,8 @@ Item {
             root.select(6)
             event.accepted = true
           } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Right) {
-            if (root.dmenuActive) {
+            if (root.workflowInputActive) root.submitWorkflowInput()
+            else if (root.dmenuActive) {
               if (root.mode === "input") root.applyDmenuSelection(root.filterText)
               else if (displayModel.count > 0) root.activateIndex(root.cursorActive ? root.selectedIndex : 0)
             } else if (root.cursorActive) root.activateIndex(root.selectedIndex)
@@ -2313,6 +2942,7 @@ Item {
           color: "transparent"
 
           Text {
+            visible: !root.focusedExtension
             anchors.left: parent.left
             anchors.right: starHint.left
             anchors.rightMargin: Style.space(8)
@@ -2321,6 +2951,10 @@ Item {
               ? ("Actions for " + ((root.actionPanelFile && root.actionPanelFile.name) || "file"))
               : root.fileBrowserActive
                 ? (root.fileBrowserPath + (root.filterText ? "  ›  " + root.filterText : ""))
+              : root.workflowActive
+                ? (root.workflowInputActive
+                  ? ((root.workflowNode.prompt || root.workflowNode.label) + "…" + (root.filterText ? "  " + root.filterText : ""))
+                  : (root.workflowText(root.workflowNode ? root.workflowNode.label : root.workflowExtension.label) + "…"))
               : (root.filterText || (root.dmenuActive ? (root.dmenuPrompt + "…") : ((root.item(root.activeMenu) ? (root.item(root.activeMenu).title || root.item(root.activeMenu).label) : "Go") + "…")))
             color: root.foreground
             opacity: root.filterText ? 1 : 0.58
@@ -2330,8 +2964,21 @@ Item {
           }
 
           Text {
+            visible: !!root.focusedExtension
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            text: root.filterText || root.focusedExtensionPlaceholder()
+            color: root.foreground
+            opacity: root.filterText ? 1 : 0.58
+            font.family: root.fontFamily
+            font.pixelSize: Style.font.heading
+            elide: Text.ElideRight
+          }
+
+          Text {
             id: starHint
-            visible: !root.actionPanelActive && !root.dmenuActive && displayModel.count > 0 && root.cursorActive && root.selectedIndex >= 0 && root.selectedIndex < displayModel.count && (root.fileBrowserActive || (displayModel.get(root.selectedIndex).itemId !== "omarchy" && displayModel.get(root.selectedIndex).itemId !== "extension.result"))
+            visible: !root.actionPanelActive && !root.dmenuActive && !root.workflowActive && displayModel.count > 0 && root.cursorActive && root.selectedIndex >= 0 && root.selectedIndex < displayModel.count && (root.fileBrowserActive || (displayModel.get(root.selectedIndex).itemId !== "omarchy" && displayModel.get(root.selectedIndex).itemId !== "extensions" && displayModel.get(root.selectedIndex).itemId !== "extension.result" && displayModel.get(root.selectedIndex).itemId !== "extension.result.pending"))
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
             text: root.fileBrowserActive
@@ -2495,7 +3142,7 @@ Item {
                 Text {
                   width: parent.width
                   text: row.detail
-                  visible: (root.filterText || row.kind === "dmenu") && row.detail.length > 0
+                  visible: (root.filterText || row.kind === "dmenu" || row.itemId === "extension.result.pending") && row.detail.length > 0
                   color: root.foreground
                   opacity: 0.52
                   font.family: root.fontFamily
@@ -2638,9 +3285,10 @@ Item {
           Column {
             anchors.centerIn: parent
             spacing: Style.space(8)
-            visible: displayModel.count === 0 && root.mode !== "input" && (root.filterText || root.activeMenu !== "root") && !root.isPotentialExtensionQuery(root.filterText)
+            visible: !root.focusedExtension && displayModel.count === 0 && root.mode !== "input" && !root.workflowInputActive && (root.filterText || root.activeMenu !== "root") && !root.isPotentialExtensionQuery(root.filterText)
 
             Text {
+              visible: !root.focusedExtension
               text: "󰈉"
               color: root.selectedText
               opacity: 0.8
@@ -2651,7 +3299,9 @@ Item {
             }
 
             Text {
-              text: root.filterText ? "No matches for “" + root.filterText + "”" : "Nothing here yet"
+              text: root.focusedExtension
+                ? "Start typing"
+                : (root.filterText ? "No matches for “" + root.filterText + "”" : "Nothing here yet")
               color: root.foreground
               opacity: 0.7
               font.family: root.fontFamily

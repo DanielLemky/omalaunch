@@ -6,6 +6,7 @@
   "label": "Currency conversion",
   "icon": "󰃬",
   "description": "Press Enter to copy",
+  "rootDescription": "Convert between currencies",
   "priority": 20,
   "requires": ["qalc", "wl-copy"],
   "match": {

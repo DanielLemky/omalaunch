@@ -51,6 +51,10 @@ assert(menu.matchExtensions(extensions, 'pi explain this code')[0].prompt === 'e
 assert(menu.matchExtensions(extensions, 'PI   fix the tests  ')[0].prompt === 'fix the tests', 'extension matching ignores prefix case and surrounding whitespace')
 assert(menu.matchExtensions(extensions, 'pi').length === 0, 'a prefix without a prompt does not match')
 assert(menu.matchExtensions(extensions, 'pilot a plane').length === 0, 'extension prefixes must be standalone')
+assert(menu.extensionRootActivation(extensions[0]) === 'input' && menu.extensionRootInput(extensions[0]) === '', 'prefix roots enter focused input without exposing the global prefix')
+assert(menu.focusedPrefixMatch(extensions[0], ' explain this code ').prompt === 'explain this code', 'focused prefix input produces one trimmed actionable prompt')
+assert(menu.focusedPrefixMatch(extensions[0], '   ') === null, 'focused prefix input has a safe non-actionable empty state')
+assert(menu.focusedExtensionQuery(extensions[0], 'literal prompt') === 'literal prompt', 'focused prefix prompts are not rewritten as live queries')
 
 const filesExtension = menu.parseExtensions(JSON.stringify([{
   schemaVersion: 1,
@@ -78,6 +82,7 @@ assert(menu.extensionMatchPriority({ available: false }) === 0, 'unavailable ext
 assert(filesExtension[0].copyCommand[2] === '{path}', 'file browser copy path commands are retained')
 assert(filesExtension[0].copyFileCommand[1] === '{path}', 'file browser copy file commands are retained')
 assert(filesExtension[0].terminalCommand[1] === '--dir={path}', 'file browser terminal commands are retained')
+assert(menu.extensionRootActivation(filesExtension[0]) === 'files', 'Files root activation selects the browser')
 assert(menu.isImagePath('/tmp/Photo.JPEG'), 'image paths are recognized case-insensitively')
 assert(menu.isImagePath('/tmp/vector.svg'), 'SVG paths are recognized for previews')
 assert(!menu.isImagePath('/tmp/photo.jpeg.txt'), 'non-image paths do not get previews')
@@ -149,6 +154,8 @@ const replacementFixture = {
   capability: 'calculator',
   mode: 'query',
   label: 'Fixture',
+  description: 'Copy calculated result',
+  rootDescription: 'Open fixture calculator',
   priority: 10,
   command: ['printf', 'fixture'],
   match: { all: ['^\\d'], any: ['[+]'] },
@@ -170,6 +177,30 @@ assert(menu.parseExtensions(JSON.stringify([bundledFixture, { ...replacementFixt
 assert(menu.parseExtensions(JSON.stringify([bundledFixture]))[0].id === 'bundled-fixture', 'removing a replacement restores the bundled extension')
 assert(menu.parseExtensions(JSON.stringify([bundledFixture, { ...replacementFixture, _missingRequires: ['fixture-calc'] }]))[0].id === 'bundled-fixture', 'unavailable replacements fall back to bundled extensions')
 
+const bundledRootId = menu.extensionRootId(bundledFixture)
+const replacementRootId = menu.extensionRootId(replacementFixture)
+assert(bundledRootId === replacementRootId, 'extension root ids remain stable across capability provider replacement')
+assert(menu.extensionRootCapability(bundledRootId) === 'calculator', 'extension root ids recover their capability')
+assert(menu.extensionRootCapability('extension.root:not-json') === '', 'malformed extension root ids are ignored')
+const replacementRootItem = menu.extensionRootItem(menu.parseExtensions(JSON.stringify([replacementFixture]))[0])
+assert(replacementRootItem.id === replacementRootId && replacementRootItem.parent === 'extensions', 'extension roots are children of the fixed Extensions directory')
+assert(replacementRootItem.description === 'Open fixture calculator', 'extension roots can describe activation separately from result actions')
+assert(menu.extensionRootActivation(menu.parseExtensions(JSON.stringify([replacementFixture]))[0]) === 'input', 'query-only extension roots select focused input')
+assert(menu.extensionRootInput(menu.parseExtensions(JSON.stringify([replacementFixture]))[0]) === '', 'query-only extension roots start with empty functional input')
+assert(replacementRootItem.aliases.includes('calculator') && replacementRootItem.aliases.includes('fixture-calculator'), 'extension roots are globally searchable by stable capability and provider id')
+assert(menu.matchesQuery(replacementRootItem, menu.prepareSearchQuery('calculator'), true), 'extension roots participate in global search')
+const unavailableRootExtension = menu.parseExtensions(JSON.stringify([{ ...replacementFixture, _missingRequires: ['fixture-calc'] }]))[0]
+const unavailableRootItem = menu.extensionRootItem(unavailableRootExtension)
+assert(unavailableRootItem.description === 'Missing dependency: fixture-calc', 'unavailable extension roots remain visible with dependency detail')
+assert(menu.extensionRootActivation(unavailableRootExtension) === '', 'unavailable extension roots cannot dispatch an activation')
+const sortedExtensionRoots = menu.sortExtensionRootRows([
+  { itemId: 'timezone', label: 'Timezone', starred: false },
+  { itemId: 'currency', label: 'Currency conversion', starred: false },
+  { itemId: 'files', label: 'Files', starred: true },
+  { itemId: 'calculator', label: 'Calculator', starred: true }
+])
+assert(sortedExtensionRoots.map(row => row.itemId).join(',') === 'calculator,files,currency,timezone', 'Extensions rows sort starred first and alphabetically within each group')
+
 const bundledExtensions = menu.parseExtensions(JSON.stringify([
   { ...JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'extensions', 'calculator', 'extension.json'), 'utf8')), _bundled: true },
   { ...JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'extensions', 'currency', 'extension.json'), 'utf8')), _bundled: true }
@@ -177,6 +208,14 @@ const bundledExtensions = menu.parseExtensions(JSON.stringify([
 assert(menu.queryExtension(bundledExtensions, '2 + 2').capability === 'calculator', 'bundled calculator matches arithmetic')
 assert(menu.queryExtension(bundledExtensions, '10 USD to CAD').capability === 'currency', 'bundled currency extension outranks general conversions')
 assert(menu.queryExtension(bundledExtensions, 'hello') === null, 'bundled extensions ignore ordinary searches')
+const calculatorResult = bundledExtensions.find(extension => extension.capability === 'calculator')
+assert(menu.extensionQueryRunIsCurrent(4, 4, '2 + 2', '2 + 2', calculatorResult.id, calculatorResult, false, true),
+  'only a current open live-query run may publish output')
+assert(!menu.extensionQueryRunIsCurrent(3, 4, '2 + 2', '2 + 2', calculatorResult.id, calculatorResult, false, true)
+  && !menu.extensionQueryRunIsCurrent(4, 4, '2 + 1', '2 + 2', calculatorResult.id, calculatorResult, false, true)
+  && !menu.extensionQueryRunIsCurrent(4, 4, '2 + 2', '2 + 2', calculatorResult.id, calculatorResult, true, true)
+  && !menu.extensionQueryRunIsCurrent(4, 4, '2 + 2', '2 + 2', calculatorResult.id, calculatorResult, false, false),
+  'stale, replaced, stopping, and closed live-query runs cannot publish output')
 
 const timezoneExtension = menu.parseExtensions(JSON.stringify([{
   ...JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'extensions', 'timezone', 'extension.json'), 'utf8')),
@@ -187,6 +226,106 @@ assert(menu.suggestExtensions(timezoneExtension, 'tim')[0].prefix === 'time', 'l
 assert(menu.queryExtension(timezoneExtension, 'time seattle').capability === 'timezone', 'timezone extension matches explicit time queries')
 assert(menu.queryExtension(timezoneExtension, 'timer') === null, 'timezone extension ignores unrelated searches')
 assert(timezoneExtension[0].sourceDir === '/tmp/timezone', 'extension source directories are retained for bundled scripts')
+assert(menu.extensionRootActivation(timezoneExtension[0]) === 'input' && menu.extensionRootInput(timezoneExtension[0]) === '', 'Timezone root activation starts with a clean focused input')
+assert(menu.focusedExtensionQuery(timezoneExtension[0], '') === 'time', 'focused Timezone input applies its hidden prefix')
+assert(menu.focusedExtensionQuery(timezoneExtension[0], 'seattle') === 'time seattle', 'focused Timezone queries apply the hidden prefix')
+assert(menu.focusedExtensionQuery(timezoneExtension[0], 'time seattle') === 'time seattle', 'focused Timezone queries do not duplicate an explicit prefix')
+
+const workflowExtensions = menu.parseExtensions(JSON.stringify([{
+  schemaVersion: 1,
+  id: 'codex-agent',
+  capability: 'codex-agent',
+  mode: 'workflow',
+  label: 'Codex',
+  prefixes: ['codex'],
+  command: [],
+  workflow: {
+    items: [{
+      id: 'projects', kind: 'menu', label: 'Projects', items: [
+        {
+          id: 'saved', kind: 'menu', label: 'Saved', context: { path: '/tmp/Saved Project' }, items: [
+            {
+              id: 'session', kind: 'input', label: 'New Session', prompt: 'Prompt', allowEmpty: true,
+              command: ['xdg-terminal-exec', '--dir={path}', '--', 'codex', '{input}'],
+              emptyCommand: ['xdg-terminal-exec', '--dir={path}', '--', 'codex']
+            }
+          ]
+        },
+        {
+          id: 'add', kind: 'directoryPicker', label: 'Add Project…', next: {
+            id: 'name', kind: 'input', label: 'Name project', default: '{basename}', maxLength: 120,
+            command: ['helper', 'add', '{path}', '{input}'],
+            next: { id: 'selected', kind: 'menu', label: '{input}', items: [] }
+          }
+        }
+      ]
+    }]
+  }
+}]))
+assert(workflowExtensions.length === 1 && workflowExtensions[0].mode === 'workflow', 'workflow extension menus are parsed')
+assert(menu.extensionRootActivation(workflowExtensions[0]) === 'workflow', 'workflow extension roots enter their host-rendered workflow')
+const projectsNode = workflowExtensions[0].workflow.items[0]
+assert(projectsNode.label === 'Projects' && projectsNode.items.length === 2, 'workflow navigation data retains Projects and Add Project stages')
+const directoryTransition = menu.workflowDirectoryTransition(projectsNode.items[1], '/tmp/Saved Project/', {})
+assert(directoryTransition.node.id === 'name' && directoryTransition.context.path === '/tmp/Saved Project' && directoryTransition.context.basename === 'Saved Project', 'directory selection transitions to naming with a basename default context')
+assert(menu.workflowInterpolate(directoryTransition.node.defaultValue, directoryTransition.context) === 'Saved Project', 'project naming defaults to the selected directory basename')
+assert(menu.workflowInitialInput(directoryTransition.node, directoryTransition.context) === 'Saved Project', 'workflow defaults are prepared through the bounded initial-input path')
+const sessionNode = projectsNode.items[0].items[0]
+assert(menu.workflowCommand(sessionNode, '', { path: '/tmp/Saved Project' }).join('\0') === ['xdg-terminal-exec', '--dir=/tmp/Saved Project', '--', 'codex'].join('\0'), 'empty prompts launch blank interactive Codex without an empty argument')
+const hostilePrompt = 'fix $(touch /tmp/nope); echo owned'
+const promptedCommand = menu.workflowCommand(sessionNode, hostilePrompt, { path: '/tmp/Saved Project' })
+assert(promptedCommand.length === 5 && promptedCommand[4] === hostilePrompt, 'nonempty prompts remain one literal command argument')
+assert(menu.workflowInputTransition(sessionNode, '', { path: '/tmp/Saved Project' }).context.input === '', 'empty workflow input is accepted when declared')
+assert(menu.workflowClosesOnDispatch(sessionNode, promptedCommand), 'terminal workflow leaf commands close immediately after dispatch')
+assert(menu.workflowClosesOnDispatch(sessionNode, ['/usr/bin/omarchy-launch-terminal', 'codex']), 'terminal workflow detection accepts absolute launcher paths')
+assert(!menu.workflowClosesOnDispatch({ ...sessionNode, next: { id: 'next', kind: 'menu', label: 'Next', items: [] } }, promptedCommand), 'workflow commands with a next stage stay open')
+assert(!menu.workflowClosesOnDispatch(sessionNode, ['helper', 'save']), 'non-terminal workflow commands wait for successful completion')
+assert(!menu.workflowClosesOnDispatch({ ...sessionNode, allowEmpty: false }, []), 'pre-dispatch validation failures do not request closure')
+assert(menu.normalizeWorkflow({ items: [{ id: 'bad', kind: 'directoryPicker', label: 'Bad' }] }) === null, 'directory picker stages require a declared next transition')
+assert(menu.normalizeWorkflow({ items: [
+  { id: 'duplicate', kind: 'menu', label: 'First', items: [] },
+  { id: 'duplicate', kind: 'input', label: 'Second', command: ['true'] }
+] }) === null, 'duplicate sibling workflow ids are rejected even when kinds differ')
+assert(menu.normalizeWorkflow({ items: [{ id: 'parent', kind: 'menu', label: 'Parent', items: [
+  { id: 'duplicate', kind: 'menu', label: 'First', items: [] },
+  { id: 'duplicate', kind: 'menu', label: 'Second', items: [] }
+] }] }) === null, 'duplicate nested sibling workflow ids are rejected')
+assert(menu.normalizeWorkflow({ items: [{ id: 'huge', kind: 'input', label: 'Huge', maxLength: 1e400, command: ['true'] }] }) === null, 'non-finite workflow numeric fields are rejected')
+const truncatedWorkflow = menu.normalizeWorkflow({ items: [{
+  id: 'short', kind: 'input', label: 'Short', default: 'abcdefgh', maxLength: 4,
+  command: ['printf', '{input}']
+}] })
+assert(menu.workflowInitialInput(truncatedWorkflow.items[0], {}) === 'abcd', 'workflow defaults are truncated to maxLength before the first submit')
+assert(menu.workflowCommand(truncatedWorkflow.items[0], menu.workflowInitialInput(truncatedWorkflow.items[0], {}), {})[1] === 'abcd', 'initial-submit commands receive only the bounded default')
+let eightLevelNode = { id: 'level7', kind: 'menu', label: 'Level 7', items: [] }
+for (let level = 6; level >= 0; level--) eightLevelNode = { id: `level${level}`, kind: 'menu', label: `Level ${level}`, items: [eightLevelNode] }
+assert(menu.normalizeWorkflow({ items: [eightLevelNode] }) !== null, 'workflow trees accept exactly eight documented levels')
+eightLevelNode.items[0].items[0].items[0].items[0].items[0].items[0].items[0].items.push({ id: 'level8', kind: 'menu', label: 'Level 8', items: [] })
+assert(menu.normalizeWorkflow({ items: [eightLevelNode] }) === null, 'workflow trees reject a ninth level')
+const oldProjects = JSON.parse(JSON.stringify(projectsNode))
+const oldSaved = oldProjects.items[0]
+const oldRoot = { id: 'root', kind: 'menu', items: [oldProjects] }
+const reboundWorkflow = menu.rebindWorkflow(workflowExtensions[0], [{ node: oldRoot, context: {} }, { node: oldProjects, context: {} }], oldSaved)
+assert(reboundWorkflow && reboundWorkflow.node === workflowExtensions[0].workflow.items[0].items[0], 'catalog refresh rebinds active workflow paths to fresh node objects')
+const changedKindExtension = JSON.parse(JSON.stringify(workflowExtensions[0]))
+changedKindExtension.workflow.items[0].items[0].kind = 'input'
+changedKindExtension.workflow.items[0].items[0].command = ['true']
+assert(menu.rebindWorkflow(changedKindExtension, [{ node: oldRoot, context: {} }, { node: oldProjects, context: {} }], oldSaved) === null, 'menu to input kind changes invalidate workflow refresh state')
+const oldPicker = JSON.parse(JSON.stringify(projectsNode.items[1]))
+const pickerRoot = { id: 'root', kind: 'menu', items: [oldPicker] }
+const changedPickerExtension = JSON.parse(JSON.stringify(workflowExtensions[0]))
+changedPickerExtension.workflow.items = [{ id: 'add', kind: 'menu', label: 'Now menu', items: [] }]
+assert(menu.rebindWorkflow(changedPickerExtension, [{ node: pickerRoot, context: {} }], oldPicker) === null, 'directory picker to menu changes invalidate file-picker state')
+const oldInput = JSON.parse(JSON.stringify(sessionNode))
+const inputRoot = { id: 'root', kind: 'menu', items: [oldInput] }
+const changedCommandExtension = JSON.parse(JSON.stringify(workflowExtensions[0]))
+changedCommandExtension.workflow.items = [JSON.parse(JSON.stringify(oldInput))]
+changedCommandExtension.workflow.items[0].command = ['helper', 'changed']
+assert(menu.rebindWorkflow(changedCommandExtension, [{ node: inputRoot, context: {} }], oldInput) === null, 'changed active command stages cannot acquire refreshed behavior')
+assert(menu.rebindWorkflow({ ...workflowExtensions[0], available: false }, [], oldRoot) === null, 'unavailable refreshed workflows cannot retain active state')
+assert(menu.workflowActionIsCurrent(7, 7, true, 'codex-agent', workflowExtensions[0]), 'current workflow action generations may transition')
+assert(!menu.workflowActionIsCurrent(6, 7, true, 'codex-agent', workflowExtensions[0]), 'stale workflow action generations cannot transition')
+assert(!menu.workflowActionIsCurrent(7, 7, true, 'other-capability', workflowExtensions[0]), 'replacement capability mismatches cannot transition')
 
 const unavailableCatalog = menu.parseExtensionCatalog(JSON.stringify([
   {
@@ -211,6 +350,73 @@ const unavailableCatalog = menu.parseExtensionCatalog(JSON.stringify([
 assert(!unavailableCatalog.extensions[0].available, 'missing dependencies mark extensions unavailable')
 assert(unavailableCatalog.diagnostics.some(message => message.indexOf('missing-tool') >= 0), 'missing dependencies produce diagnostics')
 assert(unavailableCatalog.diagnostics.some(message => message.indexOf('duplicate extension id') >= 0), 'duplicate extension ids produce diagnostics')
+
+const providerCatalog = menu.parseExtensionCatalog(JSON.stringify({
+  diagnostics: ['plugin example provider #2 timed out'],
+  extensions: [
+    {
+      schemaVersion: 1,
+      id: 'provider-first',
+      label: 'First',
+      prefixes: ['shared'],
+      command: ['printf', 'first'],
+      _source: 'plugin example provider #1'
+    },
+    {
+      schemaVersion: 1,
+      id: 'provider-first',
+      label: 'Duplicate id',
+      prefixes: ['other'],
+      command: ['printf', 'duplicate'],
+      _source: 'plugin example provider #2'
+    },
+    {
+      schemaVersion: 1,
+      id: 'provider-prefix',
+      label: 'Duplicate prefix',
+      prefixes: ['shared'],
+      command: ['printf', 'prefix'],
+      _source: 'plugin example provider #3'
+    },
+    {
+      _source: 'plugin example provider #4'
+    }
+  ]
+}))
+assert(providerCatalog.extensions.length === 2, 'loader catalog envelopes preserve valid provider extensions')
+assert(providerCatalog.diagnostics.some(message => message.indexOf('provider #2 timed out') >= 0), 'loader diagnostics pass through catalog validation')
+assert(providerCatalog.diagnostics.some(message => message.indexOf("duplicate extension id 'provider-first'") >= 0 && message.indexOf('provider #2') >= 0), 'duplicate provider ids identify their source')
+assert(providerCatalog.diagnostics.some(message => message.indexOf("Duplicate extension prefix 'shared'") >= 0 && message.indexOf('provider #3') >= 0), 'duplicate provider prefixes identify their source')
+assert(providerCatalog.diagnostics.some(message => message.indexOf('invalid extension from plugin example provider #4') >= 0), 'invalid provider definitions identify their source')
+
+const hostileCatalog = menu.parseExtensionCatalog(JSON.stringify([
+  { schemaVersion: 1, id: '__proto__', capability: '__proto__', label: 'Proto', prefixes: ['__proto__'], command: ['printf', '{prompt}'] },
+  { schemaVersion: 1, id: 'constructor', capability: 'constructor', label: 'Constructor', prefixes: ['constructor'], command: ['printf', '{prompt}'] },
+  { schemaVersion: 1, id: 'toString', capability: 'toString', label: 'To String', prefixes: ['toString'], command: ['printf', '{prompt}'] },
+  { schemaVersion: 1, id: 'constructor', capability: 'other', label: 'Duplicate', prefixes: ['other'], command: ['printf', '{prompt}'] },
+  { schemaVersion: 1, id: 'prefix-duplicate', capability: 'prefix-duplicate', label: 'Prefix duplicate', prefixes: ['__proto__'], command: ['printf', '{prompt}'] }
+]))
+assert(hostileCatalog.extensions.map(extension => extension.id).join(',') === '__proto__,constructor,toString,prefix-duplicate', 'hostile object-property names remain ordinary extension ids and capabilities')
+assert(hostileCatalog.diagnostics.some(message => message.indexOf("duplicate extension id 'constructor'") >= 0), 'hostile duplicate ids are still detected')
+assert(hostileCatalog.diagnostics.some(message => message.indexOf("Duplicate extension prefix '__proto__'") >= 0), 'hostile duplicate prefixes are still detected')
+assert(menu.resolveExtensions([{ capability: '__proto__', available: true, priority: 0, bundled: true }, { capability: '__proto__', available: true, priority: 1, bundled: false }])[0].priority === 1, 'hostile capability keys resolve replacements normally')
+assert(menu.parseExtensionCatalog('{bad').valid === false, 'malformed catalogs are marked invalid for last-known-good retention')
+assert(menu.parseExtensionCatalog(JSON.stringify({ extensions: [], diagnostics: [], complete: false })).complete === false, 'incomplete loader catalogs are marked transient')
+assert(menu.parseExtensions('[{"schemaVersion":1,"id":"overflow","label":"Overflow","prefixes":["overflow"],"command":["true"],"priority":1e400}]').length === 0, 'QML-side normalization rejects floating-point overflow from otherwise valid JSON')
+assert(menu.parseExtensions(JSON.stringify({ schemaVersion: 1, id: 'unsafe-int', label: 'Unsafe', prefixes: ['unsafe'], command: ['true'], priority: 9007199254740992 })).length === 0, 'QML-side normalization rejects numeric fields outside the interoperable safe range')
+const boundedQmlDiagnostics = menu.parseExtensionCatalog(JSON.stringify({
+  diagnostics: ['x'.repeat(5000)],
+  extensions: Array.from({ length: 1100 }, (_, index) => ({ _source: `invalid-${index}` }))
+}))
+assert(boundedQmlDiagnostics.extensions.length === 0 && boundedQmlDiagnostics.diagnostics.length === 256,
+  'QML catalog validation bounds definition use and aggregate diagnostics')
+assert(boundedQmlDiagnostics.diagnostics[0].length <= 1024
+  && boundedQmlDiagnostics.diagnostics.some(message => message.indexOf('Further extension diagnostics were omitted') >= 0),
+  'QML catalog validation bounds diagnostic text and reports omissions')
+const resetOpenState = menu.openStateReset({ workflowActive: true, fileBrowserActive: true })
+assert(resetOpenState.workflowActive === false && resetOpenState.workflowNode === null && resetOpenState.workflowStack.length === 0, 'new opens reset workflow state')
+assert(resetOpenState.fileBrowserActive === false && resetOpenState.directoryPickerActive === false && resetOpenState.fileBrowserExtension === null, 'new opens reset file browser and directory picker state')
+assert(resetOpenState.focusedExtension === null && resetOpenState.actionPanelActive === false && resetOpenState.resultExtension === null, 'new opens reset focused and action-panel state')
 
 const bundledMissingQalc = menu.parseExtensions(JSON.stringify([{
   ...JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'extensions', 'calculator', 'extension.json'), 'utf8')),

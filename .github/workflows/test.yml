@@ -25,6 +25,18 @@ jobs:
       - name: Run model tests
         run: node tests/menu-model-test.js
 
+      - name: Run QML extension path tests
+        run: node tests/qml-extension-path-test.js
+
+      - name: Run Quickshell live-query process harness when available
+        run: bash tests/live-query-process-integration-test.sh
+
+      - name: Run extension loader tests
+        run: python tests/extension-loader-test.py
+
+      - name: Compile Python helpers
+        run: python -m py_compile libexec/load-extensions.py extensions/files/file-index.py extensions/timezone/convert-timezone.py
+
       - name: Run qalc integration tests
         run: bash tests/qalc-integration-test.sh
 
