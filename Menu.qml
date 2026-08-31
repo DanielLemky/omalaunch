@@ -1467,6 +1467,10 @@ Item {
       // Rank normal item and extension rows together. Diagnostic rows reserve
       // space at the bottom so dependency/setup guidance survives the cap.
       rows = MenuModel.rankSearchRows(rows, diagnosticRows, query.length >= 3, root.maxDisplayedResults)
+    } else if (root.focusedExtension) {
+      // A focused query extension is an input surface, not the Extensions
+      // directory with an invisible focus change. Keep its initial result list
+      // empty until the user enters a query.
     } else {
       for (var j = 0; j < root.itemOrder.length; j++) {
         var child = root.item(root.itemOrder[j])
@@ -2661,6 +2665,8 @@ Item {
                 ? (root.workflowInputActive
                   ? ((root.workflowNode.prompt || root.workflowNode.label) + "…" + (root.filterText ? "  " + root.filterText : ""))
                   : (root.workflowText(root.workflowNode ? root.workflowNode.label : root.workflowExtension.label) + "…"))
+              : root.focusedExtension
+                ? (root.focusedExtension.label + "…" + (root.filterText ? "  " + root.filterText : ""))
               : (root.filterText || (root.dmenuActive ? (root.dmenuPrompt + "…") : ((root.item(root.activeMenu) ? (root.item(root.activeMenu).title || root.item(root.activeMenu).label) : "Go") + "…")))
             color: root.foreground
             opacity: root.filterText ? 1 : 0.58
@@ -2991,7 +2997,9 @@ Item {
             }
 
             Text {
-              text: root.filterText ? "No matches for “" + root.filterText + "”" : "Nothing here yet"
+              text: root.focusedExtension
+                ? "Start typing"
+                : (root.filterText ? "No matches for “" + root.filterText + "”" : "Nothing here yet")
               color: root.foreground
               opacity: 0.7
               font.family: root.fontFamily
