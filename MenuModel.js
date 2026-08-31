@@ -1478,6 +1478,34 @@ function guardScript(items) {
   return guards ? guardPrelude(guards) + guards : ""
 }
 
+// Keep the footer limited to actions that the current launcher state accepts.
+// The same labels are used in QML and unit tests, so shortcut help does not
+// drift away from the keyboard handler.
+function actionBarHints(state) {
+  var value = state || ({})
+  var hints = []
+
+  if (value.dmenuInput) hints.push({ label: "Submit", shortcut: "Enter" })
+  else if (value.workflowInputActive) hints.push({ label: "Continue", shortcut: "Enter" })
+  else if (value.hasSelection) {
+    var primary = value.actionPanelActive ? "Run"
+      : (value.directoryPickerActive || value.dmenuActive ? "Select"
+        : (value.workflowActive ? "Continue" : "Open"))
+    hints.push({ label: primary, shortcut: "Enter" })
+  }
+
+  if (value.fileBrowserActive && value.hasSelection && !value.directoryPickerActive && !value.actionPanelActive) {
+    hints.push({ label: "Actions", shortcut: "Ctrl K" })
+    hints.push({ label: "Copy Path", shortcut: "Ctrl C" })
+  }
+  if (value.canStar) hints.push({ label: value.starred ? "Unstar" : "Star", shortcut: "Ctrl S" })
+
+  var back = value.actionPanelActive || value.workflowActive || value.fileBrowserActive
+    || value.focusedExtension ? "Back" : "Close"
+  hints.push({ label: back, shortcut: "Esc" })
+  return hints
+}
+
 if (typeof module !== "undefined") {
   module.exports = {
     guardReaders: GUARD_READERS,
@@ -1559,6 +1587,7 @@ if (typeof module !== "undefined") {
     fileFavoriteLabel: fileFavoriteLabel,
     fileFavoriteItem: fileFavoriteItem,
     matchesFileFavoriteQuery: matchesFileFavoriteQuery,
-    displayRow: displayRow
+    displayRow: displayRow,
+    actionBarHints: actionBarHints
   }
 }

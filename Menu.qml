@@ -214,6 +214,7 @@ Item {
   readonly property int cornerRadius: Style.cornerRadius
   property int contentMargin: Style.spacing.panelPadding
   property int headerHeight: Math.max(Style.space(34), Style.font.title + Style.spacing.controlPaddingY * 2)
+  property int actionBarHeight: Math.max(Style.space(36), Style.font.bodySmall + Style.spacing.controlPaddingY * 2)
   property int contentSpacing: Style.spacing.md
   property int baseRowHeight: Math.max(Style.space(50), Style.font.body + Style.spacing.rowPaddingX * 2)
   property int detailRowHeight: Math.max(Style.space(58), Style.font.body + Style.font.caption + Style.spacing.rowPaddingX * 2)
@@ -229,9 +230,29 @@ Item {
     : Style.space(root.imagePreviewActive ? 900 : 600), panel.width - Style.gapsOut * 2)
   readonly property bool emptyRoot: !root.dmenuActive && root.activeMenu === "root" && !root.filterText && displayModel.count === 0
   property int visibleRowsHeight: root.emptyRoot || root.workflowInputActive ? 0 : (root.dmenuActive ? dmenuRowListHeight(layoutSerial, displayModel.count, filterText) : rowListHeight(layoutSerial, displayModel.count, filterText, searchDivider))
-  property int cardHeight: root.dmenuActive
-    ? Math.min(contentMargin * 2 + headerHeight + (mode === "input" ? 0 : contentSpacing + visibleRowsHeight), panel.height - Style.gapsOut * 2)
-    : Math.min(contentMargin * 2 + headerHeight + (visibleRowsHeight > 0 ? contentSpacing + visibleRowsHeight : 0), panel.height - Style.gapsOut * 2)
+  property int cardHeight: Math.min(contentMargin * 2 + headerHeight + actionBarHeight + contentSpacing
+    + (visibleRowsHeight > 0 ? contentSpacing + visibleRowsHeight : 0), panel.height - Style.gapsOut * 2)
+
+  readonly property var actionBarHints: MenuModel.actionBarHints({
+    dmenuActive: root.dmenuActive,
+    dmenuInput: root.dmenuActive && root.mode === "input",
+    workflowActive: root.workflowActive,
+    workflowInputActive: root.workflowInputActive,
+    fileBrowserActive: root.fileBrowserActive,
+    directoryPickerActive: root.directoryPickerActive,
+    actionPanelActive: root.actionPanelActive,
+    focusedExtension: !!root.focusedExtension,
+    hasSelection: displayModel.count > 0 && root.cursorActive,
+    canStar: !root.dmenuActive && !root.workflowActive && !root.actionPanelActive
+      && displayModel.count > 0 && root.cursorActive && root.selectedIndex >= 0
+      && root.selectedIndex < displayModel.count
+      && (root.fileBrowserActive || (displayModel.get(root.selectedIndex).itemId !== "omarchy"
+        && displayModel.get(root.selectedIndex).itemId !== "extensions"
+        && displayModel.get(root.selectedIndex).itemId !== "extension.result"
+        && displayModel.get(root.selectedIndex).itemId !== "extension.result.pending")),
+    starred: displayModel.count > 0 && root.cursorActive && root.selectedIndex >= 0
+      && root.selectedIndex < displayModel.count && displayModel.get(root.selectedIndex).starred
+  })
 
   function finishRequest(selection) {
     if (!root.requestActive || !root.doneFile) {
@@ -305,7 +326,8 @@ Item {
 
   // Height the card can devote to rows below its pinned top edge.
   function availableRowsHeight() {
-    var available = panel.height - panel.pinnedTop - Style.gapsOut - root.contentMargin * 2 - root.headerHeight - root.contentSpacing
+    var available = panel.height - panel.pinnedTop - Style.gapsOut - root.contentMargin * 2
+      - root.headerHeight - root.actionBarHeight - root.contentSpacing * 2
     // A card that swallows the whole screen reads as a page, not a menu.
     return Math.min(available, Math.round(panel.height * 0.5))
   }
@@ -2951,8 +2973,7 @@ Item {
           Text {
             visible: !root.focusedExtension
             anchors.left: parent.left
-            anchors.right: starHint.left
-            anchors.rightMargin: Style.space(8)
+            anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
             text: root.actionPanelActive
               ? ("Actions for " + ((root.actionPanelFile && root.actionPanelFile.name) || "file"))
@@ -2981,20 +3002,6 @@ Item {
             font.family: root.fontFamily
             font.pixelSize: Style.font.heading
             elide: Text.ElideRight
-          }
-
-          Text {
-            id: starHint
-            visible: !root.actionPanelActive && !root.dmenuActive && !root.workflowActive && displayModel.count > 0 && root.cursorActive && root.selectedIndex >= 0 && root.selectedIndex < displayModel.count && (root.fileBrowserActive || (displayModel.get(root.selectedIndex).itemId !== "omarchy" && displayModel.get(root.selectedIndex).itemId !== "extensions" && displayModel.get(root.selectedIndex).itemId !== "extension.result" && displayModel.get(root.selectedIndex).itemId !== "extension.result.pending"))
-            anchors.right: parent.right
-            anchors.verticalCenter: parent.verticalCenter
-            text: root.fileBrowserActive
-              ? (!root.selectedFileRow ? "" : (root.selectedFileRow.starred ? "Ctrl+S  Unstar · Ctrl+K  Actions" : "Ctrl+S  Star · Ctrl+K  Actions"))
-              : (root.cursorActive && root.selectedIndex >= 0 && root.selectedIndex < displayModel.count && displayModel.get(root.selectedIndex).starred ? "Ctrl+S  Unstar" : "Ctrl+S  Star")
-            color: root.foreground
-            opacity: 0.45
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.bodySmall
           }
 
         }
@@ -3321,7 +3328,61 @@ Item {
 
         Item {
           width: parent.width
-          height: 0
+          height: root.actionBarHeight
+
+          Rectangle {
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.top: parent.top
+            height: Style.spacing.hairline
+            color: Util.alpha(root.foreground, 0.16)
+          }
+
+          Row {
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            spacing: Style.space(14)
+
+            Repeater {
+              model: root.actionBarHints
+
+              Row {
+                required property var modelData
+                spacing: Style.space(6)
+                anchors.verticalCenter: parent.verticalCenter
+
+                Text {
+                  text: modelData.label
+                  color: root.foreground
+                  opacity: 0.68
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.bodySmall
+                  anchors.verticalCenter: parent.verticalCenter
+                }
+
+                Rectangle {
+                  width: shortcutText.implicitWidth + Style.space(10)
+                  height: Math.max(Style.space(22), shortcutText.implicitHeight + Style.space(6))
+                  radius: Math.min(root.cornerRadius, Style.space(5))
+                  color: Util.alpha(root.foreground, 0.09)
+                  border.width: Style.spacing.hairline
+                  border.color: Util.alpha(root.foreground, 0.16)
+                  anchors.verticalCenter: parent.verticalCenter
+
+                  Text {
+                    id: shortcutText
+                    anchors.centerIn: parent
+                    text: modelData.shortcut
+                    color: root.foreground
+                    opacity: 0.82
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.caption
+                    font.weight: Font.Medium
+                  }
+                }
+              }
+            }
+          }
         }
       }
     }

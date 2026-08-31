@@ -413,6 +413,25 @@ assert(boundedQmlDiagnostics.extensions.length === 0 && boundedQmlDiagnostics.di
 assert(boundedQmlDiagnostics.diagnostics[0].length <= 1024
   && boundedQmlDiagnostics.diagnostics.some(message => message.indexOf('Further extension diagnostics were omitted') >= 0),
   'QML catalog validation bounds diagnostic text and reports omissions')
+const fileActionHints = menu.actionBarHints({
+  fileBrowserActive: true,
+  hasSelection: true,
+  canStar: true,
+  starred: false
+})
+assert(fileActionHints.map(hint => `${hint.label}:${hint.shortcut}`).join(',')
+  === 'Open:Enter,Actions:Ctrl K,Copy Path:Ctrl C,Star:Ctrl S,Back:Esc',
+  'the action bar lists every available file shortcut')
+const starredActionHints = menu.actionBarHints({ hasSelection: true, canStar: true, starred: true })
+assert(starredActionHints.some(hint => hint.label === 'Unstar' && hint.shortcut === 'Ctrl S'),
+  'the action bar reflects the selected favorite state')
+const inputActionHints = menu.actionBarHints({ dmenuActive: true, dmenuInput: true })
+assert(inputActionHints.map(hint => hint.label).join(',') === 'Submit,Close',
+  'input requests only advertise submit and close actions')
+const panelActionHints = menu.actionBarHints({ fileBrowserActive: true, actionPanelActive: true, hasSelection: true })
+assert(panelActionHints.map(hint => hint.label).join(',') === 'Run,Back',
+  'action panels hide file-browser shortcuts that they do not accept')
+
 const resetOpenState = menu.openStateReset({ workflowActive: true, fileBrowserActive: true })
 assert(resetOpenState.workflowActive === false && resetOpenState.workflowNode === null && resetOpenState.workflowStack.length === 0, 'new opens reset workflow state')
 assert(resetOpenState.fileBrowserActive === false && resetOpenState.directoryPickerActive === false && resetOpenState.fileBrowserExtension === null, 'new opens reset file browser and directory picker state')
