@@ -4,6 +4,7 @@ import json
 import os
 import subprocess
 import tempfile
+import runpy
 import time
 from pathlib import Path
 
@@ -62,6 +63,18 @@ with tempfile.TemporaryDirectory() as temporary:
     assert unusual[0]["name"] == "strange\nname.txt"
     print("ok - indexed queries preserve filenames containing newlines")
 
+    subprocess.run(["git", "init", "-q", str(files)], check=True)
+    (files / ".gitignore").write_text("git-ignored.txt\n", encoding="utf-8")
+    ignored = files / "git-ignored.txt"
+    ignored.write_text("ignored", encoding="utf-8")
+    run("index", str(files), str(index))
+    assert run("query", str(index), "git-ignored") == []
+    run("index", str(files), str(index), "--include-git-ignored")
+    assert run("query", str(index), "git-ignored")[0]["path"] == str(ignored)
+    assert all(row["name"] != "git-ignored.txt" for row in run("browse", str(files)))
+    assert any(row["name"] == "git-ignored.txt" for row in run("browse", str(files), "--include-git-ignored"))
+    print("ok - includeGitIgnored controls Git ignore rules in browsing and recursive search")
+
     added_later = files / "added-after-index.txt"
     added_later.write_text("new", encoding="utf-8")
     assert run("query", str(index), "added-after-index") == []
@@ -82,3 +95,22 @@ with tempfile.TemporaryDirectory() as temporary:
     run("index", str(files), str(index))
     assert len(run("query", str(index), "limit-match")) == 100
     print("ok - browse and indexed query output are capped at 100 rows")
+
+    first_exact = files / "first" / "local-spotlights"
+    second_exact = files / "second" / "local-spotlights"
+    first_exact.mkdir(parents=True)
+    second_exact.mkdir(parents=True)
+    for number in range(110):
+        (first_exact / f"descendant-{number:03}.txt").write_text("", encoding="utf-8")
+    run("index", str(files), str(index))
+    exact_ranked = run("query", str(index), "local-spotlights")
+    assert {row["path"] for row in exact_ranked[:2]} == {str(first_exact), str(second_exact)}
+    assert len(exact_ranked) == 100
+    print("ok - exact basename matches rank before descendants and remain within the result limit")
+
+# Configuration uses one explicit helper flag for both fd traversal modes.
+module = runpy.run_path(str(HELPER))
+assert "--no-ignore-vcs" in module["_fd_command"]("/tmp", include_git_ignored=True)
+print("ok - includeGitIgnored adds fd --no-ignore-vcs")
+assert "--no-ignore-vcs" not in module["_fd_command"]("/tmp")
+print("ok - Git-ignored paths remain excluded by default")

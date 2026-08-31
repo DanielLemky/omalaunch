@@ -78,6 +78,7 @@ class CatalogBuilder:
         # current and future Omalaunch core settings. Only validated settings
         # are copied from the user-owned config file.
         self.omalaunch_config: dict[str, Any] = {}
+        self.capability_config: dict[str, dict[str, Any]] = {}
         # Reserve room for useful diagnostics. The final envelope still uses
         # the exact public catalog limit and trims diagnostics linearly.
         reserve = min(64 * 1024, max(64, limits.catalog_output_bytes // 4))
@@ -148,6 +149,7 @@ class CatalogBuilder:
                 "complete": complete,
                 "providerPreferences": self.provider_preferences,
                 "omalaunchConfig": self.omalaunch_config,
+                "capabilityConfig": self.capability_config,
             }
             base_size = len(self.encoded(result))
             used = base_size
@@ -473,6 +475,21 @@ def load_user_configuration(home: Path, builder: CatalogBuilder, limits: Limits)
             }
         except (OSError, UnicodeDecodeError, ValueError) as error:
             builder.diagnostic(f"Could not load configuration {main_path}: {error}")
+
+    # Capability configuration is independent of provider identity. Load only
+    # host-supported capability schemas, so files cannot select arbitrary paths.
+    files_path = config_root / "extensions" / "files.jsonc"
+    if files_path.exists():
+        try:
+            value = read_jsonc(files_path, maximum_depth=limits.json_nesting_depth)
+            if not isinstance(value, dict) or value.get("version") != 1:
+                raise ValueError("expected an object with version 1")
+            include = value.get("includeGitIgnored", False)
+            if not isinstance(include, bool):
+                raise ValueError("includeGitIgnored must be a boolean")
+            builder.capability_config["files"] = {"includeGitIgnored": include}
+        except (OSError, UnicodeDecodeError, ValueError) as error:
+            builder.diagnostic(f"Could not load configuration {files_path}: {error}")
 
 
 def load_catalog(plugin_path: Path, omarchy_path: Path, home: Path, limits: Limits) -> dict[str, Any]:

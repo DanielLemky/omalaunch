@@ -868,6 +868,11 @@ Item {
     }
   }
 
+  function includeGitIgnoredFiles() {
+    var extension = root.extensionByCapability("files")
+    return !!(extension && extension.config && extension.config.includeGitIgnored === true)
+  }
+
   function startFileIndex(path) {
     // Process command and metadata must stay immutable until onExited. Keep a
     // build for the requested root alive while typing; only a different root
@@ -890,6 +895,7 @@ Item {
     fileIndexProc.indexRoot = path
     fileIndexProc.indexPath = root.fileIndexPath
     fileIndexProc.command = ["python", root.fileIndexHelper, root.directoryPickerActive ? "index-dirs" : "index", path, fileIndexProc.indexPath]
+      .concat(root.includeGitIgnoredFiles() ? ["--include-git-ignored"] : [])
     fileIndexProc.running = true
   }
 
@@ -2224,6 +2230,7 @@ Item {
       fileScanProc.command = needle
         ? ["python", root.fileIndexHelper, "query", root.fileIndexPath, needle]
         : ["python", root.fileIndexHelper, root.directoryPickerActive ? "browse-dirs" : "browse", base]
+          .concat(root.includeGitIgnoredFiles() ? ["--include-git-ignored"] : [])
       fileScanProc.running = true
     }
   }
