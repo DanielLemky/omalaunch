@@ -433,12 +433,36 @@ Item {
     return null
   }
 
-  function activeFilesExtension() {
+  function filesExtensionForCapability(capability) {
     for (var i = 0; i < root.extensions.length; i++) {
       var extension = root.extensions[i]
-      if (extension && extension.mode === "files" && extension.capability === "files") return extension
+      if (extension && extension.mode === "files" && extension.capability === capability) return extension
     }
     return null
+  }
+
+  function activeFilesExtension() {
+    return root.filesExtensionForCapability("files")
+  }
+
+  function fileFavoriteId(path, type) {
+    if (!root.fileBrowserExtension) return ""
+    return MenuModel.fileFavoriteId(path, type, root.fileBrowserExtension.capability)
+  }
+
+  function isFileFavoriteStarred(path, type) {
+    var id = root.fileFavoriteId(path, type)
+    if (id && favorites.isStarred(id)) return true
+    return root.fileBrowserExtension && root.fileBrowserExtension.capability === "files"
+      && favorites.isStarred(MenuModel.legacyFileFavoriteId(path, type))
+  }
+
+  function toggleFileFavorite(path, type) {
+    if (!root.fileBrowserExtension) return
+    var legacyId = root.fileBrowserExtension.capability === "files"
+      ? MenuModel.legacyFileFavoriteId(path, type) : ""
+    if (legacyId && favorites.isStarred(legacyId)) favorites.toggle(legacyId)
+    else favorites.toggle(root.fileFavoriteId(path, type))
   }
 
   function enterFileBrowser(extension, startPath) {
@@ -542,7 +566,7 @@ Item {
         action: entry.path
       })
       var row = root.displayRow(item, item.description, i)
-      row.starred = favorites.isStarred(MenuModel.fileFavoriteId(entry.path, entry.type))
+      row.starred = root.isFileFavoriteStarred(entry.path, entry.type)
       displayModel.append(row)
     }
     root.layoutSerial += 1
@@ -562,10 +586,10 @@ Item {
       : [{ id: "open", icon: "󰈔", label: "Open" }]
     actions = actions.concat([
       {
-        id: "toggle-pin",
+        id: "toggle-star",
         icon: "★",
-        label: favorites.isStarred(MenuModel.fileFavoriteId(root.actionPanelFile.path, root.actionPanelFile.type))
-          ? "Unpin from launcher" : "Pin to launcher"
+        label: root.isFileFavoriteStarred(root.actionPanelFile.path, root.actionPanelFile.type)
+          ? "Unstar" : "Star"
       },
       { id: "copy-path", icon: "󰆏", label: "Copy path" },
       { id: "copy-file", icon: "󰆏", label: "Copy file to clipboard" }
@@ -629,7 +653,7 @@ Item {
   function activateFileAction(action) {
     if (!root.actionPanelFile || !root.fileBrowserExtension) return
     var path = root.actionPanelFile.path
-    if (action === "toggle-pin") {
+    if (action === "toggle-star") {
       var selectedItemId = root.actionPanelFile.itemId
       var selectedType = root.actionPanelFile.type
       var previousIndex = root.actionPanelFile.index
@@ -637,7 +661,7 @@ Item {
       root.actionPanelFile = null
       root.selectedIndex = previousIndex
       root.pendingStarSelectionId = selectedItemId
-      favorites.toggle(MenuModel.fileFavoriteId(path, selectedType))
+      root.toggleFileFavorite(path, selectedType)
       return
     }
     if (action === "copy-path" || action === "copy-file") {
@@ -1143,24 +1167,20 @@ Item {
       }
 
       if (active === "root") {
-        var filesExtension = root.activeFilesExtension()
-        if (filesExtension && filesExtension.available) {
-          var favoriteIds = Object.keys(favorites.starredIds)
-          for (var favoriteIndex = 0; favoriteIndex < favoriteIds.length; favoriteIndex++) {
-            var favoriteId = favoriteIds[favoriteIndex]
-            var favoritePath = MenuModel.fileFavoritePath(favoriteId)
-            var favoriteType = MenuModel.fileFavoriteType(favoriteId)
-            if (!favoritePath || !favoriteType) continue
-            var favoriteItem = root.normalizeItem(favoriteId, {
-              icon: favoriteType === "directory" ? "󰉋" : "󰈔",
-              label: MenuModel.fileFavoriteLabel(favoritePath),
-              description: favoritePath,
-              action: favoritePath
-            })
-            var favoriteRow = root.displayRow(favoriteItem, favoritePath, favoriteItem.order || 0)
-            favoriteRow.starred = true
-            rows.push(favoriteRow)
-          }
+        var favoriteIds = Object.keys(favorites.starredIds)
+        for (var favoriteIndex = 0; favoriteIndex < favoriteIds.length; favoriteIndex++) {
+          var favoriteId = favoriteIds[favoriteIndex]
+          var favorite = MenuModel.fileFavorite(favoriteId)
+          if (!favorite) continue
+          var favoriteItem = root.normalizeItem(favoriteId, {
+            icon: favorite.type === "directory" ? "󰉋" : "󰈔",
+            label: MenuModel.fileFavoriteLabel(favorite.path),
+            description: favorite.path,
+            action: favorite.path
+          })
+          var favoriteRow = root.displayRow(favoriteItem, favorite.path, favoriteItem.order || 0)
+          favoriteRow.starred = true
+          rows.push(favoriteRow)
         }
 
         var setupExtension = MenuModel.firstSetupExtension(root.extensions)
@@ -1338,15 +1358,14 @@ Item {
       Qt.callLater(function() { keyCatcher.forceActiveFocus() })
       return
     }
-    var favoritePath = MenuModel.fileFavoritePath(row.itemId)
-    var favoriteType = MenuModel.fileFavoriteType(row.itemId)
-    if (favoritePath && favoriteType) {
-      var filesExtension = root.activeFilesExtension()
+    var favorite = MenuModel.fileFavorite(row.itemId)
+    if (favorite) {
+      var filesExtension = root.filesExtensionForCapability(favorite.capability)
       if (!filesExtension || !filesExtension.available) return
-      if (favoriteType === "directory") {
-        root.enterFileBrowser(filesExtension, favoritePath)
+      if (favorite.type === "directory") {
+        root.enterFileBrowser(filesExtension, favorite.path)
       } else {
-        var favoriteOpenCommand = root.shellCommand(filesExtension.command, { path: favoritePath })
+        var favoriteOpenCommand = root.shellCommand(filesExtension.command, { path: favorite.path })
         root.applySerial = root.requestSerial
         root.opened = false
         root.runAction(favoriteOpenCommand)
@@ -1417,7 +1436,7 @@ Item {
         : (row.itemId.indexOf("file.item.") === 0 ? "file" : "")
       if (!fileType) return
       root.pendingStarSelectionId = row.itemId
-      favorites.toggle(MenuModel.fileFavoriteId(row.action, fileType))
+      root.toggleFileFavorite(row.action, fileType)
       return
     }
     root.pendingStarSelectionId = row.itemId
@@ -2135,7 +2154,7 @@ Item {
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
             text: root.fileBrowserActive
-              ? (displayModel.get(root.selectedIndex).starred ? "Ctrl+S  Unpin · Ctrl+K  Actions" : "Ctrl+S  Pin · Ctrl+K  Actions")
+              ? (displayModel.get(root.selectedIndex).starred ? "Ctrl+S  Unstar · Ctrl+K  Actions" : "Ctrl+S  Star · Ctrl+K  Actions")
               : (root.cursorActive && root.selectedIndex >= 0 && root.selectedIndex < displayModel.count && displayModel.get(root.selectedIndex).starred ? "Ctrl+S  Unstar" : "Ctrl+S  Star")
             color: root.foreground
             opacity: 0.45
