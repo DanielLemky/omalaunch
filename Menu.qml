@@ -254,6 +254,8 @@ Item {
     starred: displayModel.count > 0 && root.cursorActive && root.selectedIndex >= 0
       && root.selectedIndex < displayModel.count && displayModel.get(root.selectedIndex).starred
   })
+  readonly property var displayedActionBarHints: root.cardWidth < Style.space(560)
+    ? MenuModel.compactActionBarHints(root.actionBarHints) : root.actionBarHints
 
   function finishRequest(selection) {
     if (!root.requestActive || !root.doneFile) {
@@ -3330,6 +3332,7 @@ Item {
         Item {
           width: parent.width
           height: root.actionBarHeight
+          clip: true
 
           Rectangle {
             x: -card.contentLeftInset
@@ -3344,7 +3347,7 @@ Item {
             spacing: Style.space(18)
 
             Repeater {
-              model: root.actionBarHints
+              model: root.displayedActionBarHints
 
               Row {
                 required property int index

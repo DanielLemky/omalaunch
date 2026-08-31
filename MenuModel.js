@@ -1500,10 +1500,23 @@ function actionBarHints(state) {
   }
   if (value.canStar) hints.push({ label: value.starred ? "Unstar" : "Star", shortcut: "Ctrl S" })
 
-  var back = value.actionPanelActive || value.workflowActive || value.fileBrowserActive
-    || value.focusedExtension ? "Back" : "Close"
-  hints.push({ label: back, shortcut: "Esc" })
   return hints
+}
+
+// On narrow cards, retain the primary action and the action-panel shortcut.
+// Hidden hints remain active keyboard commands; this function only controls
+// footer help text.
+function compactActionBarHints(hints) {
+  var values = Array.isArray(hints) ? hints : []
+  if (values.length <= 2) return values.slice()
+  var compact = values.length > 0 ? [values[0]] : []
+  for (var i = 1; i < values.length; i++) {
+    if (values[i].label === "Actions") {
+      compact.push(values[i])
+      break
+    }
+  }
+  return compact
 }
 
 if (typeof module !== "undefined") {
@@ -1588,6 +1601,7 @@ if (typeof module !== "undefined") {
     fileFavoriteItem: fileFavoriteItem,
     matchesFileFavoriteQuery: matchesFileFavoriteQuery,
     displayRow: displayRow,
-    actionBarHints: actionBarHints
+    actionBarHints: actionBarHints,
+    compactActionBarHints: compactActionBarHints
   }
 }
