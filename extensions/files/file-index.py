@@ -66,25 +66,26 @@ def _emit(raw_paths: Iterator[bytes]) -> None:
             break
 
 
-def _fd_command(root: str, *, max_depth: int | None = None) -> list[str]:
+def _fd_command(
+    root: str, *, max_depth: int | None = None, directories_only: bool = False
+) -> list[str]:
     command = [
         "fd",
         "--color",
         "never",
         "--absolute-path",
         "--print0",
-        "--type",
-        "file",
-        "--type",
-        "directory",
     ]
+    if not directories_only:
+        command.extend(["--type", "file"])
+    command.extend(["--type", "directory"])
     if max_depth is not None:
         command.extend(["--max-depth", str(max_depth)])
     command.extend([".", root])
     return command
 
 
-def build_index(root: str, output_path: str) -> int:
+def build_index(root: str, output_path: str, *, directories_only: bool = False) -> int:
     global _child
 
     output = Path(output_path)
@@ -97,7 +98,7 @@ def build_index(root: str, output_path: str) -> int:
     try:
         with os.fdopen(descriptor, "wb") as destination:
             _child = subprocess.Popen(
-                _fd_command(root),
+                _fd_command(root, directories_only=directories_only),
                 stdout=destination,
                 stderr=subprocess.DEVNULL,
             )
@@ -115,11 +116,11 @@ def build_index(root: str, output_path: str) -> int:
             pass
 
 
-def browse(root: str) -> int:
+def browse(root: str, *, directories_only: bool = False) -> int:
     global _child
 
     _child = subprocess.Popen(
-        _fd_command(root, max_depth=1),
+        _fd_command(root, max_depth=1, directories_only=directories_only),
         stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL,
     )
@@ -183,14 +184,14 @@ def query(index_path: str, needle: str) -> int:
 
 def main(argv: list[str]) -> int:
     if len(argv) < 3:
-        print("usage: file-index.py <index|browse|query> ...", file=sys.stderr)
+        print("usage: file-index.py <index|index-dirs|browse|browse-dirs|query> ...", file=sys.stderr)
         return 2
 
     mode = argv[1]
-    if mode == "index" and len(argv) == 4:
-        return build_index(argv[2], argv[3])
-    if mode == "browse" and len(argv) == 3:
-        return browse(argv[2])
+    if mode in ("index", "index-dirs") and len(argv) == 4:
+        return build_index(argv[2], argv[3], directories_only=mode == "index-dirs")
+    if mode in ("browse", "browse-dirs") and len(argv) == 3:
+        return browse(argv[2], directories_only=mode == "browse-dirs")
     if mode == "query" and len(argv) == 4:
         return query(argv[2], argv[3])
 

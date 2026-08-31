@@ -188,6 +188,51 @@ assert(menu.queryExtension(timezoneExtension, 'time seattle').capability === 'ti
 assert(menu.queryExtension(timezoneExtension, 'timer') === null, 'timezone extension ignores unrelated searches')
 assert(timezoneExtension[0].sourceDir === '/tmp/timezone', 'extension source directories are retained for bundled scripts')
 
+const workflowExtensions = menu.parseExtensions(JSON.stringify([{
+  schemaVersion: 1,
+  id: 'codex-agent',
+  capability: 'codex-agent',
+  mode: 'workflow',
+  label: 'Codex',
+  prefixes: ['codex'],
+  command: [],
+  workflow: {
+    items: [{
+      id: 'projects', kind: 'menu', label: 'Projects', items: [
+        {
+          id: 'saved', kind: 'menu', label: 'Saved', context: { path: '/tmp/Saved Project' }, items: [
+            {
+              id: 'session', kind: 'input', label: 'New Session', prompt: 'Prompt', allowEmpty: true,
+              command: ['xdg-terminal-exec', '--dir={path}', '--', 'codex', '{input}'],
+              emptyCommand: ['xdg-terminal-exec', '--dir={path}', '--', 'codex']
+            }
+          ]
+        },
+        {
+          id: 'add', kind: 'directoryPicker', label: 'Add Project…', next: {
+            id: 'name', kind: 'input', label: 'Name project', default: '{basename}', maxLength: 120,
+            command: ['helper', 'add', '{path}', '{input}'],
+            next: { id: 'selected', kind: 'menu', label: '{input}', items: [] }
+          }
+        }
+      ]
+    }]
+  }
+}]))
+assert(workflowExtensions.length === 1 && workflowExtensions[0].mode === 'workflow', 'workflow extension menus are parsed')
+const projectsNode = workflowExtensions[0].workflow.items[0]
+assert(projectsNode.label === 'Projects' && projectsNode.items.length === 2, 'workflow navigation data retains Projects and Add Project stages')
+const directoryTransition = menu.workflowDirectoryTransition(projectsNode.items[1], '/tmp/Saved Project/', {})
+assert(directoryTransition.node.id === 'name' && directoryTransition.context.path === '/tmp/Saved Project' && directoryTransition.context.basename === 'Saved Project', 'directory selection transitions to naming with a basename default context')
+assert(menu.workflowInterpolate(directoryTransition.node.defaultValue, directoryTransition.context) === 'Saved Project', 'project naming defaults to the selected directory basename')
+const sessionNode = projectsNode.items[0].items[0]
+assert(menu.workflowCommand(sessionNode, '', { path: '/tmp/Saved Project' }).join('\0') === ['xdg-terminal-exec', '--dir=/tmp/Saved Project', '--', 'codex'].join('\0'), 'empty prompts launch blank interactive Codex without an empty argument')
+const hostilePrompt = 'fix $(touch /tmp/nope); echo owned'
+const promptedCommand = menu.workflowCommand(sessionNode, hostilePrompt, { path: '/tmp/Saved Project' })
+assert(promptedCommand.length === 5 && promptedCommand[4] === hostilePrompt, 'nonempty prompts remain one literal command argument')
+assert(menu.workflowInputTransition(sessionNode, '', { path: '/tmp/Saved Project' }).context.input === '', 'empty workflow input is accepted when declared')
+assert(menu.normalizeWorkflow({ items: [{ id: 'bad', kind: 'directoryPicker', label: 'Bad' }] }) === null, 'directory picker stages require a declared next transition')
+
 const unavailableCatalog = menu.parseExtensionCatalog(JSON.stringify([
   {
     schemaVersion: 1,

@@ -42,6 +42,15 @@ with tempfile.TemporaryDirectory() as temporary:
     assert all(row["name"] != ".hidden.txt" for row in browsed)
     print("ok - browsing is modification-sorted and excludes hidden entries")
 
+    directory_browse = run("browse-dirs", str(files))
+    assert [row["name"] for row in directory_browse] == ["Beta", "Alpha"]
+    assert all(row["type"] == "directory" for row in directory_browse)
+    directory_index = workspace / "directory-index.nul"
+    run("index-dirs", str(files), str(directory_index))
+    assert run("query", str(directory_index), "Alpha")[0]["path"] == str(alpha)
+    assert run("query", str(directory_index), "report") == []
+    print("ok - the host directory-picker modes reuse browsing and search without files")
+
     index = workspace / "index.nul"
     run("index", str(files), str(index))
     assert index.stat().st_mode & 0o777 == 0o600

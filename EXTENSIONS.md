@@ -109,6 +109,46 @@ File browser extensions provide navigation, recursive search, opening, and path 
 
 Ctrl+K opens the contextual Action Panel. `command` opens files, `directoryCommand` opens directories in the file manager, `terminalCommand` opens a terminal, `copyCommand` copies the path, and `copyFileCommand` places a file URI on the clipboard. All command fields support `{path}`. Files and directories can be starred from the Action Panel or with Ctrl+S and then opened directly from the launcher’s starting view. Each star retains the extension capability that created it, so the currently selected provider for that capability handles it. The bundled implementation starts at the home directory, uses `fd` traversal and fzf path ranking, omits hidden and ignored paths, and limits each ranked result set to 100 entries. Recursive candidates are indexed once per active directory and reused while typing; the index refreshes after 30 seconds or when navigation changes directories.
 
+## Workflow extension
+
+Workflow extensions contribute a launcher entry and a bounded tree of host-rendered stages. They can compose menus, text input, and Omalaunch's host-provided directory picker without shipping QML or implementing filesystem navigation:
+
+```json
+{
+  "schemaVersion": 1,
+  "id": "example.projects",
+  "mode": "workflow",
+  "label": "Example",
+  "prefixes": ["example"],
+  "requires": ["example-cli", "xdg-terminal-exec", "fd", "fzf", "python"],
+  "workflow": {
+    "items": [{
+      "id": "projects",
+      "kind": "menu",
+      "label": "Projects",
+      "items": [{
+        "id": "add",
+        "kind": "directoryPicker",
+        "label": "Add Project…",
+        "next": {
+          "id": "name",
+          "kind": "input",
+          "label": "Name project",
+          "prompt": "Project name",
+          "default": "{basename}",
+          "maxLength": 120,
+          "command": ["{extensionDir}/bin/projects", "add", "{path}", "{input}"]
+        }
+      }]
+    }]
+  }
+}
+```
+
+Supported node kinds are `menu`, `directoryPicker`, and `input`. Menus contain `items`; a directory picker requires a `next` node; an input may run `command` and then enter `next`. Directory selection supplies `{path}` and `{basename}`. Input supplies `{input}`. `{extensionDir}` is the contributing extension's source directory. A node's bounded string-only `context` is inherited by its descendants. `default` initializes an input, `maxLength` bounds it, and `allowEmpty` permits submission without text. `emptyCommand` selects a distinct argument array for empty input. `refreshExtensions` reloads dynamic catalogs after a successful action. `nextBackSteps` can collapse transient input/picker history after a successful save.
+
+Commands are executed directly as argument arrays. Placeholder substitution never invokes a shell, so paths, names, and prompts remain literal arguments. Workflow trees are capped at 256 nodes and eight levels. Extensions cannot contribute QML. Escape returns through workflow stages. The directory picker reuses the Files index/browse implementation but selects directories instead of opening them. Contextual workflow Ctrl+K actions are intentionally left as a future extension point; workflow definitions do not opt into the global Files Action Panel.
+
 ## Live-query extension
 
 Live-query extensions recognize input, run asynchronously, and display the command output:
@@ -155,7 +195,7 @@ The highest-priority matching live-query extension runs. Stale results are disca
 - `schemaVersion`: Extension format version; currently `1`.
 - `id`: Stable, unique extension identifier.
 - `capability`: Stable behavior being supplied or replaced; defaults to `id`.
-- `mode`: `prefix`, `query`, or `files`; defaults to `prefix`.
+- `mode`: `prefix`, `query`, `files`, or `workflow`; defaults to `prefix`.
 - `label`, `icon`, `iconFont`, `description`: Result presentation.
 - `priority`: Selection priority; defaults to `0`.
 - `requires`: Executable names that must be available on `PATH`.

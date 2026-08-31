@@ -1,5 +1,9 @@
 # TODO
 
+## State-path audit
+
+- [ ] Audit existing Omalaunch persistence for `${XDG_STATE_HOME:-$HOME/.local/state}` support, consistent `omarchy/omalaunch` namespacing, and correct config-vs-state separation. Plan migrations as copy/verify/switch operations that preserve old files until the new state is confirmed, so upgrades cannot lose favorites, usage, caches, or other user-managed data.
+
 ## Calculation engine
 
 - [x] Remove the temporary hand-written JavaScript expression parser before committing the calculator feature.

@@ -493,6 +493,126 @@ function safeExtensionPattern(pattern) {
   return true
 }
 
+var MAX_WORKFLOW_NODES = 256
+var MAX_WORKFLOW_DEPTH = 8
+var MAX_WORKFLOW_TEXT = 4096
+
+function boundedWorkflowText(value, limit) {
+  var text = String(value === undefined || value === null ? "" : value)
+  return text.length <= (limit || MAX_WORKFLOW_TEXT) ? text : ""
+}
+
+function workflowContext(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return ({})
+  var result = ({})
+  var keys = Object.keys(value)
+  if (keys.length > 16) return result
+  for (var i = 0; i < keys.length; i++) {
+    var key = String(keys[i] || "")
+    var text = boundedWorkflowText(value[key])
+    if (/^[A-Za-z][A-Za-z0-9_]*$/.test(key) && text) result[key] = text
+  }
+  return result
+}
+
+function normalizeWorkflowNode(raw, state, depth) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)
+      || depth > MAX_WORKFLOW_DEPTH || state.count >= MAX_WORKFLOW_NODES) return null
+  var kind = String(raw.kind || "menu")
+  if (["menu", "directoryPicker", "input"].indexOf(kind) < 0) return null
+  var id = boundedWorkflowText(raw.id, 128).trim()
+  var label = boundedWorkflowText(raw.label, 256).trim()
+  if (!id || !label) return null
+  state.count += 1
+  var node = {
+    id: id,
+    kind: kind,
+    label: label,
+    description: boundedWorkflowText(raw.description, 512),
+    icon: boundedWorkflowText(raw.icon, 32),
+    iconFont: boundedWorkflowText(raw.iconFont, 128),
+    context: workflowContext(raw.context),
+    items: [],
+    next: null,
+    prompt: boundedWorkflowText(raw.prompt, 256),
+    defaultValue: boundedWorkflowText(raw.default, 256),
+    allowEmpty: raw.allowEmpty === true,
+    maxLength: Math.max(1, Math.min(MAX_WORKFLOW_TEXT, Number(raw.maxLength) || MAX_WORKFLOW_TEXT)),
+    command: stringArray(raw.command),
+    emptyCommand: stringArray(raw.emptyCommand),
+    refreshExtensions: raw.refreshExtensions === true,
+    nextBackSteps: Math.max(0, Math.min(MAX_WORKFLOW_DEPTH, Number(raw.nextBackSteps) || 0))
+  }
+  var commandFields = [node.command, node.emptyCommand]
+  for (var commandIndex = 0; commandIndex < commandFields.length; commandIndex++) {
+    if (commandFields[commandIndex].length > 32) return null
+    for (var argumentIndex = 0; argumentIndex < commandFields[commandIndex].length; argumentIndex++)
+      if (!boundedWorkflowText(commandFields[commandIndex][argumentIndex])) return null
+  }
+  if (kind === "menu") {
+    if (!Array.isArray(raw.items)) return null
+    for (var i = 0; i < raw.items.length; i++) {
+      var child = normalizeWorkflowNode(raw.items[i], state, depth + 1)
+      if (!child) return null
+      node.items.push(child)
+    }
+  } else if (raw.next !== undefined) {
+    node.next = normalizeWorkflowNode(raw.next, state, depth + 1)
+    if (!node.next) return null
+  }
+  if (kind === "directoryPicker" && !node.next) return null
+  if (kind === "input" && node.command.length === 0 && !node.next) return null
+  return node
+}
+
+function normalizeWorkflow(raw) {
+  if (!raw || typeof raw !== "object" || !Array.isArray(raw.items)) return null
+  var state = { count: 0 }
+  var items = []
+  for (var i = 0; i < raw.items.length; i++) {
+    var node = normalizeWorkflowNode(raw.items[i], state, 0)
+    if (!node) return null
+    items.push(node)
+  }
+  return items.length > 0 ? { items: items } : null
+}
+
+function workflowInterpolate(value, context) {
+  var result = String(value || "")
+  var values = context || ({})
+  var keys = Object.keys(values)
+  for (var i = 0; i < keys.length; i++)
+    result = result.split("{" + keys[i] + "}").join(String(values[keys[i]]))
+  return result
+}
+
+function workflowCommand(node, input, context) {
+  if (!node || node.kind !== "input") return []
+  var value = String(input === undefined || input === null ? "" : input)
+  var source = value ? node.command : (node.emptyCommand.length > 0 ? node.emptyCommand : node.command)
+  var replacements = Object.assign({}, context || ({}), { input: value })
+  return source.map(function(argument) { return workflowInterpolate(argument, replacements) })
+}
+
+function workflowDirectoryTransition(node, path, context) {
+  if (!node || node.kind !== "directoryPicker" || !node.next) return null
+  var selectedPath = normalizeFavoritePath(path)
+  if (!selectedPath) return null
+  var slash = selectedPath.lastIndexOf("/")
+  return {
+    node: node.next,
+    context: Object.assign({}, context || ({}), {
+      path: selectedPath,
+      basename: selectedPath === "/" ? "/" : selectedPath.substring(slash + 1)
+    })
+  }
+}
+
+function workflowInputTransition(node, input, context) {
+  if (!node || node.kind !== "input" || (!input && !node.allowEmpty)) return null
+  return { node: node.next, context: Object.assign({}, context || ({}), { input: String(input || "") }) }
+}
+
 function normalizeExtension(raw) {
   if (!raw || typeof raw !== "object" || raw.schemaVersion !== 1) return null
 
@@ -500,7 +620,8 @@ function normalizeExtension(raw) {
   var label = String(raw.label || "").trim()
   var mode = String(raw.mode || "prefix")
   var command = stringArray(raw.command)
-  if (!id || !label || command.length === 0 || ["prefix", "query", "files"].indexOf(mode) < 0) return null
+  if (!id || !label || ["prefix", "query", "files", "workflow"].indexOf(mode) < 0) return null
+  if (mode !== "workflow" && command.length === 0) return null
 
   var extension = {
     id: id,
@@ -519,7 +640,7 @@ function normalizeExtension(raw) {
     missingRequires: stringArray(raw._missingRequires)
   }
 
-  if (mode === "prefix" || mode === "files") {
+  if (mode === "prefix" || mode === "files" || mode === "workflow") {
     var sourcePrefixes = Array.isArray(raw.prefixes) ? raw.prefixes : [raw.prefix]
     extension.prefixes = []
     for (var i = 0; i < sourcePrefixes.length; i++) {
@@ -527,7 +648,10 @@ function normalizeExtension(raw) {
       if (prefix && extension.prefixes.indexOf(prefix) < 0) extension.prefixes.push(prefix)
     }
     if (extension.prefixes.length === 0) return null
-    if (mode === "files") {
+    if (mode === "workflow") {
+      extension.workflow = normalizeWorkflow(raw.workflow)
+      if (!extension.workflow) return null
+    } else if (mode === "files") {
       extension.root = String(raw.root || "~")
       extension.directoryCommand = stringArray(raw.directoryCommand)
       if (extension.directoryCommand.length === 0) extension.directoryCommand = extension.command
@@ -1132,6 +1256,11 @@ if (typeof module !== "undefined") {
     unavailableExtensionDetail: unavailableExtensionDetail,
     firstSetupExtension: firstSetupExtension,
     safeExtensionPattern: safeExtensionPattern,
+    normalizeWorkflow: normalizeWorkflow,
+    workflowInterpolate: workflowInterpolate,
+    workflowCommand: workflowCommand,
+    workflowDirectoryTransition: workflowDirectoryTransition,
+    workflowInputTransition: workflowInputTransition,
     normalizeExtension: normalizeExtension,
     resolveExtensions: resolveExtensions,
     parseExtensionCatalog: parseExtensionCatalog,
