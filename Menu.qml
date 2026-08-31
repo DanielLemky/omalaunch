@@ -3330,19 +3330,20 @@ Item {
         }
 
         Item {
-          width: parent.width
+          x: -card.contentLeftInset
+          width: parent.width + card.contentLeftInset + card.contentRightInset
           height: root.actionBarHeight
           clip: true
 
           Rectangle {
-            x: -card.contentLeftInset
-            width: parent.width + card.contentLeftInset + card.contentRightInset
+            width: parent.width
             height: parent.height + root.actionBarBottomPadding
             color: Util.alpha(root.foreground, 0.035)
           }
 
           Row {
             anchors.right: parent.right
+            anchors.rightMargin: card.contentRightInset
             anchors.verticalCenter: parent.verticalCenter
             spacing: Style.space(18)
 
