@@ -19,8 +19,12 @@ Item {
   // Plugin lifecycle hooks. The host calls open(payloadJson) after
   // `omarchy-shell shell summon quantumfire.omalaunch ...` and close() when hidden.
   property string pendingInitialMenu: "root"
+  property bool routePendingForMenuSources: false
 
   function open(payloadJson) {
+    // Every accepted dmenu request must complete even if another summon
+    // replaces it before the caller has selected a result.
+    if (root.dmenuActive && root.requestActive) root.finishRequest(null)
     root.loadExtensions(false)
     var payload = ({})
     try { payload = JSON.parse(payloadJson || "{}") } catch (e) { payload = ({}) }
@@ -39,8 +43,8 @@ Item {
   }
 
   function refresh() {
-    defaultMenuFile.reload()
-    userMenuFile.reload()
+    root.requestDefaultMenuReload()
+    root.requestUserMenuReload()
     root.loadExtensions(true)
     return "ok"
   }
@@ -55,6 +59,14 @@ Item {
   property string userMenuPath: Quickshell.env("HOME") + "/.config/omarchy/extensions/omarchy-menu.jsonc"
   property var defaultMenuItems: []
   property var userMenuItems: []
+  property bool defaultMenuSettled: false
+  property bool userMenuSettled: false
+  // FileView does not queue reload() while an asynchronous read is active.
+  // Track each read and collapse intervening changes into one trailing reload.
+  property bool defaultMenuLoading: true
+  property bool userMenuLoading: true
+  property bool defaultMenuReloadPending: false
+  property bool userMenuReloadPending: false
   property var extensions: []
   property var extensionDiagnostics: []
   property var unavailableResultExtension: null
@@ -724,6 +736,10 @@ Item {
     return MenuModel.parseMenuJsonc(raw)
   }
 
+  function parseMenuJsoncSnapshot(raw) {
+    return MenuModel.parseMenuJsoncSnapshot(raw)
+  }
+
   // Merge defaults + user extension. Later entries override earlier ones
   // on a per-key basis (so the user can tweak label/icon/action without
   // re-declaring the whole row).
@@ -751,6 +767,12 @@ Item {
     root.rebuildItemMetadata()
     root.rowsLoaded = true
     root.evaluateGuards(true)
+    if (root.routePendingForMenuSources) {
+      var pendingRoute = root.pendingInitialMenu
+      root.routePendingForMenuSources = false
+      root.openRoute(pendingRoute)
+      return
+    }
     if (root.opened) {
       root.rebuildDisplay()
       if (!root.dmenuActive) {
@@ -1535,6 +1557,7 @@ Item {
   }
 
   function cancel() {
+    root.routePendingForMenuSources = false
     if (root.dmenuActive) root.finishRequest(null)
     root.resetFileIndex()
     root.actionPanelActive = false
@@ -1574,6 +1597,7 @@ Item {
   }
 
   function openDmenu(payload) {
+    root.routePendingForMenuSources = false
     requestSerial += 1
     mode = payload.mode === "input" ? "input" : "select"
     dmenuPrompt = String(payload.prompt || (mode === "input" ? "Input" : "Select"))
@@ -1624,6 +1648,15 @@ Item {
   }
 
   function openRoute(initialMenu) {
+    if (!root.rowsLoaded || !root.defaultMenuSettled || !root.userMenuSettled
+        || menuSourceRebuildCoalescer.running) {
+      // Resolve aliases and actions only after both menu snapshots have been
+      // merged. The latest summon wins if several arrive during a reload.
+      root.pendingInitialMenu = initialMenu
+      root.routePendingForMenuSources = true
+      return "ok"
+    }
+    root.routePendingForMenuSources = false
     var id = root.resolveRoute(initialMenu)
     var entry = root.items[id]
     // If the resolved id is an action (i.e. the user invoked an alias for
@@ -1916,13 +1949,88 @@ Item {
   // The JSONC sources are watched so live edits to the default file (or the
   // user extension at ~/.config/omarchy/extensions/omarchy-menu.jsonc) take
   // effect without restarting the shell.
+  // The default and user FileViews settle independently at startup and during
+  // refreshes. A full rebuild resets providers and forces an expensive guard
+  // batch, so wait for both initial snapshots and coalesce later change bursts
+  // into one bounded rebuild window.
+  function scheduleMenuSourceRebuild() {
+    if (!root.defaultMenuSettled || !root.userMenuSettled) return
+    if (!menuSourceRebuildCoalescer.running) menuSourceRebuildCoalescer.start()
+  }
+
+  function requestDefaultMenuReload() {
+    root.defaultMenuSettled = false
+    if (root.defaultMenuLoading) {
+      root.defaultMenuReloadPending = true
+      return
+    }
+    root.defaultMenuLoading = true
+    defaultMenuFile.reload()
+  }
+
+  function requestUserMenuReload() {
+    root.userMenuSettled = false
+    if (root.userMenuLoading) {
+      root.userMenuReloadPending = true
+      return
+    }
+    root.userMenuLoading = true
+    userMenuFile.reload()
+  }
+
+  function finishDefaultMenuReload() {
+    if (root.defaultMenuReloadPending) {
+      root.defaultMenuReloadPending = false
+      // Leave loading set while callLater moves beyond FileView's completion
+      // signal; reload() during that signal can still target the old read.
+      Qt.callLater(function() { defaultMenuFile.reload() })
+      return
+    }
+    root.defaultMenuLoading = false
+    root.defaultMenuSettled = true
+    root.scheduleMenuSourceRebuild()
+  }
+
+  function finishUserMenuReload() {
+    if (root.userMenuReloadPending) {
+      root.userMenuReloadPending = false
+      Qt.callLater(function() { userMenuFile.reload() })
+      return
+    }
+    root.userMenuLoading = false
+    root.userMenuSettled = true
+    root.scheduleMenuSourceRebuild()
+  }
+
+  Timer {
+    id: menuSourceRebuildCoalescer
+    interval: 50
+    repeat: false
+    onTriggered: {
+      // A reload may start while this fixed window is running. Its completion
+      // schedules the next window, so never rebuild from an in-flight snapshot.
+      if (root.defaultMenuSettled && root.userMenuSettled)
+        root.rebuildItemsFromSources()
+    }
+  }
+
   FileView {
     id: defaultMenuFile
     path: root.defaultMenuPath
     watchChanges: true
     printErrors: false
-    onLoaded: { root.defaultMenuItems = root.parseMenuJsonc(text()); root.rebuildItemsFromSources() }
-    onFileChanged: reload()
+    onLoaded: {
+      var snapshot = root.parseMenuJsoncSnapshot(text())
+      // A truncate-and-write save can expose partial JSON through a successful
+      // read. Keep the last valid snapshot until a complete document arrives.
+      if (snapshot.valid) root.defaultMenuItems = snapshot.items
+      root.finishDefaultMenuReload()
+    }
+    onLoadFailed: {
+      // Keep the last valid default snapshot across transient reload failures.
+      root.finishDefaultMenuReload()
+    }
+    onFileChanged: root.requestDefaultMenuReload()
   }
 
   FileView {
@@ -1930,9 +2038,16 @@ Item {
     path: root.userMenuPath
     watchChanges: true
     printErrors: false
-    onLoaded: { root.userMenuItems = root.parseMenuJsonc(text()); root.rebuildItemsFromSources() }
-    onLoadFailed: { root.userMenuItems = []; root.rebuildItemsFromSources() }
-    onFileChanged: reload()
+    onLoaded: {
+      var snapshot = root.parseMenuJsoncSnapshot(text())
+      if (snapshot.valid) root.userMenuItems = snapshot.items
+      root.finishUserMenuReload()
+    }
+    onLoadFailed: {
+      root.userMenuItems = []
+      root.finishUserMenuReload()
+    }
+    onFileChanged: root.requestUserMenuReload()
   }
 
   // ---------------------------------------------------------------- guards
