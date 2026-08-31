@@ -51,6 +51,10 @@ assert(menu.matchExtensions(extensions, 'pi explain this code')[0].prompt === 'e
 assert(menu.matchExtensions(extensions, 'PI   fix the tests  ')[0].prompt === 'fix the tests', 'extension matching ignores prefix case and surrounding whitespace')
 assert(menu.matchExtensions(extensions, 'pi').length === 0, 'a prefix without a prompt does not match')
 assert(menu.matchExtensions(extensions, 'pilot a plane').length === 0, 'extension prefixes must be standalone')
+assert(menu.extensionRootActivation(extensions[0]) === 'input' && menu.extensionRootInput(extensions[0]) === '', 'prefix roots enter focused input without exposing the global prefix')
+assert(menu.focusedPrefixMatch(extensions[0], ' explain this code ').prompt === 'explain this code', 'focused prefix input produces one trimmed actionable prompt')
+assert(menu.focusedPrefixMatch(extensions[0], '   ') === null, 'focused prefix input has a safe non-actionable empty state')
+assert(menu.focusedExtensionQuery(extensions[0], 'literal prompt') === 'literal prompt', 'focused prefix prompts are not rewritten as live queries')
 
 const filesExtension = menu.parseExtensions(JSON.stringify([{
   schemaVersion: 1,
@@ -257,6 +261,7 @@ assert(projectsNode.label === 'Projects' && projectsNode.items.length === 2, 'wo
 const directoryTransition = menu.workflowDirectoryTransition(projectsNode.items[1], '/tmp/Saved Project/', {})
 assert(directoryTransition.node.id === 'name' && directoryTransition.context.path === '/tmp/Saved Project' && directoryTransition.context.basename === 'Saved Project', 'directory selection transitions to naming with a basename default context')
 assert(menu.workflowInterpolate(directoryTransition.node.defaultValue, directoryTransition.context) === 'Saved Project', 'project naming defaults to the selected directory basename')
+assert(menu.workflowInitialInput(directoryTransition.node, directoryTransition.context) === 'Saved Project', 'workflow defaults are prepared through the bounded initial-input path')
 const sessionNode = projectsNode.items[0].items[0]
 assert(menu.workflowCommand(sessionNode, '', { path: '/tmp/Saved Project' }).join('\0') === ['xdg-terminal-exec', '--dir=/tmp/Saved Project', '--', 'codex'].join('\0'), 'empty prompts launch blank interactive Codex without an empty argument')
 const hostilePrompt = 'fix $(touch /tmp/nope); echo owned'
@@ -269,6 +274,23 @@ assert(!menu.workflowClosesOnDispatch({ ...sessionNode, next: { id: 'next', kind
 assert(!menu.workflowClosesOnDispatch(sessionNode, ['helper', 'save']), 'non-terminal workflow commands wait for successful completion')
 assert(!menu.workflowClosesOnDispatch({ ...sessionNode, allowEmpty: false }, []), 'pre-dispatch validation failures do not request closure')
 assert(menu.normalizeWorkflow({ items: [{ id: 'bad', kind: 'directoryPicker', label: 'Bad' }] }) === null, 'directory picker stages require a declared next transition')
+const truncatedWorkflow = menu.normalizeWorkflow({ items: [{
+  id: 'short', kind: 'input', label: 'Short', default: 'abcdefgh', maxLength: 4,
+  command: ['printf', '{input}']
+}] })
+assert(menu.workflowInitialInput(truncatedWorkflow.items[0], {}) === 'abcd', 'workflow defaults are truncated to maxLength before the first submit')
+assert(menu.workflowCommand(truncatedWorkflow.items[0], menu.workflowInitialInput(truncatedWorkflow.items[0], {}), {})[1] === 'abcd', 'initial-submit commands receive only the bounded default')
+let eightLevelNode = { id: 'level7', kind: 'menu', label: 'Level 7', items: [] }
+for (let level = 6; level >= 0; level--) eightLevelNode = { id: `level${level}`, kind: 'menu', label: `Level ${level}`, items: [eightLevelNode] }
+assert(menu.normalizeWorkflow({ items: [eightLevelNode] }) !== null, 'workflow trees accept exactly eight documented levels')
+eightLevelNode.items[0].items[0].items[0].items[0].items[0].items[0].items[0].items.push({ id: 'level8', kind: 'menu', label: 'Level 8', items: [] })
+assert(menu.normalizeWorkflow({ items: [eightLevelNode] }) === null, 'workflow trees reject a ninth level')
+const reboundWorkflow = menu.rebindWorkflow(workflowExtensions[0], [{ node: { id: 'root' }, context: {} }, { node: { id: 'projects' }, context: {} }], { id: 'saved' })
+assert(reboundWorkflow && reboundWorkflow.node === workflowExtensions[0].workflow.items[0].items[0], 'catalog refresh rebinds active workflow paths to fresh node objects')
+assert(menu.rebindWorkflow({ ...workflowExtensions[0], available: false }, [], { id: 'root' }) === null, 'unavailable refreshed workflows cannot retain active state')
+assert(menu.workflowActionIsCurrent(7, 7, true, 'codex-agent', workflowExtensions[0]), 'current workflow action generations may transition')
+assert(!menu.workflowActionIsCurrent(6, 7, true, 'codex-agent', workflowExtensions[0]), 'stale workflow action generations cannot transition')
+assert(!menu.workflowActionIsCurrent(7, 7, true, 'other-capability', workflowExtensions[0]), 'replacement capability mismatches cannot transition')
 
 const unavailableCatalog = menu.parseExtensionCatalog(JSON.stringify([
   {
@@ -331,6 +353,20 @@ assert(providerCatalog.diagnostics.some(message => message.indexOf('provider #2 
 assert(providerCatalog.diagnostics.some(message => message.indexOf("duplicate extension id 'provider-first'") >= 0 && message.indexOf('provider #2') >= 0), 'duplicate provider ids identify their source')
 assert(providerCatalog.diagnostics.some(message => message.indexOf("Duplicate extension prefix 'shared'") >= 0 && message.indexOf('provider #3') >= 0), 'duplicate provider prefixes identify their source')
 assert(providerCatalog.diagnostics.some(message => message.indexOf('invalid extension from plugin example provider #4') >= 0), 'invalid provider definitions identify their source')
+
+const hostileCatalog = menu.parseExtensionCatalog(JSON.stringify([
+  { schemaVersion: 1, id: '__proto__', capability: '__proto__', label: 'Proto', prefixes: ['__proto__'], command: ['printf', '{prompt}'] },
+  { schemaVersion: 1, id: 'constructor', capability: 'constructor', label: 'Constructor', prefixes: ['constructor'], command: ['printf', '{prompt}'] },
+  { schemaVersion: 1, id: 'toString', capability: 'toString', label: 'To String', prefixes: ['toString'], command: ['printf', '{prompt}'] },
+  { schemaVersion: 1, id: 'constructor', capability: 'other', label: 'Duplicate', prefixes: ['other'], command: ['printf', '{prompt}'] },
+  { schemaVersion: 1, id: 'prefix-duplicate', capability: 'prefix-duplicate', label: 'Prefix duplicate', prefixes: ['__proto__'], command: ['printf', '{prompt}'] }
+]))
+assert(hostileCatalog.extensions.map(extension => extension.id).join(',') === '__proto__,constructor,toString,prefix-duplicate', 'hostile object-property names remain ordinary extension ids and capabilities')
+assert(hostileCatalog.diagnostics.some(message => message.indexOf("duplicate extension id 'constructor'") >= 0), 'hostile duplicate ids are still detected')
+assert(hostileCatalog.diagnostics.some(message => message.indexOf("Duplicate extension prefix '__proto__'") >= 0), 'hostile duplicate prefixes are still detected')
+assert(menu.resolveExtensions([{ capability: '__proto__', available: true, priority: 0, bundled: true }, { capability: '__proto__', available: true, priority: 1, bundled: false }])[0].priority === 1, 'hostile capability keys resolve replacements normally')
+assert(menu.parseExtensionCatalog('{bad').valid === false, 'malformed catalogs are marked invalid for last-known-good retention')
+assert(menu.parseExtensionCatalog(JSON.stringify({ extensions: [], diagnostics: [], complete: false })).complete === false, 'incomplete loader catalogs are marked transient')
 
 const bundledMissingQalc = menu.parseExtensions(JSON.stringify([{
   ...JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'extensions', 'calculator', 'extension.json'), 'utf8')),

@@ -88,7 +88,7 @@ Press Ctrl+K on a selected item to open its Action Panel. Directories can be ope
 
 - A current Omarchy installation with the manifest-based shell plugin system
 - [`libqalculate`](https://qalculate.github.io/) (`qalc`) to enable calculations and conversions
-- `fd`, `fzf`, `jq`, Python, Bash, and `wl-clipboard` (provided by a standard Omarchy installation)
+- `fd`, `fzf`, `jq`, Python 3, Bash, and `wl-clipboard` (provided by a standard Omarchy installation; Python drives extension loading and file indexing)
 
 Install the calculation dependency through Omarchy:
 

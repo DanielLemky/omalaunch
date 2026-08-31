@@ -22,10 +22,10 @@ def write_executable(path, content):
     path.chmod(path.stat().st_mode | stat.S_IXUSR)
 
 
-def run_loader(plugin_root, omarchy_root, home, env, timeout="0.15"):
+def run_loader(plugin_root, omarchy_root, home, env, timeout="0.15", extra_args=None):
     result = subprocess.run(
         [str(LOADER), str(plugin_root), str(omarchy_root), "--home", str(home),
-         "--provider-timeout", timeout],
+         "--provider-timeout", timeout] + list(extra_args or []),
         env=env,
         text=True,
         capture_output=True,
@@ -124,6 +124,46 @@ elif mode == 'oversized':
     check("escapes the plugin directory" in messages, "unsafe relative executable paths are rejected")
     check(all(item.get("_source") for item in catalog["extensions"]),
           "catalog definitions retain actionable source provenance")
+    check(catalog["complete"] is True, "successful plugin discovery marks the catalog complete")
+
+    provider_limited = run_loader(plugin_root, omarchy_root, home, env, extra_args=[
+        "--max-providers-per-plugin", "2", "--max-total-providers", "1"
+    ])
+    limited_messages = "\n".join(provider_limited["diagnostics"])
+    check([item.get("id") for item in provider_limited["extensions"]] == ["bundled", "static", "dynamic"],
+          "per-plugin and total provider bounds preserve earlier bundled, static, and provider definitions")
+    check("only the first 2 were considered" in limited_messages and "Total extension provider limit (1)" in limited_messages,
+          "provider aggregate bounds produce actionable diagnostics")
+
+    definition_limited = run_loader(plugin_root, omarchy_root, home, env, extra_args=[
+        "--max-definitions", "3"
+    ])
+    check(len(definition_limited["extensions"]) == 3
+          and "Extension definition limit (3)" in "\n".join(definition_limited["diagnostics"]),
+          "aggregate definition limits are injectable and preserve accepted definitions")
+
+    bundled_size = bundled_dir.joinpath("extension.json").stat().st_size
+    static_limited = run_loader(plugin_root, omarchy_root, home, env, extra_args=[
+        "--max-static-bytes", str(bundled_size)
+    ])
+    check([item.get("id") for item in static_limited["extensions"]][:1] == ["bundled"]
+          and "aggregate static extension input exceeded" in "\n".join(static_limited["diagnostics"]),
+          "aggregate static input bytes are bounded without discarding earlier valid definitions")
+
+    runtime_limited = run_loader(plugin_root, omarchy_root, home, env, extra_args=[
+        "--aggregate-provider-timeout", "0"
+    ])
+    check("Aggregate extension provider runtime limit" in "\n".join(runtime_limited["diagnostics"]),
+          "aggregate provider execution runtime is bounded")
+
+    byte_limited_result = subprocess.run(
+        [str(LOADER), str(plugin_root), str(omarchy_root), "--home", str(home),
+         "--provider-timeout", "0.15", "--catalog-output-bytes", "900"],
+        env=env, capture_output=True, check=True, timeout=10,
+    )
+    byte_limited = json.loads(byte_limited_result.stdout)
+    check(len(byte_limited_result.stdout) <= 901 and byte_limited["extensions"],
+          "incremental catalog byte enforcement stays within the injected output limit and preserves valid entries")
 
     enabled_file.write_text(json.dumps([{"id": "example.dynamic", "enabled": False}]), encoding="utf-8")
     disabled_catalog = run_loader(plugin_root, omarchy_root, home, env)
@@ -140,5 +180,6 @@ elif mode == 'oversized':
     write_executable(bin_dir / "omarchy", "#!/bin/sh\necho plugin registry unavailable >&2\nexit 9\n")
     missing_list = run_loader(plugin_root, omarchy_root, home, env)
     check([item.get("id") for item in missing_list["extensions"]] == ["bundled"]
-          and "external extensions were skipped" in "\n".join(missing_list["diagnostics"]),
-          "plugin-list failure preserves bundled extensions and explains skipped external plugins")
+          and "external extensions were skipped" in "\n".join(missing_list["diagnostics"])
+          and missing_list["complete"] is False,
+          "plugin-list failure preserves bundled extensions and marks the catalog transient")
