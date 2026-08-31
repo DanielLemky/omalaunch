@@ -230,3 +230,18 @@ Missing dependencies leave an extension visible but unavailable with a clear mes
 The `requires` field declares executable requirements only. It does not authorize package installation, and external extensions cannot provide commands for Omalaunch to install system packages. Omalaunch may offer explicit installation only for dependencies in its own trusted allow-list, after showing the exact command and receiving user confirmation.
 
 Malformed extensions are ignored. Omarchy plugins are trusted local software and extension commands run as the current user.
+
+## Configuration
+
+Omalaunch reads its core settings from the dedicated `~/.config/omarchy/omalaunch/config.jsonc` file. JSONC comments and trailing commas are accepted. Invalid, oversized (more than 64 KiB), over-depth, or unsupported configuration is ignored with a diagnostic.
+
+Select a provider by extension `id` in `config.jsonc`. The key is the capability identity. If the requested provider is missing or unavailable, Omalaunch reports it and uses normal priority and replacement resolution.
+
+```jsonc
+{
+  "version": 1,
+  "capabilities": {
+    "files": { "provider": "example.files" },
+  },
+}
+```

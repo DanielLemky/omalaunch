@@ -150,6 +150,19 @@ Omalaunch reads the stock Omarchy menu and the standard user menu override:
 
 Favorites and usage data are stored in the user's state directory. Currency refreshes use `qalc` and respect a persistent cooldown to avoid unnecessary network requests.
 
+Omalaunch core settings live in the dedicated `~/.config/omarchy/omalaunch/config.jsonc` file. Select a preferred extension provider by capability:
+
+```jsonc
+{
+  "version": 1,
+  "capabilities": {
+    "files": { "provider": "omalaunch.files" },
+  },
+}
+```
+
+If a preferred provider is missing or unavailable, Omalaunch reports a diagnostic and uses its normal provider selection rules.
+
 ## Updating
 
 ```bash

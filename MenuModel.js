@@ -897,21 +897,35 @@ function lookupKey(value) {
   return "$" + String(value || "")
 }
 
-function resolveExtensions(extensions) {
+function resolveExtensions(extensions, providerPreferences, diagnostics, diagnosticState) {
   var selected = ({})
   var order = []
   var values = Array.isArray(extensions) ? extensions : []
+  var preferences = providerPreferences && typeof providerPreferences === "object" ? providerPreferences : ({})
   for (var i = 0; i < values.length; i++) {
     var extension = values[i]
     var key = lookupKey(extension.capability)
     var current = selected[key]
     if (!current) order.push(key)
-    if (!current
+    var preferredId = typeof preferences[extension.capability] === "string" ? preferences[extension.capability] : ""
+    if (preferredId && extension.id === preferredId && extension.available) selected[key] = extension
+    else if (current && preferredId && current.id === preferredId && current.available) continue
+    else if (!current
         || (extension.available && !current.available)
         || (extension.available === current.available && extension.priority > current.priority)
         || (extension.available === current.available && extension.priority === current.priority
           && current.bundled && !extension.bundled))
       selected[key] = extension
+  }
+  for (var capability in preferences) {
+    if (!Object.prototype.hasOwnProperty.call(preferences, capability)) continue
+    var requested = preferences[capability]
+    var found = null
+    for (var valueIndex = 0; valueIndex < values.length; valueIndex++)
+      if (values[valueIndex].capability === capability && values[valueIndex].id === requested) found = values[valueIndex]
+    if (!found || !found.available) appendExtensionDiagnostic(diagnostics,
+      "Configured provider '" + requested + "' for capability '" + capability + "' is "
+        + (found ? "unavailable" : "missing") + "; normal provider resolution was used", diagnosticState)
   }
   var result = []
   for (var orderIndex = 0; orderIndex < order.length; orderIndex++) result.push(selected[order[orderIndex]])
@@ -957,6 +971,8 @@ function parseExtensionCatalog(text) {
     }
   } else if (!Array.isArray(values)) values = [values]
 
+  var providerPreferences = parsed && typeof parsed.providerPreferences === "object" && !Array.isArray(parsed.providerPreferences)
+    ? parsed.providerPreferences : ({})
   var extensions = []
   var ids = ({})
   if (values.length > MAX_EXTENSION_CATALOG_VALUES)
@@ -980,7 +996,7 @@ function parseExtensionCatalog(text) {
       appendExtensionDiagnostic(diagnostics, extension.id + " is missing: " + extension.missingRequires.join(", "), diagnosticState)
   }
 
-  var resolved = resolveExtensions(extensions)
+  var resolved = resolveExtensions(extensions, providerPreferences, diagnostics, diagnosticState)
   var prefixes = ({})
   for (var j = 0; j < resolved.length; j++) {
     var current = resolved[j]

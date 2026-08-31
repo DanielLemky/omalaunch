@@ -147,7 +147,17 @@ elif mode == 'integer-overflow':
     omarchy_root = base / "omarchy"
     omarchy_root.mkdir()
 
+    config_root = home / ".config" / "omarchy" / "omalaunch"
+    config_root.mkdir(parents=True)
+    (config_root / "config.jsonc").write_text('{\n// selection\n"version": 1, "capabilities": {"files": {"provider": "chosen",},},\n}')
+
     catalog = run_loader(plugin_root, omarchy_root, home, env)
+    check(catalog["providerPreferences"] == {"files": "chosen"}
+          and catalog["omalaunchConfig"] == {
+              "version": 1,
+              "capabilities": {"files": {"provider": "chosen"}},
+          },
+          "bounded JSONC loads provider selection into the stable core configuration envelope")
     ids = [item.get("id") for item in catalog["extensions"]]
     messages = "\n".join(catalog["diagnostics"])
     check(ids == ["bundled", "static", "dynamic", "argument"],
