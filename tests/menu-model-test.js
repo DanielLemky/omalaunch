@@ -89,6 +89,8 @@ assert(menu.fileFavoriteCapability(directoryFavorite) === 'files', 'directory fa
 assert(menu.fileFavoriteCapability(fileFavorite) === 'project-files', 'external file-browser favorite ids recover their capability')
 assert(menu.legacyFileFavoriteId('/tmp/Legacy/', 'directory') === 'file.favorite.directory:/tmp/Legacy', 'legacy favorite ids can be found for migration')
 assert(menu.fileFavoriteCapability('file.favorite.directory:/tmp/Legacy') === 'files', 'legacy path favorites migrate to the Files capability')
+const legacyFavorite = menu.fileFavorite('file.favorite.directory:/tmp/Projects')
+assert(menu.fileFavoriteId(legacyFavorite.path, legacyFavorite.type, legacyFavorite.capability) === directoryFavorite, 'legacy and current ids share one canonical favorite identity')
 assert(menu.fileFavoritePath('app.example') === '', 'non-file-browser favorites do not produce paths')
 assert(menu.fileFavoriteId('relative/path', 'file', 'files') === '', 'relative paths cannot become file-browser favorites')
 assert(menu.fileFavoriteId('/tmp/notes.txt', 'other', 'files') === '', 'unknown path types cannot become file-browser favorites')

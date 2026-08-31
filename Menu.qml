@@ -450,19 +450,34 @@ Item {
     return MenuModel.fileFavoriteId(path, type, root.fileBrowserExtension.capability)
   }
 
+  function fileFavoriteIds(path, type, capability) {
+    var ids = [MenuModel.fileFavoriteId(path, type, capability)]
+    if (capability === "files") ids.push(MenuModel.legacyFileFavoriteId(path, type))
+    return ids
+  }
+
   function isFileFavoriteStarred(path, type) {
-    var id = root.fileFavoriteId(path, type)
-    if (id && favorites.isStarred(id)) return true
-    return root.fileBrowserExtension && root.fileBrowserExtension.capability === "files"
-      && favorites.isStarred(MenuModel.legacyFileFavoriteId(path, type))
+    if (!root.fileBrowserExtension) return false
+    var ids = root.fileFavoriteIds(path, type, root.fileBrowserExtension.capability)
+    for (var i = 0; i < ids.length; i++)
+      if (ids[i] && favorites.isStarred(ids[i])) return true
+    return false
   }
 
   function toggleFileFavorite(path, type) {
     if (!root.fileBrowserExtension) return
-    var legacyId = root.fileBrowserExtension.capability === "files"
-      ? MenuModel.legacyFileFavoriteId(path, type) : ""
-    if (legacyId && favorites.isStarred(legacyId)) favorites.toggle(legacyId)
-    else favorites.toggle(root.fileFavoriteId(path, type))
+    var ids = root.fileFavoriteIds(path, type, root.fileBrowserExtension.capability)
+    for (var i = 0; i < ids.length; i++) {
+      if (!ids[i] || !favorites.isStarred(ids[i])) continue
+      favorites.removeIds(ids)
+      return
+    }
+    favorites.toggle(ids[0])
+  }
+
+  function unstarFileFavorite(favorite) {
+    if (!favorite) return
+    favorites.removeIds(root.fileFavoriteIds(favorite.path, favorite.type, favorite.capability))
   }
 
   function enterFileBrowser(extension, startPath) {
@@ -1168,10 +1183,13 @@ Item {
 
       if (active === "root") {
         var favoriteIds = Object.keys(favorites.starredIds)
+        var seenFileFavorites = ({})
         for (var favoriteIndex = 0; favoriteIndex < favoriteIds.length; favoriteIndex++) {
-          var favoriteId = favoriteIds[favoriteIndex]
-          var favorite = MenuModel.fileFavorite(favoriteId)
+          var favorite = MenuModel.fileFavorite(favoriteIds[favoriteIndex])
           if (!favorite) continue
+          var favoriteId = MenuModel.fileFavoriteId(favorite.path, favorite.type, favorite.capability)
+          if (seenFileFavorites["$" + favoriteId]) continue
+          seenFileFavorites["$" + favoriteId] = true
           var favoriteItem = root.normalizeItem(favoriteId, {
             icon: favorite.type === "directory" ? "󰉋" : "󰈔",
             label: MenuModel.fileFavoriteLabel(favorite.path),
@@ -1439,8 +1457,10 @@ Item {
       root.toggleFileFavorite(row.action, fileType)
       return
     }
+    var favorite = MenuModel.fileFavorite(row.itemId)
     root.pendingStarSelectionId = row.itemId
-    favorites.toggle(row.itemId)
+    if (favorite) root.unstarFileFavorite(favorite)
+    else favorites.toggle(row.itemId)
   }
 
   function requestDeleteSelected() {
@@ -2154,7 +2174,7 @@ Item {
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
             text: root.fileBrowserActive
-              ? (displayModel.get(root.selectedIndex).starred ? "Ctrl+S  Unstar · Ctrl+K  Actions" : "Ctrl+S  Star · Ctrl+K  Actions")
+              ? (!root.selectedFileRow ? "" : (root.selectedFileRow.starred ? "Ctrl+S  Unstar · Ctrl+K  Actions" : "Ctrl+S  Star · Ctrl+K  Actions"))
               : (root.cursorActive && root.selectedIndex >= 0 && root.selectedIndex < displayModel.count && displayModel.get(root.selectedIndex).starred ? "Ctrl+S  Unstar" : "Ctrl+S  Star")
             color: root.foreground
             opacity: 0.45

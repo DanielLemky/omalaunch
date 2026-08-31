@@ -50,6 +50,22 @@ Item {
     root.changed()
   }
 
+  function removeIds(itemIds) {
+    if (!root.loaded || !Array.isArray(itemIds)) return
+    var next = Object.assign({}, root.starredIds)
+    var changed = false
+    for (var i = 0; i < itemIds.length; i++) {
+      var id = String(itemIds[i] || "")
+      if (!id || next[id] !== true) continue
+      delete next[id]
+      changed = true
+    }
+    if (!changed) return
+    root.starredIds = next
+    root.save(next)
+    root.changed()
+  }
+
   Process {
     id: initDir
     command: ["install", "-d", "-m", "0700", root.stateDir]
