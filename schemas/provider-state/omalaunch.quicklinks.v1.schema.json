@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "$id": "https://github.com/DanielLemky/omalaunch/schemas/provider-state/omalaunch.quicklinks.v1.schema.json",
+  "title": "omalaunch.quicklinks machine-managed state version 1",
+  "required": [
+    "version",
+    "links"
+  ],
+  "properties": {
+    "version": {
+      "const": 1
+    },
+    "links": {
+      "type": "array",
+      "maxItems": 256,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "name",
+          "url"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120,
+            "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+          },
+          "url": {
+            "type": "string",
+            "minLength": 10,
+            "maxLength": 2048,
+            "format": "omalaunch-http-url"
+          },
+          "starred": {
+            "type": "boolean",
+            "default": false
+          },
+          "openWith": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "type"
+                ],
+                "properties": {
+                  "type": {
+                    "const": "default"
+                  }
+                }
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "type",
+                  "profile"
+                ],
+                "properties": {
+                  "type": {
+                    "const": "profile"
+                  },
+                  "profile": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 120,
+                    "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+}

@@ -48,7 +48,7 @@ with tempfile.TemporaryDirectory() as temporary:
         'file.favorite:["files","file","/tmp/notes.txt"]',
         'file.favorite:["other-files","file","/tmp/private"]',
         'extension.root:"files"', 'extension.root:"calculator"',
-        'extension.root:"missing"', 'extension.menu:["dynamic-provider","item"]',
+        'extension.root:"missing"', 'extension.menu:["quicklinks","docs"]',
         'extension.menu:["missing","item"]', "unknown.temporary",
     ]})
     diagnostics, complete = run(home, config, state, catalog)
@@ -60,7 +60,7 @@ with tempfile.TemporaryDirectory() as temporary:
     check(files["favorites"] == [{"type": "directory", "path": "/tmp/Docs"}, {"type": "file", "path": "/tmp/notes.txt"}], "legacy and current JSON-array file IDs normalize in source order")
     check(extensions["favorites"] == ["external.files", "external.calc"], "extension capabilities resolve to active provider IDs without shared configuration")
     check(any("non-bundled capability" in item for item in diagnostics)
-          and any('extension.menu:["dynamic-provider","item"]' in item for item in diagnostics)
+          and any('extension.menu:["quicklinks","docs"]' in item for item in diagnostics)
           and any('extension.menu:["missing","item"]' in item for item in diagnostics)
           and any("unknown legacy" in item for item in diagnostics)
           and any("Could not resolve" in item for item in diagnostics),

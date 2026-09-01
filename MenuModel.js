@@ -875,7 +875,7 @@ function dynamicMenuSearchItems(extension, workflow) {
   for (var i = 0; i < workflow.items.length; i++) {
     var node = workflow.items[i]
     if (!node || ["action", "confirm", "input"].indexOf(node.kind) < 0) continue
-    result.push(normalizeItem("extension.menu:" + JSON.stringify([extension.capability, node.id]), {
+    result.push(normalizeItem(dynamicMenuItemId(extension.capability, node.id), {
       parent: "extensions",
       icon: node.icon || extension.icon,
       iconFont: node.iconFont || extension.iconFont,
@@ -889,6 +889,12 @@ function dynamicMenuSearchItems(extension, workflow) {
   return result
 }
 
+function dynamicMenuItemId(capability, nodeId) {
+  capability = String(capability || "").trim()
+  nodeId = String(nodeId || "").trim()
+  return capability && nodeId ? "extension.menu:" + JSON.stringify([capability, nodeId]) : ""
+}
+
 function dynamicMenuSearchIdentity(itemId) {
   var prefix = "extension.menu:"
   var value = String(itemId || "")
@@ -898,6 +904,13 @@ function dynamicMenuSearchIdentity(itemId) {
     return Array.isArray(parsed) && parsed.length === 2 && typeof parsed[0] === "string" && typeof parsed[1] === "string"
       ? { capability: parsed[0], id: parsed[1] } : null
   } catch (e) { return null }
+}
+
+function dynamicMenuUsageItemId(extension, node) {
+  if (!extension || extension.mode !== "menu" || !node || !node.usageItemId) return ""
+  if (extension.id === "omalaunch.quicklinks" && extension.config
+      && extension.config.rankByUsage === false) return ""
+  return dynamicMenuItemId(extension.capability, node.usageItemId)
 }
 
 function normalizeDynamicMenuOutput(raw) {
@@ -914,7 +927,15 @@ function normalizeDynamicMenuOutput(raw) {
     if (copy.input) copy = Object.assign({}, copy, copy.input, { kind: "input", command: copy.input.command || copy.command })
     prepared.push(copy)
   }
-  return normalizeWorkflow({ items: prepared })
+  var workflow = normalizeWorkflow({ items: prepared })
+  if (!workflow) return null
+  for (var itemIndex = 0; itemIndex < workflow.items.length; itemIndex++) {
+    var item = workflow.items[itemIndex]
+    if (item.closeOnSuccess) item.usageItemId = item.id
+    for (var actionIndex = 0; actionIndex < item.actions.length; actionIndex++)
+      if (item.actions[actionIndex].id === "open") item.actions[actionIndex].usageItemId = item.id
+  }
+  return workflow
 }
 
 function normalizeExtension(raw) {
@@ -1676,7 +1697,9 @@ if (typeof module !== "undefined") {
     normalizeWorkflow: normalizeWorkflow,
     normalizeDynamicMenuOutput: normalizeDynamicMenuOutput,
     dynamicMenuSearchItems: dynamicMenuSearchItems,
+    dynamicMenuItemId: dynamicMenuItemId,
     dynamicMenuSearchIdentity: dynamicMenuSearchIdentity,
+    dynamicMenuUsageItemId: dynamicMenuUsageItemId,
     workflowInterpolate: workflowInterpolate,
     workflowInitialInput: workflowInitialInput,
     workflowCommand: workflowCommand,

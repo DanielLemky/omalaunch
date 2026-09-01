@@ -1,0 +1,28 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+import json, os, sys
+from pathlib import Path
+ROOT=Path(__file__).resolve().parents[2]; sys.path.insert(0,str(ROOT/"libexec"))
+import provider_config as pc
+PROVIDER="omalaunch.quicklinks"; EXE="{extensionDir}/../../libexec/provider-config"
+def fail(e): print("quicklinks: "+str(e),file=sys.stderr); raise SystemExit(1)
+def menu(home):
+    data=pc.load(PROVIDER,home); items=[{"id":"add","label":"Add Quicklink…","icon":"+","description":"Enter a URL, then a name","command":[EXE,"read",PROVIDER],"input":{"prompt":"Enter URL","capture":"url","maxLength":2048,"next":{"id":"add-name","kind":"input","label":"Name Quicklink","prompt":"Enter name","maxLength":120,"command":[EXE,"add",PROVIDER,"{url}","{input}"]}}}]
+    for link in sorted(data["links"],key=lambda x:(not x["starred"],x["name"].casefold())):
+        ow=link["openWith"]; command=["xdg-open",link["url"]] if ow["type"]=="default" else ["omarchy-launch-browser",link["url"],"--profile-directory="+ow["profile"]]
+        actions=[
+          {"id":"star","label":"Unstar" if link["starred"] else "Star","icon":"★","command":[EXE,"star",PROVIDER,link["id"],"false" if link["starred"] else "true"]},
+          {"id":"copy","label":"Copy URL","icon":"󰆏","command":["wl-copy","--",link["url"]],"closeOnSuccess":True},
+          {"id":"rename","label":"Edit name…","icon":"󰏫","command":[EXE,"read",PROVIDER],"input":{"prompt":"Name","default":link["name"],"maxLength":120,"command":[EXE,"set-name",PROVIDER,link["id"],"{input}"]}},
+          {"id":"edit-url","label":"Edit URL…","icon":"󰇅","command":[EXE,"read",PROVIDER],"input":{"prompt":"Enter URL","default":link["url"],"maxLength":2048,"command":[EXE,"set-url",PROVIDER,link["id"],"{input}"]}},
+          {"id":"open","label":"Open","icon":"󰏌","command":command,"closeOnSuccess":True},
+          {"id":"delete","label":"Delete","icon":"󰆴","confirm":f'Delete “{link["name"]}”?',"confirmLabel":"Delete","command":[EXE,"delete",PROVIDER,link["id"]]}
+        ]
+        items.append({"id":"link-"+link["id"],"label":link["name"],"description":link["url"],"icon":"󰌹","starred":link["starred"],"starAction":"star","command":command,"closeOnSuccess":True,"actions":actions})
+    print(json.dumps({"items":items},ensure_ascii=False))
+def main():
+    home=Path(os.environ.get("HOME",str(Path.home())))
+    if len(sys.argv)==1 or sys.argv[1]=="menu": menu(home)
+    else: fail("invalid command")
+try: main()
+except (OSError,UnicodeError,ValueError,json.JSONDecodeError) as e: fail(e)

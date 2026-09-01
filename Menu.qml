@@ -948,6 +948,7 @@ Item {
     backgroundActionProc.refreshExtensions = node.refreshExtensions
     backgroundActionProc.closeAfter = node.closeOnSuccess
     backgroundActionProc.actionId = root.boundedBackgroundDiagnostic(node.id)
+    backgroundActionProc.usageItemId = MenuModel.dynamicMenuUsageItemId(extension, node)
     backgroundActionProc.command = command
     backgroundActionProc.running = true
     backgroundActionTimeout.restart()
@@ -984,6 +985,7 @@ Item {
     root.workflowGeneration += 1
     workflowActionProc.generation = root.workflowGeneration
     workflowActionProc.extensionCapability = root.workflowExtension.capability
+    workflowActionProc.usageItemId = MenuModel.dynamicMenuUsageItemId(root.workflowExtension, node)
     workflowActionProc.nextNode = node.next
     workflowActionProc.nextContext = transition.context
     workflowActionProc.refreshExtensions = node.refreshExtensions
@@ -1045,6 +1047,7 @@ Item {
     workflowActionProc.refreshDynamicMenu = false
     workflowActionProc.nextBackSteps = 0
     workflowActionProc.closeAfter = false
+    workflowActionProc.usageItemId = ""
     if (workflowActionProc.running) {
       // `running = false` is Quickshell's supported SIGTERM path. Keep the
       // Process reserved during a short grace period; a generation-matched
@@ -2196,7 +2199,7 @@ Item {
     }
     var rootExtension = root.extensionForRootId(row.itemId)
     if (rootExtension) {
-      if (rootExtension.available) usage.record(row.itemId)
+      if (rootExtension.available && rootExtension.mode !== "menu") usage.record(row.itemId)
       root.activateExtensionRoot(rootExtension)
       return
     }
@@ -3079,6 +3082,7 @@ Item {
     property int nextBackSteps: 0
     property bool closeAfter: false
     property bool returnToRoot: false
+    property string usageItemId: ""
     onExited: function(exitCode) {
       console.warn("Omalaunch action exit: " + exitCode + " command=" + JSON.stringify(workflowActionProc.command))
       workflowActionTimeout.stop()
@@ -3088,7 +3092,10 @@ Item {
       if (!MenuModel.workflowActionIsCurrent(workflowActionProc.generation, root.workflowGeneration,
           root.workflowActive, workflowActionProc.extensionCapability, root.workflowExtension)) return
       workflowActionProc.generation = 0
-      if (exitCode !== 0) { workflowActionProc.returnToRoot = false; return }
+      if (exitCode !== 0) { workflowActionProc.returnToRoot = false; workflowActionProc.usageItemId = ""; return }
+      var usageItemId = workflowActionProc.usageItemId
+      workflowActionProc.usageItemId = ""
+      if (usageItemId) usage.record(usageItemId)
       if (workflowActionProc.returnToRoot) {
         workflowActionProc.returnToRoot = false
         root.workflowActive = false
@@ -3149,6 +3156,7 @@ Item {
     property string actionId: ""
     property bool refreshExtensions: false
     property bool closeAfter: false
+    property string usageItemId: ""
     onExited: function(exitCode) {
       backgroundActionTimeout.stop()
       backgroundActionKillTimer.stop()
@@ -3159,9 +3167,13 @@ Item {
           root.backgroundActionGeneration, backgroundActionProc.extensionCapability, extension)) return
       backgroundActionProc.generation = 0
       if (exitCode !== 0) {
+        backgroundActionProc.usageItemId = ""
         console.warn("Omalaunch: background action failed (exit " + exitCode + "): " + backgroundActionProc.actionId)
         return
       }
+      var usageItemId = backgroundActionProc.usageItemId
+      backgroundActionProc.usageItemId = ""
+      if (usageItemId) usage.record(usageItemId)
       if (backgroundActionProc.refreshExtensions) root.loadExtensions(true)
       root.preloadDynamicMenuSearch()
       if (root.workflowActive && root.workflowExtension

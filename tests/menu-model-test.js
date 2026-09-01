@@ -274,12 +274,13 @@ assert(menu.extensionRootActivation(dynamicMenuExtensions[0]) === 'menu', 'dynam
 const dynamicMenu = menu.normalizeDynamicMenuOutput(JSON.stringify({ items: [
   { id: 'open', label: 'Open docs', description: 'Documentation', aliases: ['manual', 'reference'], starred: true, starAction: 'star', command: ['xdg-open', 'https://example.test'], closeOnSuccess: true, actions: [
     { id: 'star', label: 'Unstar', command: ['links', 'star', 'open', 'false'] },
+    { id: 'open', label: 'Open', command: ['xdg-open', 'https://example.test'], closeOnSuccess: true },
     { id: 'delete', label: 'Delete', confirm: 'Delete this link?', confirmLabel: 'Delete', command: ['links', 'delete', 'open'], refreshExtensions: true }
   ] },
   { id: 'add', label: 'Add Quicklink', input: { prompt: 'URL', maxLength: 200, command: ['links', 'add', '{input}'] } }
 ] }))
 assert(dynamicMenu && dynamicMenu.items.length === 2, 'bounded dynamic menu output is normalized')
-assert(dynamicMenu.items[0].kind === 'action' && dynamicMenu.items[0].actions[1].kind === 'confirm', 'rows retain direct actions and contextual confirmations')
+assert(dynamicMenu.items[0].kind === 'action' && dynamicMenu.items[0].actions[2].kind === 'confirm', 'rows retain direct actions and contextual confirmations')
 assert(dynamicMenu.items[0].closeOnSuccess, 'launch rows can request launcher closure after successful dispatch')
 assert(dynamicMenu.items[0].starred, 'dynamic rows retain explicit starred state')
 assert(dynamicMenu.items[0].starAction === 'star', 'dynamic rows can identify a direct Ctrl+S star action')
@@ -290,8 +291,16 @@ assert(menu.matchesQuery(dynamicSearchItems[0], menu.prepareSearchQuery('referen
 assert(!menu.matchesQuery(dynamicSearchItems[0], menu.prepareSearchQuery('quicklinks'), true), 'dynamic routing identities do not leak provider capabilities into search')
 assert(menu.matchesQuery(dynamicSearchItems[1], menu.prepareSearchQuery('quicklink'), true), 'dynamic rows still match provider words in visible labels')
 assert(menu.dynamicMenuSearchIdentity(dynamicSearchItems[0].id).capability === 'quicklinks', 'dynamic search identities retain stable extension capability')
+assert(menu.dynamicMenuItemId('quicklinks', 'open') === dynamicSearchItems[0].id, 'dynamic usage uses the stable synthetic search identity')
+assert(menu.dynamicMenuUsageItemId(dynamicMenuExtensions[0], dynamicMenu.items[0]) === dynamicSearchItems[0].id, 'provider-menu primary launches map to the search identity')
+assert(menu.dynamicMenuUsageItemId(dynamicMenuExtensions[0], dynamicMenu.items[0].actions.find(action => action.id === 'open')) === dynamicSearchItems[0].id, 'contextual Open maps to its primary Quicklink identity')
+assert(menu.dynamicMenuUsageItemId(dynamicMenuExtensions[0], dynamicMenu.items[0].actions.find(action => action.id === 'star')) === '', 'contextual mutations do not publish usage')
+assert(menu.dynamicMenuUsageItemId(dynamicMenuExtensions[0], dynamicMenu.items[0].actions.find(action => action.id === 'delete')) === '', 'unrelated confirmations do not publish usage')
+assert(menu.dynamicMenuUsageItemId(dynamicMenuExtensions[0], dynamicMenu.items[1]) === '', 'Add and other non-launch mutations do not publish usage')
+assert(menu.dynamicMenuUsageItemId({ ...dynamicMenuExtensions[0], id: 'omalaunch.quicklinks', config: { rankByUsage: false } }, dynamicMenu.items[0]) === '', 'bundled Quicklinks can disable usage ranking')
+assert(menu.dynamicMenuUsageItemId({ ...dynamicMenuExtensions[0], id: 'replacement.quicklinks', config: { rankByUsage: false } }, dynamicMenu.items[0]) === dynamicSearchItems[0].id, 'bundled Quicklinks configuration does not control replacement providers')
 assert(menu.dynamicMenuSearchIdentity('extension.menu:not-json') === null, 'malformed dynamic search identities are rejected')
-assert(dynamicMenu.items[0].actions[1].refreshExtensions, 'mutation actions can request an extension refresh')
+assert(dynamicMenu.items[0].actions[2].refreshExtensions, 'mutation actions can request an extension refresh')
 assert(dynamicMenu.items[1].kind === 'input' && dynamicMenu.items[1].prompt === 'URL', 'rows can open bounded host input forms')
 assert(menu.workflowCommand(dynamicMenu.items[1], 'https://literal.test/?q=$(bad)', {}).slice(-1)[0] === 'https://literal.test/?q=$(bad)', 'dynamic input is substituted as one literal argument')
 const capturedMenu = menu.normalizeDynamicMenuOutput([{ id: 'add', label: 'Add', input: {
@@ -326,7 +335,7 @@ assert(!menu.workflowClosesOnDispatch(sessionNode, ['helper', 'save']), 'non-ter
 assert(!menu.workflowClosesOnDispatch({ ...sessionNode, allowEmpty: false }, []), 'pre-dispatch validation failures do not request closure')
 const backgroundStar = dynamicMenu.items[0].actions[0]
 assert(menu.workflowBackgroundEligible(backgroundStar, menu.workflowCommand(backgroundStar, '', {})), 'non-interactive action leaves are eligible for the background runner')
-assert(!menu.workflowBackgroundEligible(dynamicMenu.items[0].actions[1], menu.workflowCommand(dynamicMenu.items[0].actions[1], '', {})), 'confirmation actions remain on the staged foreground path')
+assert(!menu.workflowBackgroundEligible(dynamicMenu.items[0].actions[2], menu.workflowCommand(dynamicMenu.items[0].actions[2], '', {})), 'confirmation actions remain on the staged foreground path')
 assert(!menu.workflowBackgroundEligible(dynamicMenu.items[1], menu.workflowCommand(dynamicMenu.items[1], 'value', {})), 'input actions remain on the staged foreground path')
 assert(!menu.workflowBackgroundEligible({ ...backgroundStar, next: { id: 'next' } }, ['true']), 'actions with a next stage remain on the foreground path')
 assert(menu.backgroundActionIsCurrent(3, 3, 'quicklinks', dynamicMenuExtensions[0]), 'current dynamic-provider background actions can publish completion')
