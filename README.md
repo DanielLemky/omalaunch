@@ -93,6 +93,15 @@ Left and Right move one emoji, Up and Down move one row, and PageUp and PageDown
 
 The grid reads the emoji set your Omarchy installation already ships, so it stays current with Omarchy rather than carrying its own copy of the data.
 
+Bind a key to open the grid without passing through the launcher. In
+`~/.config/hypr/bindings.lua`:
+
+```lua
+o.bind("CTRL + ALT + SPACE", "Emoji", "omarchy-shell shell summon quantumfire.omalaunch '{\"extension\":\"emoji\"}'")
+```
+
+Any extension capability works the same way — `files`, `calculator`, and so on.
+
 ## Requirements
 
 - A current Omarchy installation with the manifest-based shell plugin system

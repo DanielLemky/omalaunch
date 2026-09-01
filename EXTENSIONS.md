@@ -23,6 +23,19 @@ Activating a shortcut enters the interface appropriate to its mode:
 
 Unavailable extensions remain listed with their missing dependency detail. Only dependencies in Omalaunch's own trusted setup allow-list offer an installation confirmation; other unavailable shortcuts cannot dispatch a command.
 
+A summon may name an extension capability instead of a menu id, so a compositor
+keybinding can open one directly:
+
+```bash
+omarchy-shell shell summon quantumfire.omalaunch '{"extension":"emoji"}'
+```
+
+The capability is resolved through the same replacement rules as its shortcut,
+so a configured or higher-priority provider answers the summon. The extension
+catalog loads asynchronously; the request is held until it resolves and then
+enters the extension, so the launcher never appears to ignore the keybinding.
+An unknown capability is diagnosed and leaves the ordinary starting view.
+
 ## External plugin manifest
 
 An Omarchy plugin declares its extension files in `manifest.json`:

@@ -665,6 +665,19 @@ assert(menu.parseExtensions(JSON.stringify([{
 assert(menu.openStateReset().emojiPickerActive === false && menu.openStateReset().emojiExtension === null,
   'a new launcher session leaves the emoji picker')
 
+assert(menu.extensionRouteCapability('emoji') === 'emoji', 'a summon can route to an extension capability')
+assert(menu.extensionRouteCapability('  files  ') === 'files', 'routed capabilities are trimmed')
+assert(menu.extensionRouteCapability('') === '' && menu.extensionRouteCapability('   ') === '',
+  'an empty routed capability is ignored')
+assert(menu.extensionRouteCapability(undefined) === '' && menu.extensionRouteCapability(null) === ''
+  && menu.extensionRouteCapability(42) === '' && menu.extensionRouteCapability({}) === '',
+  'a non-string routed capability is ignored')
+assert(menu.extensionRouteCapability('x'.repeat(128)).length === 128
+  && menu.extensionRouteCapability('x'.repeat(129)) === '',
+  'routed capabilities are bounded')
+assert(menu.openStateReset().pendingExtensionCapability === '',
+  'a new launcher session drops a pending extension route')
+
 assert(menu.emojiDataPath(emojiExtensions[0], '/usr/share/omarchy') === '/usr/share/omarchy/shell/plugins/emojis/emojis.json',
   '{omarchyPath} expands in the emoji dataset path')
 const relativeDataExtension = menu.parseExtensions(JSON.stringify([{

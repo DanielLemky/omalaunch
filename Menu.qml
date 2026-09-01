@@ -20,6 +20,10 @@ Item {
   // `omarchy-shell shell summon quantumfire.omalaunch ...` and close() when hidden.
   property string pendingInitialMenu: "root"
   property bool routePendingForMenuSources: false
+  // A summon may name an extension capability instead of a menu id, so a
+  // hotkey can open one directly. The catalog loads asynchronously, so the
+  // intent is held until whichever settles last — the route or the catalog.
+  property string pendingExtensionCapability: ""
 
   function open(payloadJson) {
     // Parse first so resetting the old surface cannot discard the incoming
@@ -35,6 +39,7 @@ Item {
     if (payload.mode === "select" || payload.mode === "input") {
       root.openDmenu(payload)
     } else {
+      root.pendingExtensionCapability = MenuModel.extensionRouteCapability(payload.extension)
       root.openRoute(payload.initialMenu || payload.menu || "root")
     }
   }
@@ -607,6 +612,24 @@ Item {
     for (var i = 0; i < root.extensions.length; i++)
       if (root.extensions[i].id === id) return root.extensions[i]
     return null
+  }
+
+  // Consumed from whichever of the two asynchronous paths finishes last, so a
+  // summon lands whether the catalog was already warm or still loading.
+  function enterPendingExtension() {
+    var capability = root.pendingExtensionCapability
+    if (!capability || !root.opened || root.dmenuActive) return
+    // An empty catalog means it has not loaded yet, not that the capability is
+    // missing. Stay pending; the loader calls back when it exits.
+    if (root.extensions.length === 0) return
+    root.pendingExtensionCapability = ""
+    var extension = root.extensionByCapability(capability)
+    if (!extension) {
+      console.warn("Omalaunch: summon requested unknown extension capability '" + capability + "'")
+      return
+    }
+    root.activateExtensionRoot(extension)
+    Qt.callLater(function() { keyCatcher.forceActiveFocus() })
   }
 
   function extensionByCapability(capability) {
@@ -2340,6 +2363,7 @@ Item {
   function cancel() {
     root.invalidateWorkflowAction("launcher canceled")
     root.routePendingForMenuSources = false
+    root.pendingExtensionCapability = ""
     if (root.dmenuActive) root.finishRequest(null)
     root.resetFileIndex()
     root.actionPanelActive = false
@@ -2390,6 +2414,7 @@ Item {
     // their icons. Keep the open-time fallback, but avoid rescanning every icon
     // directory on each rapid launcher invocation.
     root.refreshAppIconsIfStale()
+    root.enterPendingExtension()
 
     Qt.callLater(function() { keyCatcher.forceActiveFocus() })
   }
@@ -2743,6 +2768,7 @@ Item {
           if (refreshedEmoji && refreshedEmoji.available && refreshedEmoji.mode === "emoji") root.emojiExtension = refreshedEmoji
           else root.leaveEmojiPicker(false)
         }
+        root.enterPendingExtension()
         if (catalog.complete) root.extensionsLoadedAt = Date.now()
       } else {
         catalog.diagnostics.unshift("Retained the last known-good extension catalog after a transient loader failure")

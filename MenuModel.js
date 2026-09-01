@@ -521,6 +521,7 @@ function openStateReset() {
     workflowNode: null,
     workflowContext: ({}),
     workflowStack: [],
+    pendingExtensionCapability: "",
     emojiPickerActive: false,
     emojiExtension: null,
     focusedExtension: null,
@@ -773,6 +774,14 @@ function sortExtensionRootRows(rows) {
     return labels || String(a.itemId || "").localeCompare(String(b.itemId || ""))
   })
   return result
+}
+
+var MAX_EXTENSION_ROUTE_CAPABILITY = 128
+
+function extensionRouteCapability(value) {
+  if (typeof value !== "string") return ""
+  var capability = value.trim()
+  return capability.length > 0 && capability.length <= MAX_EXTENSION_ROUTE_CAPABILITY ? capability : ""
 }
 
 function extensionRootActivation(extension) {
@@ -1737,6 +1746,7 @@ if (typeof module !== "undefined") {
     extensionRootItem: extensionRootItem,
     sortExtensionRootRows: sortExtensionRootRows,
     extensionRootActivation: extensionRootActivation,
+    extensionRouteCapability: extensionRouteCapability,
     extensionRootInput: extensionRootInput,
     focusedExtensionQuery: focusedExtensionQuery,
     focusedPrefixMatch: focusedPrefixMatch,
