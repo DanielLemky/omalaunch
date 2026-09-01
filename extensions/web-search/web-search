@@ -12,7 +12,7 @@ def menu(home:Path)->None:
         enabled=engine["id"] not in disabled
         toggle={"id":"toggle","label":"Disable" if enabled else "Enable","description":("Disable " if enabled else "Enable ")+engine["name"],"icon":"󰔡" if enabled else "󰨙","command":[EXE,"toggle-engine",PROVIDER,engine["id"]]}
         if enabled:
-            items.append({"id":"search-"+engine["id"],"label":engine["name"],"description":"Search with "+engine["name"],"icon":"󰍉","aliases":[engine["id"]],"input":{"prompt":"Search "+engine["name"],"maxLength":4096,"command":[str(Path(__file__).resolve()),"open",engine["id"],"{input}"]},"actions":[toggle]})
+            items.append({"id":"search-"+engine["id"],"label":engine["name"],"description":"Search with "+engine["name"],"icon":"󰍉","aliases":[engine["id"]],"input":{"prompt":"Search "+engine["name"],"maxLength":4096,"command":[str(Path(__file__).resolve()),"open",engine["id"],"{input}"],"closeOnSuccess":True},"actions":[toggle]})
         else:
             items.append({"id":"enable-"+engine["id"],"label":"Enable "+engine["name"],"description":"Search engine is disabled","icon":"󰨙","command":toggle["command"]})
     print(json.dumps({"items":items},ensure_ascii=False))
