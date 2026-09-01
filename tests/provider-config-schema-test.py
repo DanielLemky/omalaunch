@@ -26,7 +26,7 @@ valid={
  "omalaunch.apps":{"version":1,"favorites":["app.desktop"]},
  "omalaunch.files":{"version":1,"favorites":[{"type":"directory","path":"/tmp/docs"}]},
  "omalaunch.quicklinks":{"version":1,"links":[{"id":"docs","name":"Docs","url":"https://example.test","starred":True,"openWith":{"type":"profile","profile":"Work"}}]},
- "omalaunch.web-search":{"version":1,"globalSearchExcludedEngines":["bing"]},
+ "omalaunch.web-search":{"version":1,"globalSearchExcludedEngines":["bing"],"starredEngines":["google"]},
  "omalaunch.extensions":{"version":1,"favorites":["omalaunch.files"]},
 }
 for provider,value in valid.items():

@@ -82,7 +82,7 @@ The optional `omalaunch.web-search.jsonc` configuration defines 1 to 32 search e
 }
 ```
 
-The launcher percent-encodes the query before it replaces the placeholder. `rankByUsage` defaults to `true` and learns one rank for each engine from successful searches. Set it to `false` to disable learned ranking for the complete extension. Every engine remains available in the Web Search menu. Its action adds it to or removes it from global search and changes only `globalSearchExcludedEngines` in machine-managed state. Thus, UI changes do not rewrite the user JSONC file. New configured engines appear in global search unless their ID is in that state list. The menu sorts global engines first and excluded engines last, with each group sorted by name.
+The launcher percent-encodes the query before it replaces the placeholder. `rankByUsage` defaults to `true` and learns one rank for each engine from successful searches. Set it to `false` to disable learned ranking for the complete extension. Every engine remains available in the Web Search menu. Its action adds it to or removes it from global search and changes only `globalSearchExcludedEngines` in machine-managed state. Ctrl+S and the contextual Star action add its ID to `starredEngines`, which puts the engine on the launcher's starting view. A star implies global search: starring adds the engine to global search, and removing it from global search removes its star. Thus, UI changes do not rewrite the user JSONC file. New configured engines appear in global search unless their ID is in that state list. The menu sorts global engines first and excluded engines last, with each group sorted by name.
 
 ## Quicklinks
 
