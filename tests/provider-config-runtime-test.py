@@ -36,6 +36,11 @@ with tempfile.TemporaryDirectory() as raw:
     quicklink_item=json.loads(quicklinks.stdout)["items"][1]
     copy_action=next(action for action in quicklink_item["actions"] if action["id"]=="copy")
     check(copy_action["command"]==["wl-copy","--",link["url"]] and copy_action["closeOnSuccess"] is True,"Quicklinks Copy URL uses the tracked close-on-success action contract")
+    for unsafe_url in ("https://example.test\\path", "https://exa mple.test", "https://example.test:bad"):
+        result=subprocess.run([cli,"set-url","omalaunch.quicklinks",link_id,unsafe_url],env=env)
+        check(result.returncode!=0 and pc.load_state("omalaunch.quicklinks",home)["links"][0]["url"]==link["url"],"Quicklinks rejects ambiguous URL: "+unsafe_url)
+    result=subprocess.run([cli,"delete","omalaunch.quicklinks","missing-id"],env=env)
+    check(result.returncode!=0 and len(pc.load_state("omalaunch.quicklinks",home)["links"])==1,"Quicklinks delete rejects an unknown identity without rewriting state")
     bad=b'{"version":1,"favorites":[],"bad":true}'; app_state=pc.state_path("omalaunch.apps",home); app_state.write_bytes(bad)
     result=subprocess.run([cli,"toggle","omalaunch.apps","other.desktop"],env=env)
     check(result.returncode!=0 and app_state.read_bytes()==bad,"invalid state is not overwritten")

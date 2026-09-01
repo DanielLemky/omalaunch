@@ -131,6 +131,10 @@ assert(qml.includes('var workflowQuery = MenuModel.prepareSearchQuery(root.filte
 'workflow menus filter provider rows while retaining original activation and action identities')
 assert(qml.includes('if (rootExtension.available && rootExtension.mode !== "menu") usage.record(row.itemId)'),
 'dynamic provider roots do not record usage while static extension behavior remains unchanged')
+assert(qml.includes('var dynamicUsageId = MenuModel.dynamicMenuUsageItemId(')
+  && qml.includes('dynamicSearchRow.usageCount = usage.count(dynamicUsageId)')
+  && qml.includes('dynamicSearchRow.lastUsedAt = usage.lastUsedAt(dynamicUsageId)'),
+'dynamic search ranking reads the same provider-owned identity that successful Open records')
 assert(qml.includes('function dispatchWorkflowNode(node, input, returnToRoot, backgroundRequested)')
   && qml.includes('workflowActionProc.refreshDynamicMenu = root.workflowExtension.mode === "menu"')
   && qml.includes('workflowActionProc.closeAfter = node.closeOnSuccess')

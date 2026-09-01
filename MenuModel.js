@@ -910,7 +910,10 @@ function dynamicMenuUsageItemId(extension, node) {
   if (!extension || extension.mode !== "menu" || !node || !node.usageItemId) return ""
   if (extension.id === "omalaunch.quicklinks" && extension.config
       && extension.config.rankByUsage === false) return ""
-  return dynamicMenuItemId(extension.capability, node.usageItemId)
+  // Usage belongs to the exact provider. The search/routing identity uses the
+  // capability so replacement remains safe, but replacements must not inherit
+  // another provider's learned ranking.
+  return dynamicMenuItemId(extension.id, node.usageItemId)
 }
 
 function normalizeDynamicMenuOutput(raw) {

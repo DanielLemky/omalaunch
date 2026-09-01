@@ -1834,6 +1834,10 @@ Item {
           var dynamicSearchRow = root.displayRow(dynamicSearchEntry.item, dynamicSearchEntry.item.description, 0)
           dynamicSearchRow.starred = dynamicSearchEntry.node.starred
           dynamicSearchRow.matchPriority = MenuModel.searchMatchPriority(dynamicSearchEntry.item, preparedQuery)
+          var dynamicUsageId = MenuModel.dynamicMenuUsageItemId(
+            root.extensionById(dynamicSearchEntry.extensionId), dynamicSearchEntry.node)
+          dynamicSearchRow.usageCount = usage.count(dynamicUsageId)
+          dynamicSearchRow.lastUsedAt = usage.lastUsedAt(dynamicUsageId)
           rows.push(dynamicSearchRow)
         }
       }

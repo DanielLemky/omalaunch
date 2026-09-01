@@ -90,11 +90,15 @@ def normalize_path(v:Any,home:Path)->str:
         else: parts.append(part)
     return "/"+"/".join(parts)
 def valid_url(v:Any)->bool:
-    if not isinstance(v,str) or not 10<=len(v)<=2048 or CONTROL.search(v): return False
-    try: p=urllib.parse.urlsplit(v)
-    except ValueError: return False
-    if p.scheme not in ("http","https") or not p.hostname or p.username is not None or p.password is not None: return False
-    try: p.hostname.encode("idna")
+    if (not isinstance(v,str) or not 10<=len(v)<=2048 or CONTROL.search(v)
+            or "\\" in v or any(c.isspace() for c in v)): return False
+    try:
+        p=urllib.parse.urlsplit(v)
+        hostname=p.hostname
+        p.port # Reject malformed and out-of-range explicit ports.
+    except (UnicodeError,ValueError): return False
+    if p.scheme not in ("http","https") or not hostname or p.username is not None or p.password is not None: return False
+    try: hostname.encode("idna")
     except UnicodeError: return False
     return True
 def validate_config(provider:str,value:Any)->dict[str,Any]:

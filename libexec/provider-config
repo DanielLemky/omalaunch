@@ -51,7 +51,7 @@ def main(a:list[str])->None:
         if command=="star" and len(a)==4 and a[3] in ("true","false"):
             pc.mutate(provider,home,lambda d:update(d,a[2],lambda x:x.update(starred=a[3]=="true"))); return
         if command=="delete" and len(a)==3:
-            pc.mutate(provider,home,lambda d:d.update(links=[x for x in d["links"] if x["id"]!=a[2]])); return
+            pc.mutate(provider,home,lambda d:update(d,a[2],lambda _:d.update(links=[x for x in d["links"] if x["id"]!=a[2]]))); return
     fail("invalid command")
 try: main(sys.argv[1:])
 except (OSError,UnicodeError,ValueError,json.JSONDecodeError,KeyError) as e: fail(e)
