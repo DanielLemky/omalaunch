@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  // Unicode CLDR group order. Each entry names the first emoji of its
+  // group; the dataset is scanned in order, so emoji added inside a group
+  // are categorized without touching this file.
+  "groups": [
+    { "label": "Smileys & Emotion", "start": "😀" },
+    { "label": "People & Body", "start": "👋" },
+    { "label": "Animals & Nature", "start": "🐵" },
+    { "label": "Food & Drink", "start": "🍇" },
+    { "label": "Travel & Places", "start": "🌍" },
+    { "label": "Activities", "start": "🎃" },
+    { "label": "Objects", "start": "👓" },
+    { "label": "Symbols", "start": "🏧" },
+    { "label": "Flags", "start": "🏁" }
+  ]
+}

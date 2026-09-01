@@ -522,6 +522,7 @@ function openStateReset() {
     workflowContext: ({}),
     workflowStack: [],
     pendingExtensionCapability: "",
+    routedExtensionSession: false,
     emojiPickerActive: false,
     emojiExtension: null,
     focusedExtension: null,
@@ -873,6 +874,7 @@ function normalizeExtension(raw) {
       // provider carries no duplicate dataset. An external provider can point
       // `data` at its own file with {extensionDir}.
       extension.data = String(raw.data || "{omarchyPath}/shell/plugins/emojis/emojis.json")
+      extension.groups = String(raw.groups || "")
       extension.copyCommand = stringArray(raw.copyCommand)
       if (extension.copyCommand.length === 0) extension.copyCommand = ["wl-copy", "--", "{emoji}"]
     }
@@ -1505,16 +1507,175 @@ function emojiRows(values, query, options) {
   return rows.length > limit ? rows.slice(0, limit) : rows
 }
 
-// The dataset location is resolved by the host rather than read from an
+// Emoji file locations are resolved by the host rather than read from an
 // arbitrary string: only {omarchyPath} and {extensionDir} expand, and the
 // result must be absolute.
-function emojiDataPath(extension, omarchyPath) {
+function emojiFilePath(extension, omarchyPath, value) {
   if (!extension || extension.mode !== "emoji") return ""
-  var value = String(extension.data || "")
-  if (!value || value.indexOf("..") >= 0) return ""
-  value = value.replace(/\{omarchyPath\}/g, String(omarchyPath || ""))
+  var path = String(value || "")
+  if (!path || path.indexOf("..") >= 0) return ""
+  path = path.replace(/\{omarchyPath\}/g, String(omarchyPath || ""))
     .replace(/\{extensionDir\}/g, String(extension.sourceDir || ""))
-  return value.indexOf("/") === 0 ? value : ""
+  return path.indexOf("/") === 0 ? path : ""
+}
+
+function emojiDataPath(extension, omarchyPath) {
+  return emojiFilePath(extension, omarchyPath, extension && extension.data)
+}
+
+function emojiGroupsPath(extension, omarchyPath) {
+  return emojiFilePath(extension, omarchyPath, extension && extension.groups)
+}
+
+var EMOJI_PINNED_SECTION = "Pinned"
+var EMOJI_FREQUENT_SECTION = "Frequently Used"
+var MAX_EMOJI_FREQUENT = 16
+var MAX_EMOJI_GROUPS = 64
+
+function parseEmojiGroups(raw) {
+  var parsed
+  try { parsed = JSON.parse(stripJsonc(String(raw || ""))) } catch (e) { return [] }
+  var source = Array.isArray(parsed) ? parsed
+    : (parsed && Array.isArray(parsed.groups) ? parsed.groups : [])
+  var groups = []
+  for (var i = 0; i < source.length && groups.length < MAX_EMOJI_GROUPS; i++) {
+    var entry = source[i]
+    if (!entry || typeof entry !== "object") continue
+    var label = String(entry.label || "").trim()
+    var start = String(entry.start || "")
+    if (!label || !start || start.length > MAX_EMOJI_SEQUENCE) continue
+    groups.push({ label: label, start: start })
+  }
+  return groups
+}
+
+// The bundled dataset is in Unicode CLDR group order, so a group is everything
+// from its first emoji up to the next group's. That keeps the boundary file
+// tiny and categorizes emoji added inside a group for free — but it is only
+// true while the dataset stays in that order, so an out-of-order or missing
+// boundary abandons grouping rather than mislabeling half the grid.
+function emojiGroupLabels(values, groups) {
+  var source = Array.isArray(values) ? values : []
+  var boundaries = Array.isArray(groups) ? groups : []
+  if (source.length === 0 || boundaries.length === 0) return null
+
+  var starts = []
+  var previous = -1
+  for (var i = 0; i < boundaries.length; i++) {
+    var at = -1
+    for (var j = previous + 1; j < source.length; j++) {
+      if (source[j] && source[j].emoji === boundaries[i].start) { at = j; break }
+    }
+    if (at < 0 || at <= previous) return null
+    starts.push(at)
+    previous = at
+  }
+  // Anything before the first boundary is uncategorized, which means the file
+  // does not describe this dataset.
+  if (starts[0] !== 0) return null
+
+  var labels = []
+  var current = 0
+  for (var k = 0; k < source.length; k++) {
+    while (current + 1 < starts.length && k >= starts[current + 1]) current++
+    labels.push(boundaries[current].label)
+  }
+  return labels
+}
+
+// Lay a run of cells out into rows of `columns`, tagged with one section label.
+function appendEmojiSection(cells, rows, section, entries, columns, options) {
+  if (entries.length === 0) return
+  var width = Math.max(1, columns)
+  for (var i = 0; i < entries.length; i++) {
+    var entry = entries[i]
+    var itemId = emojiFavoriteId(entry.emoji, options.capability)
+    if (i % width === 0) rows.push({ section: section, start: cells.length, count: 0 })
+    rows[rows.length - 1].count += 1
+    cells.push({
+      emoji: entry.emoji,
+      caption: entry.caption,
+      itemId: itemId,
+      starred: itemId && options.isStarred ? options.isStarred(itemId) === true : false,
+      row: rows.length - 1,
+      column: i % width
+    })
+  }
+}
+
+// A query is answered by one ranked list: category order would fight the
+// ranking, so headers only appear while browsing.
+function emojiSections(values, query, options) {
+  var source = Array.isArray(values) ? values : []
+  var settings = options || ({})
+  var columns = Math.max(1, finiteExtensionNumber(settings.columns, 8) || 8)
+  var context = {
+    capability: String(settings.capability || ""),
+    isStarred: typeof settings.isStarred === "function" ? settings.isStarred : null
+  }
+  var usageCount = typeof settings.usageCount === "function" ? settings.usageCount : null
+  var lastUsedAt = typeof settings.lastUsedAt === "function" ? settings.lastUsedAt : null
+  var cells = []
+  var rows = []
+
+  if (prepareSearchQuery(query).terms.length > 0) {
+    appendEmojiSection(cells, rows, "", emojiRows(source, query, settings), columns, context)
+    return { cells: cells, rows: rows, sectioned: false }
+  }
+
+  var pinned = []
+  var frequent = []
+  if (context.isStarred || usageCount) {
+    for (var i = 0; i < source.length; i++) {
+      var entry = source[i]
+      if (!entry || !entry.emoji) continue
+      var itemId = emojiFavoriteId(entry.emoji, context.capability)
+      if (!itemId) continue
+      if (context.isStarred && context.isStarred(itemId) === true) {
+        pinned.push(entry)
+        continue
+      }
+      var count = usageCount ? Math.max(0, Number(usageCount(itemId)) || 0) : 0
+      if (count > 0) {
+        frequent.push({
+          entry: entry,
+          count: count,
+          lastUsedAt: lastUsedAt ? Math.max(0, Number(lastUsedAt(itemId)) || 0) : 0,
+          order: i
+        })
+      }
+    }
+    frequent.sort(function(a, b) {
+      if (a.count !== b.count) return b.count - a.count
+      if (a.lastUsedAt !== b.lastUsedAt) return b.lastUsedAt - a.lastUsedAt
+      return a.order - b.order
+    })
+    frequent = frequent.slice(0, MAX_EMOJI_FREQUENT).map(function(value) { return value.entry })
+  }
+
+  appendEmojiSection(cells, rows, EMOJI_PINNED_SECTION, pinned, columns, context)
+  appendEmojiSection(cells, rows, EMOJI_FREQUENT_SECTION, frequent, columns, context)
+
+  // Pinned and frequent emoji stay listed in their own category too, so
+  // browsing a category never has holes in it.
+  var labels = emojiGroupLabels(source, settings.groups)
+  if (!labels) {
+    appendEmojiSection(cells, rows, "", source, columns, context)
+    return { cells: cells, rows: rows, sectioned: pinned.length > 0 || frequent.length > 0 }
+  }
+
+  var runLabel = ""
+  var run = []
+  for (var k = 0; k < source.length; k++) {
+    if (labels[k] !== runLabel) {
+      appendEmojiSection(cells, rows, runLabel, run, columns, context)
+      runLabel = labels[k]
+      run = []
+    }
+    if (source[k] && source[k].emoji) run.push(source[k])
+  }
+  appendEmojiSection(cells, rows, runLabel, run, columns, context)
+  return { cells: cells, rows: rows, sectioned: true }
 }
 
 function displayRow(items, itemOrder, checkedResults, entry, detail, score, section, metadata) {
@@ -1788,6 +1949,10 @@ if (typeof module !== "undefined") {
     compareEmojiRows: compareEmojiRows,
     emojiRows: emojiRows,
     emojiDataPath: emojiDataPath,
+    emojiGroupsPath: emojiGroupsPath,
+    parseEmojiGroups: parseEmojiGroups,
+    emojiGroupLabels: emojiGroupLabels,
+    emojiSections: emojiSections,
     displayRow: displayRow,
     actionBarHints: actionBarHints,
     compactActionBarHints: compactActionBarHints

@@ -746,6 +746,101 @@ const searchedEmojiRows = menu.emojiRows(emojiData, 'dolphin', {
 assert(searchedEmojiRows.length === 1 && searchedEmojiRows[0].emoji === '\u{1F42C}',
   'pins and history never promote an emoji that does not match the query')
 
+// ---- sections ----
+
+const emojiGroups = menu.parseEmojiGroups(`{
+  "version": 1,
+  // Comments are accepted, like every other hand-authored file.
+  "groups": [
+    { "label": "Faces", "start": "\u{1F600}" },
+    { "label": "Travel", "start": "\u{1F680}" },
+  ],
+}`)
+assert(emojiGroups.length === 2 && emojiGroups[0].label === 'Faces', 'emoji group files accept JSONC')
+assert(menu.parseEmojiGroups('{bad').length === 0, 'malformed emoji group files are ignored')
+assert(menu.parseEmojiGroups('[{"label":"","start":"\u{1F600}"},{"label":"Ok"}]').length === 0,
+  'emoji groups need both a label and a start glyph')
+assert(menu.emojiGroupsPath(emojiExtensions[0], '/usr/share/omarchy') === '',
+  'an emoji extension without a groups file has no groups path')
+
+const groupedData = menu.parseEmojiData(JSON.stringify([
+  { e: '\u{1F600}', k: 'grinning' },
+  { e: '\u{1F603}', k: 'smiley' },
+  { e: '\u{1F680}', k: 'rocket' },
+  { e: '\u{1F42C}', k: 'dolphin' }
+]))
+assert(menu.emojiGroupLabels(groupedData, emojiGroups).join('|') === 'Faces|Faces|Travel|Travel',
+  'group boundaries label every emoji up to the next boundary')
+assert(menu.emojiGroupLabels(groupedData, [{ label: 'Travel', start: '\u{1F680}' }]) === null,
+  'boundaries that skip the start of the dataset abandon grouping')
+assert(menu.emojiGroupLabels(groupedData, [
+  { label: 'Faces', start: '\u{1F600}' }, { label: 'Missing', start: '\u{1F9E8}' }
+]) === null, 'a boundary absent from the dataset abandons grouping')
+assert(menu.emojiGroupLabels(groupedData, [
+  { label: 'Travel', start: '\u{1F680}' }, { label: 'Faces', start: '\u{1F600}' }
+]) === null, 'out-of-order boundaries abandon grouping')
+assert(menu.emojiGroupLabels(groupedData, []) === null, 'no boundaries means no grouping')
+
+const browseSections = menu.emojiSections(groupedData, '', {
+  capability: 'emoji', columns: 2, groups: emojiGroups
+})
+assert(browseSections.sectioned && browseSections.rows.length === 2, 'browsing lays emoji out per category')
+assert(browseSections.rows.map(row => row.section).join('|') === 'Faces|Travel', 'each row carries its category')
+assert(browseSections.cells.length === 4, 'browsing shows every emoji')
+assert(browseSections.cells[2].row === 1 && browseSections.cells[2].column === 0,
+  'cells know the row and column they were laid out at')
+
+const narrowSections = menu.emojiSections(groupedData, '', {
+  capability: 'emoji', columns: 1, groups: emojiGroups
+})
+assert(narrowSections.rows.length === 4 && narrowSections.rows.every(row => row.count === 1),
+  'a one-column layout gives every emoji its own row')
+
+const searchedSections = menu.emojiSections(groupedData, 'rocket', {
+  capability: 'emoji', columns: 8, groups: emojiGroups
+})
+assert(!searchedSections.sectioned && searchedSections.rows.length === 1
+  && searchedSections.rows[0].section === '' && searchedSections.cells.length === 1,
+  'a search answers with one unlabelled ranked section')
+
+const pinnedId = menu.emojiFavoriteId('\u{1F42C}', 'emoji')
+const frequentId = menu.emojiFavoriteId('\u{1F680}', 'emoji')
+const historySections = menu.emojiSections(groupedData, '', {
+  capability: 'emoji', columns: 2, groups: emojiGroups,
+  isStarred: itemId => itemId === pinnedId,
+  usageCount: itemId => (itemId === frequentId ? 3 : 0)
+})
+assert(historySections.rows[0].section === 'Pinned'
+  && historySections.cells[historySections.rows[0].start].emoji === '\u{1F42C}',
+  'pinned emoji lead their own section')
+assert(historySections.rows[1].section === 'Frequently Used'
+  && historySections.cells[historySections.rows[1].start].emoji === '\u{1F680}',
+  'frequently used emoji follow in their own section')
+assert(historySections.rows.slice(2).map(row => row.section).join('|') === 'Faces|Travel',
+  'categories still follow the history sections')
+assert(historySections.cells.filter(cell => cell.emoji === '\u{1F42C}').length === 2,
+  'a pinned emoji stays listed in its category too, so browsing has no holes')
+assert(historySections.cells.every(cell => cell.itemId === menu.emojiFavoriteId(cell.emoji, 'emoji')),
+  'every laid-out cell carries its pin id')
+
+const manyFrequent = menu.parseEmojiData(JSON.stringify(
+  Array.from({ length: 40 }, (_, i) => ({ e: String.fromCodePoint(0x1F600 + i), k: `face-${i}` }))
+))
+const cappedSections = menu.emojiSections(manyFrequent, '', {
+  capability: 'emoji', columns: 8, groups: [{ label: 'Faces', start: '\u{1F600}' }],
+  usageCount: () => 5
+})
+const frequentRows = cappedSections.rows.filter(row => row.section === 'Frequently Used')
+assert(frequentRows.reduce((total, row) => total + row.count, 0) === 16,
+  'the frequently used section is capped at sixteen emoji')
+
+const ungroupedSections = menu.emojiSections(groupedData, '', { capability: 'emoji', columns: 2 })
+assert(ungroupedSections.rows.every(row => row.section === '') && ungroupedSections.cells.length === 4,
+  'without usable boundaries the grid stays flat rather than mislabelled')
+
+assert(menu.openStateReset().routedExtensionSession === false,
+  'a new launcher session is not a routed extension session')
+
 const emojiHints = menu.actionBarHints({ emojiPickerActive: true, hasSelection: true, canStar: true, starred: false })
 assert(emojiHints[0].label === 'Paste' && emojiHints[0].shortcut === 'Enter', 'the emoji picker pastes on Enter')
 assert(emojiHints.some(hint => hint.label === 'Copy' && hint.shortcut === 'Ctrl C'), 'the emoji picker copies on Ctrl+C')

@@ -164,6 +164,7 @@ Emoji picker extensions contribute a searchable grid of emoji:
   "description": "Press Enter to paste",
   "requires": ["omarchy-menu-emoji-insert", "wl-copy"],
   "data": "{extensionDir}/emojis.json",
+  "groups": "{extensionDir}/groups.json",
   "command": ["omarchy-menu-emoji-insert", "{emoji}"],
   "copyCommand": ["wl-copy", "--", "{emoji}"]
 }
@@ -180,6 +181,32 @@ accepted. Duplicate glyphs, empty glyphs, non-objects, and malformed JSON are
 dropped, and the grid reads at most 8192 entries and displays at most 1000
 results.
 
+`groups` names an optional category file and resolves under the same rules. It
+lists the first emoji of each category, in the order the dataset uses:
+
+```json
+{
+  "version": 1,
+  "groups": [
+    { "label": "Smileys & Emotion", "start": "😀" },
+    { "label": "People & Body", "start": "👋" }
+  ]
+}
+```
+
+A category runs from its first emoji up to the next one's, so the file stays
+small and emoji added inside a category are grouped without touching it. That
+holds only while the dataset keeps that order, so a boundary that is missing,
+out of order, or not at the start of the dataset abandons grouping entirely and
+leaves one flat grid rather than mislabeling half of it. JSONC comments and
+trailing commas are accepted.
+
+While browsing, the grid leads with **Pinned**, then **Frequently Used** — the
+sixteen most-used emoji — and then each category. Pinned and frequently used
+emoji remain listed in their own category too, so a category is never missing
+entries. A query replaces all of it with one ranked, unlabelled list, because
+category order and ranking cannot both hold.
+
 `command` pastes the selected emoji and `copyCommand` places it on the
 clipboard; both support `{emoji}`. Enter pastes and closes the launcher, Ctrl+C
 copies and keeps the grid open so several emoji can be collected in one
@@ -195,7 +222,15 @@ the launcher's starting view, and match quality always outranks pins and usage
 history, so a search never leads with an emoji that does not match it.
 
 Left and Right move one cell, Up and Down move one row, PageUp and PageDown
-move one screen, and Escape clears the query and then leaves the picker.
+move one screen, and Escape clears the query and then leaves the picker. Rows
+are eight emoji wide. Vertical movement is walked through the layout rather
+than by adding a column count, because a category's last row can be short and
+a header breaks the stride.
+
+A picker reached through a summon route has no launcher behind it, so leaving
+it closes the launcher instead of revealing a starting view the keybinding
+never asked for. Reached from the launcher, leaving returns there as usual.
+The same applies to the file browser and to workflows.
 
 ## Workflow extension
 

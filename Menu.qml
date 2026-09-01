@@ -24,6 +24,10 @@ Item {
   // hotkey can open one directly. The catalog loads asynchronously, so the
   // intent is held until whichever settles last — the route or the catalog.
   property string pendingExtensionCapability: ""
+  // True while the session exists only to show a routed extension. Such a
+  // session has no launcher behind it, so backing out of the extension closes
+  // instead of revealing a starting view the user never asked for.
+  property bool routedExtensionSession: false
 
   function open(payloadJson) {
     // Parse first so resetting the old surface cannot discard the incoming
@@ -137,6 +141,7 @@ Item {
   // The dataset is static, so it is parsed once per catalog rather than per
   // picker session. Keep it outside the open/close state reset.
   property var emojiData: []
+  property var emojiGroups: []
   property string emojiCopyFeedback: ""
   readonly property int workflowActionTimeoutMs: 30 * 1000
   readonly property int workflowTerminationGraceMs: 1000
@@ -239,28 +244,37 @@ Item {
   property bool searchDivider: false
   property int layoutSerial: 0
 
-  // Emoji grid geometry. The cell keeps the glyph legible at display size and
-  // the column count follows the card so the grid reflows with the theme.
-  readonly property int emojiCellSize: Math.max(Style.space(44), Style.font.display + Style.spacing.md)
-  readonly property int emojiColumns: Math.max(1, Math.floor((root.cardWidth - root.contentMargin * 2) / root.emojiCellSize))
+  // Emoji grid geometry. A fixed eight columns of square cells: the glyph is
+  // the whole content of a cell, so it should be as large as the card allows
+  // rather than sized to a row of text.
+  readonly property int emojiColumns: 8
+  // Measured from the list rather than derived from the card: the card's own
+  // border insets are not part of contentMargin, and an approximation here
+  // leaves a visible gap at the right edge of every row.
+  property int emojiListWidth: 0
+  readonly property int emojiCellSize: Math.max(Style.space(30), Math.floor(
+    (root.emojiListWidth > 0 ? root.emojiListWidth : root.cardWidth - root.contentMargin * 2)
+      / root.emojiColumns))
   readonly property int emojiCellPeek: Math.round(root.emojiCellSize * 0.35)
-  // Resolved independently of an active session so the dataset can load as
-  // soon as the catalog settles.
+  readonly property int emojiSectionHeight: Math.max(Style.space(26), Style.font.bodySmall + Style.spacing.md)
+  // Resolved independently of an active session so the files can load as soon
+  // as the catalog settles.
   readonly property var emojiProvider: root.emojiExtensionForCapability("emoji")
   readonly property string emojiDataPath: MenuModel.emojiDataPath(root.emojiProvider, root.omarchyPath)
-  // Only ranked while the picker is open: pins and usage change on every
-  // launcher action, and re-ranking the whole dataset then would be waste.
-  readonly property var emojiRows: root.emojiPickerActive
-    ? root.emojiRowsFor(root.emojiData, root.filterText, root.emojiExtension,
-      favorites.starredIds, usage.records)
-    : []
+  readonly property string emojiGroupsPath: MenuModel.emojiGroupsPath(root.emojiProvider, root.omarchyPath)
+  // Only laid out while the picker is open: pins and usage change on every
+  // launcher action, and re-sectioning the whole dataset then would be waste.
+  readonly property var emojiLayout: root.emojiPickerActive
+    ? root.emojiLayoutFor(root.emojiData, root.emojiGroups, root.filterText, root.emojiExtension,
+      root.emojiColumns, favorites.starredIds, usage.records)
+    : ({ cells: [], rows: [], sectioned: false })
 
   property int cardWidth: Math.min(root.dmenuActive
     ? Style.space(root.dmenuWidth)
     : Style.space(root.imagePreviewActive ? 900 : 600), panel.width - Style.gapsOut * 2)
   readonly property bool emptyRoot: !root.dmenuActive && !root.emojiPickerActive && root.activeMenu === "root" && !root.filterText && displayModel.count === 0
   property int visibleRowsHeight: root.emptyRoot || root.workflowInputActive ? 0
-    : (root.emojiPickerActive ? emojiGridHeight(layoutSerial, emojiModel.count)
+    : (root.emojiPickerActive ? emojiGridHeight(layoutSerial, emojiRowModel.count)
       : (root.dmenuActive ? dmenuRowListHeight(layoutSerial, displayModel.count, filterText) : rowListHeight(layoutSerial, displayModel.count, filterText, searchDivider)))
   property int cardHeight: Math.min(contentMargin + actionBarBottomPadding + headerHeight + actionBarHeight + contentSpacing
     + (visibleRowsHeight > 0 ? contentSpacing + visibleRowsHeight : 0), panel.height - Style.gapsOut * 2)
@@ -269,10 +283,9 @@ Item {
   // resolves against whichever model is on screen. Every model read stays
   // bounded inside its own expression: a derived selection property can still
   // hold a stale count while a model is mid-rebuild.
-  readonly property int selectionCount: root.emojiPickerActive ? emojiModel.count : displayModel.count
+  readonly property int selectionCount: root.emojiPickerActive ? root.emojiLayout.cells.length : displayModel.count
   readonly property var selectedEmojiRow: root.emojiPickerActive && root.cursorActive
-    && root.selectedIndex >= 0 && root.selectedIndex < emojiModel.count
-    ? emojiModel.get(root.selectedIndex) : null
+    ? root.emojiCell(root.selectedIndex) : null
 
   readonly property var actionBarHints: MenuModel.actionBarHints({
     dmenuActive: root.dmenuActive,
@@ -286,8 +299,7 @@ Item {
     focusedExtension: !!root.focusedExtension,
     hasSelection: root.selectionCount > 0 && root.cursorActive,
     canStar: root.emojiPickerActive
-      ? (emojiModel.count > 0 && root.cursorActive && root.selectedIndex >= 0
-        && root.selectedIndex < emojiModel.count && favorites.loaded)
+      ? (!!root.selectedEmojiRow && favorites.loaded)
       : (!root.dmenuActive && !root.workflowActive && !root.actionPanelActive
         && displayModel.count > 0 && root.cursorActive && root.selectedIndex >= 0
         && root.selectedIndex < displayModel.count
@@ -435,20 +447,32 @@ Item {
     return foldedListHeight(totals, available)
   }
 
-  // Like foldedListHeight, but cells are uniform: end the grid mid-row so a
-  // clipped row of glyphs signals there is more below the fold.
+  // Like foldedListHeight, but over rows of glyphs with section headers
+  // between them. End the grid mid-row so a clipped row signals the fold.
   function emojiGridHeight(_serial, _count) {
-    if (emojiModel.count === 0) return root.emojiCellSize
+    var rows = root.emojiLayout.rows
+    if (rows.length === 0) return root.emojiCellSize
 
-    var gridRows = Math.ceil(emojiModel.count / root.emojiColumns)
-    var total = gridRows * root.emojiCellSize
+    var totals = []
+    var total = 0
+    var previousSection = null
+    for (var i = 0; i < rows.length; i++) {
+      if (rows[i].section !== previousSection) {
+        if (rows[i].section.length > 0) total += root.emojiSectionHeight
+        previousSection = rows[i].section
+      }
+      total += root.emojiCellSize
+      totals.push(total)
+    }
+
     var available = root.availableRowsHeight()
-    if (total <= available) return total
+    if (totals[totals.length - 1] <= available) return totals[totals.length - 1]
 
-    var full = Math.floor(available / root.emojiCellSize)
-    while (full > 1 && full * root.emojiCellSize + root.emojiCellPeek > available) full--
+    var full = 0
+    while (full < totals.length && totals[full] <= available) full++
+    while (full > 1 && totals[full - 1] + root.emojiCellPeek > available) full--
     if (full < 1) return Math.max(available, root.emojiCellSize)
-    return full * root.emojiCellSize + root.emojiCellPeek
+    return totals[full - 1] + root.emojiCellPeek
   }
 
   function item(id) {
@@ -628,6 +652,7 @@ Item {
       console.warn("Omalaunch: summon requested unknown extension capability '" + capability + "'")
       return
     }
+    root.routedExtensionSession = true
     root.activateExtensionRoot(extension)
     Qt.callLater(function() { keyCatcher.forceActiveFocus() })
   }
@@ -739,6 +764,10 @@ Item {
   }
 
   function leaveWorkflow() {
+    if (root.routedExtensionSession) {
+      root.cancel()
+      return
+    }
     root.invalidateWorkflowAction("left workflow")
     root.resetFileIndex()
     root.fileBrowserActive = false
@@ -941,6 +970,10 @@ Item {
   }
 
   function leaveFileBrowser(rebuild) {
+    if (rebuild !== false && root.routedExtensionSession) {
+      root.cancel()
+      return
+    }
     root.resetFileIndex()
     root.actionPanelActive = false
     root.actionPanelFile = null
@@ -966,21 +999,33 @@ Item {
     return null
   }
 
-  // The favorites/usage arguments exist so the binding re-evaluates when a
-  // star or a paste changes ranking; the stores are read through their own
+  // The favorites/usage arguments exist so the binding re-evaluates when a pin
+  // or a paste changes the layout; the stores are read through their own
   // accessors rather than from the passed maps.
-  function emojiRowsFor(values, query, extension, _starredIds, _usageRecords) {
-    if (!extension) return []
-    return MenuModel.emojiRows(values, query, {
+  function emojiLayoutFor(values, groups, query, extension, columns, _starredIds, _usageRecords) {
+    if (!extension) return ({ cells: [], rows: [], sectioned: false })
+    return MenuModel.emojiSections(values, query, {
       capability: extension.capability,
+      columns: columns,
+      groups: groups,
       isStarred: function(itemId) { return favorites.isStarred(itemId) },
       usageCount: function(itemId) { return usage.count(itemId) },
       lastUsedAt: function(itemId) { return usage.lastUsedAt(itemId) }
     })
   }
 
+  function emojiCell(index) {
+    var cells = root.emojiLayout.cells
+    return index >= 0 && index < cells.length ? cells[index] : null
+  }
+
   function loadEmojiData(raw) {
     root.emojiData = MenuModel.parseEmojiData(raw)
+    if (root.emojiPickerActive) root.rebuildEmojiDisplay()
+  }
+
+  function loadEmojiGroups(raw) {
+    root.emojiGroups = MenuModel.parseEmojiGroups(raw)
     if (root.emojiPickerActive) root.rebuildEmojiDisplay()
   }
 
@@ -999,63 +1044,77 @@ Item {
   }
 
   function leaveEmojiPicker(rebuild) {
+    if (rebuild !== false && root.routedExtensionSession) {
+      root.cancel()
+      return
+    }
     root.emojiPickerActive = false
     root.emojiExtension = null
     root.emojiCopyFeedback = ""
     root.filterText = ""
     root.selectedIndex = 0
-    emojiModel.clear()
+    emojiRowModel.clear()
     if (rebuild !== false) root.rebuildDisplay()
   }
 
+  // Only the row/section skeleton goes into a ListModel; the cells stay a plain
+  // array the delegates index into, so a rebuild does not have to churn one
+  // model entry per emoji.
   function rebuildEmojiDisplay() {
-    emojiModel.clear()
-    var rows = root.emojiRows
+    emojiRowModel.clear()
+    var rows = root.emojiLayout.rows
     for (var i = 0; i < rows.length; i++) {
-      emojiModel.append({
-        emoji: rows[i].emoji,
-        caption: rows[i].caption,
-        itemId: rows[i].itemId,
-        starred: rows[i].starred === true
+      emojiRowModel.append({
+        section: rows[i].section,
+        cellStart: rows[i].start,
+        cellCount: rows[i].count
       })
     }
     root.layoutSerial += 1
-    if (emojiModel.count === 0) root.selectedIndex = 0
-    else if (root.selectedIndex >= emojiModel.count) root.selectedIndex = emojiModel.count - 1
+    var total = root.emojiLayout.cells.length
+    if (total === 0) root.selectedIndex = 0
+    else if (root.selectedIndex >= total) root.selectedIndex = total - 1
     else if (root.selectedIndex < 0) root.selectedIndex = 0
-    root.cursorActive = emojiModel.count > 0
-    Qt.callLater(function() { if (emojiModel.count > 0) root.revealEmojiCursor() })
+    root.cursorActive = total > 0
+    Qt.callLater(function() { if (root.emojiLayout.cells.length > 0) root.revealEmojiCursor() })
   }
 
   function revealEmojiCursor() {
-    if (emojiModel.count === 0) return
-    emojiGrid.positionViewAtIndex(root.selectedIndex, GridView.Contain)
+    var cell = root.emojiCell(root.selectedIndex)
+    if (cell) emojiList.positionViewAtIndex(cell.row, ListView.Contain)
   }
 
   function selectEmoji(delta) {
-    if (emojiModel.count === 0) return
+    var total = root.emojiLayout.cells.length
+    if (total === 0) return
     root.disarmPointer()
     if (!root.cursorActive) {
       root.cursorActive = true
-      root.selectedIndex = delta < 0 ? emojiModel.count - 1 : 0
+      root.selectedIndex = delta < 0 ? total - 1 : 0
     } else {
-      root.selectedIndex = (root.selectedIndex + delta + emojiModel.count) % emojiModel.count
+      root.selectedIndex = (root.selectedIndex + delta + total) % total
     }
     root.revealEmojiCursor()
   }
 
   // Vertical and paging movement clamp instead of wrapping: wrapping by a
   // whole row lands somewhere unrelated to the column the eye is following.
+  // Rows are walked through the layout rather than by adding a column count,
+  // because a section's last row can be short and headers break the stride.
   function selectEmojiRow(delta) {
-    if (emojiModel.count === 0) return
+    var rows = root.emojiLayout.rows
+    if (rows.length === 0) return
     root.disarmPointer()
     if (!root.cursorActive) {
       root.cursorActive = true
-      root.selectedIndex = delta < 0 ? emojiModel.count - 1 : 0
+      root.selectedIndex = delta < 0 ? root.emojiLayout.cells.length - 1 : 0
       root.revealEmojiCursor()
       return
     }
-    root.selectedIndex = Math.max(0, Math.min(emojiModel.count - 1, root.selectedIndex + delta * root.emojiColumns))
+    var cell = root.emojiCell(root.selectedIndex)
+    if (!cell) return
+    var target = rows[Math.max(0, Math.min(rows.length - 1, cell.row + delta))]
+    root.selectedIndex = target.start + Math.min(cell.column, target.count - 1)
     root.revealEmojiCursor()
   }
 
@@ -1104,7 +1163,7 @@ Item {
     if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
       if (event.modifiers & Qt.ControlModifier) root.copySelectedEmoji()
       else if (root.cursorActive) root.activateEmojiIndex(root.selectedIndex)
-      else if (emojiModel.count > 0) root.cursorActive = true
+      else if (root.emojiLayout.cells.length > 0) root.cursorActive = true
       return true
     }
     if (Util.editsFilter(event, root.filterText)) {
@@ -1138,8 +1197,7 @@ Item {
 
   function activateEmojiIndex(index) {
     if (!root.emojiPickerActive || !root.emojiExtension) return
-    if (index < 0 || index >= emojiModel.count) return
-    var row = emojiModel.get(index)
+    var row = root.emojiCell(index)
     if (!row || !row.emoji) return
     var command = root.shellCommand(root.emojiExtension.command, { emoji: row.emoji })
     usage.record(row.itemId)
@@ -2347,7 +2405,7 @@ Item {
     var reset = MenuModel.openStateReset()
     for (var key in reset) root[key] = reset[key]
     root.emojiCopyFeedback = ""
-    emojiModel.clear()
+    emojiRowModel.clear()
     root.mode = "menu"
     root.requestActive = false
     root.selectionFile = ""
@@ -2364,6 +2422,7 @@ Item {
     root.invalidateWorkflowAction("launcher canceled")
     root.routePendingForMenuSources = false
     root.pendingExtensionCapability = ""
+    root.routedExtensionSession = false
     if (root.dmenuActive) root.finishRequest(null)
     root.resetFileIndex()
     root.actionPanelActive = false
@@ -2379,7 +2438,7 @@ Item {
     root.emojiPickerActive = false
     root.emojiExtension = null
     root.emojiCopyFeedback = ""
-    emojiModel.clear()
+    emojiRowModel.clear()
     root.focusedExtension = null
     root.extensionQuery = ""
     root.extensionResult = ""
@@ -2458,7 +2517,7 @@ Item {
     Qt.callLater(function() { keyCatcher.forceActiveFocus() })
   }
   ListModel { id: displayModel }
-  ListModel { id: emojiModel }
+  ListModel { id: emojiRowModel }
 
   // ----------------------------------------------------------- route surface
   //
@@ -2907,8 +2966,9 @@ Item {
       // Pinning re-ranks its surface, so follow the item that was starred
       // rather than leaving the cursor on whatever took its place.
       if (root.emojiPickerActive) {
-        for (var cell = 0; cell < emojiModel.count; cell++) {
-          if (emojiModel.get(cell).itemId !== selectedId) continue
+        var cells = root.emojiLayout.cells
+        for (var cell = 0; cell < cells.length; cell++) {
+          if (cells[cell].itemId !== selectedId) continue
           root.selectedIndex = cell
           root.cursorActive = true
           root.revealEmojiCursor()
@@ -3021,6 +3081,15 @@ Item {
     printErrors: false
     onLoaded: root.loadEmojiData(text())
     onLoadFailed: root.loadEmojiData("")
+  }
+
+  // Category boundaries. Without them the grid still works, just ungrouped.
+  FileView {
+    id: emojiGroupsFile
+    path: root.emojiGroupsPath
+    printErrors: false
+    onLoaded: root.loadEmojiGroups(text())
+    onLoadFailed: root.loadEmojiGroups("")
   }
 
   FileView {
@@ -3378,78 +3447,122 @@ Item {
           width: parent.width
           height: root.visibleRowsHeight
 
-          GridView {
-            id: emojiGrid
+          ListView {
+            id: emojiList
             visible: root.emojiPickerActive
             anchors.fill: parent
-            model: emojiModel
+            model: emojiRowModel
             clip: true
-            // Columns are sized from the card so the grid keeps even margins
-            // on both edges instead of parking the remainder on the right.
-            cellWidth: Math.floor(width / root.emojiColumns)
-            cellHeight: root.emojiCellSize
             boundsBehavior: Flickable.StopAtBounds
+            onWidthChanged: root.emojiListWidth = width
 
-            delegate: BorderSurface {
-              id: emojiCell
-              required property int index
-              required property string emoji
-              required property bool starred
+            // Category headers. A ranked search has no categories, so those
+            // rows carry an empty section and collapse the delegate away.
+            section.property: "section"
+            section.criteria: ViewSection.FullString
+            section.delegate: Item {
+              id: emojiSection
+              required property string section
 
-              readonly property bool hasCursor: root.cursorActive && emojiCell.index === root.selectedIndex
-
-              width: GridView.view.cellWidth
-              height: GridView.view.cellHeight
-              radius: root.cornerRadius
-              color: emojiCell.hasCursor ? root.selectedBackground : "transparent"
-              borderSpec: emojiCell.hasCursor ? root.selectedBorderSpec : Border.none()
+              width: ListView.view.width
+              height: emojiSection.section.length > 0 ? root.emojiSectionHeight : 0
+              visible: emojiSection.section.length > 0
 
               Text {
                 textFormat: Text.PlainText
-                text: emojiCell.emoji
-                anchors.centerIn: parent
-                horizontalAlignment: Text.AlignHCenter
-                verticalAlignment: Text.AlignVCenter
+                text: emojiSection.section
+                anchors.left: parent.left
+                anchors.leftMargin: Style.space(4)
+                anchors.bottom: parent.bottom
+                anchors.bottomMargin: Style.space(4)
+                color: root.foreground
+                opacity: 0.5
                 font.family: root.fontFamily
-                font.pixelSize: Style.font.display
+                font.pixelSize: Style.font.bodySmall
+                font.weight: Font.Medium
+                elide: Text.ElideRight
               }
+            }
 
-              Text {
-                text: "★"
-                visible: emojiCell.starred
-                anchors.top: parent.top
-                anchors.right: parent.right
-                anchors.topMargin: Style.space(3)
-                anchors.rightMargin: Style.space(3)
-                color: emojiCell.hasCursor ? root.selectedText : root.foreground
-                opacity: 0.7
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.caption
-              }
+            delegate: Item {
+              id: emojiRow
+              required property string section
+              required property int cellStart
+              required property int cellCount
 
-              MouseArea {
-                id: emojiCellMouseArea
-                anchors.fill: parent
-                hoverEnabled: true
-                cursorShape: Qt.PointingHandCursor
-                onEntered: root.selectFromPointer(emojiCell.index, emojiCell, {
-                  x: emojiCellMouseArea.mouseX,
-                  y: emojiCellMouseArea.mouseY
-                })
-                onPositionChanged: function(mouse) {
-                  root.selectFromPointer(emojiCell.index, emojiCell, mouse)
-                }
-                onClicked: {
-                  root.cursorActive = true
-                  root.selectedIndex = emojiCell.index
-                  root.activateEmojiIndex(emojiCell.index)
+              width: ListView.view.width
+              height: root.emojiCellSize
+
+              Row {
+                anchors.left: parent.left
+                spacing: 0
+
+                Repeater {
+                  model: emojiRow.cellCount
+
+                  delegate: BorderSurface {
+                    id: emojiCellItem
+                    required property int index
+
+                    readonly property int cellIndex: emojiRow.cellStart + emojiCellItem.index
+                    readonly property var cell: root.emojiCell(emojiCellItem.cellIndex)
+                    readonly property bool hasCursor: root.cursorActive && emojiCellItem.cellIndex === root.selectedIndex
+
+                    width: root.emojiCellSize
+                    height: root.emojiCellSize
+                    radius: root.cornerRadius
+                    color: emojiCellItem.hasCursor ? root.selectedBackground : "transparent"
+                    borderSpec: emojiCellItem.hasCursor ? root.selectedBorderSpec : Border.none()
+
+                    Text {
+                      textFormat: Text.PlainText
+                      text: emojiCellItem.cell ? emojiCellItem.cell.emoji : ""
+                      anchors.centerIn: parent
+                      horizontalAlignment: Text.AlignHCenter
+                      verticalAlignment: Text.AlignVCenter
+                      font.family: root.fontFamily
+                      font.pixelSize: Math.round(root.emojiCellSize * 0.52)
+                    }
+
+                    Text {
+                      text: "★"
+                      visible: !!emojiCellItem.cell && emojiCellItem.cell.starred
+                      anchors.top: parent.top
+                      anchors.right: parent.right
+                      anchors.topMargin: Style.space(3)
+                      anchors.rightMargin: Style.space(3)
+                      color: emojiCellItem.hasCursor ? root.selectedText : root.foreground
+                      opacity: 0.7
+                      font.family: root.fontFamily
+                      font.pixelSize: Style.font.caption
+                    }
+
+                    MouseArea {
+                      id: emojiCellMouseArea
+                      anchors.fill: parent
+                      hoverEnabled: true
+                      cursorShape: Qt.PointingHandCursor
+                      onEntered: root.selectFromPointer(emojiCellItem.cellIndex, emojiCellItem, {
+                        x: emojiCellMouseArea.mouseX,
+                        y: emojiCellMouseArea.mouseY
+                      })
+                      onPositionChanged: function(mouse) {
+                        root.selectFromPointer(emojiCellItem.cellIndex, emojiCellItem, mouse)
+                      }
+                      onClicked: {
+                        root.cursorActive = true
+                        root.selectedIndex = emojiCellItem.cellIndex
+                        root.activateEmojiIndex(emojiCellItem.cellIndex)
+                      }
+                    }
+                  }
                 }
               }
             }
           }
 
           Text {
-            visible: root.emojiPickerActive && emojiModel.count === 0
+            visible: root.emojiPickerActive && root.emojiLayout.cells.length === 0
             anchors.centerIn: parent
             textFormat: Text.PlainText
             text: root.emojiData.length === 0
