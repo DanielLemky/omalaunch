@@ -16,6 +16,7 @@ Extension shortcuts do not otherwise appear on the launcher's starting view. Pre
 Activating a shortcut enters the interface appropriate to its mode:
 
 - `files` opens the file browser.
+- `emoji` opens the emoji grid.
 - A prefixed `query` or `prefix` extension focuses input with its prefix prepared.
 - A query-only extension focuses an empty, extension-specific input (for example Calculator and Currency conversion).
 - `workflow` opens its first host-rendered workflow stage.
@@ -134,6 +135,55 @@ File browser extensions provide navigation, recursive search, opening, and path 
 
 Ctrl+K opens the contextual Action Panel. `command` opens files, `directoryCommand` opens directories in the file manager, `terminalCommand` opens a terminal, `copyCommand` copies the path, and `copyFileCommand` places a file URI on the clipboard. All command fields support `{path}`. Files and directories can be starred from the Action Panel or with Ctrl+S and then opened directly from the launcher’s starting view. Each star retains the extension capability that created it, so the currently selected provider for that capability handles it. The bundled implementation starts at the home directory, uses `fd` traversal and fzf path ranking, omits hidden and ignored paths, and limits each ranked result set to 100 entries. Exact basename matches rank before paths that match only through a parent directory, so many descendants cannot hide a matching file or directory. Recursive candidates are indexed once per active directory and reused while typing; the index refreshes after 30 seconds or when navigation changes directories.
 
+## Emoji picker extension
+
+Emoji picker extensions contribute a searchable grid of emoji:
+
+```json
+{
+  "schemaVersion": 1,
+  "id": "example.emoji",
+  "capability": "emoji",
+  "mode": "emoji",
+  "label": "Emoji",
+  "prefixes": ["emoji"],
+  "icon": "",
+  "description": "Press Enter to paste",
+  "requires": ["omarchy-menu-emoji-insert", "wl-copy"],
+  "data": "{extensionDir}/emojis.json",
+  "command": ["omarchy-menu-emoji-insert", "{emoji}"],
+  "copyCommand": ["wl-copy", "--", "{emoji}"]
+}
+```
+
+`data` is the dataset the grid searches. Only `{omarchyPath}` and
+`{extensionDir}` expand in it, the result must be an absolute path, and a path
+containing `..` is rejected. It defaults to
+`{omarchyPath}/shell/plugins/emojis/emojis.json`, the set Omarchy already
+ships, so the bundled provider carries no second copy of the data. The file
+holds an array of `{"e": "😀", "k": "grinning face smile happy"}` objects;
+`{"emoji": …, "keywords": …}` and an `{"emojis": [ … ]}` wrapper are also
+accepted. Duplicate glyphs, empty glyphs, non-objects, and malformed JSON are
+dropped, and the grid reads at most 8192 entries and displays at most 1000
+results.
+
+`command` pastes the selected emoji and `copyCommand` places it on the
+clipboard; both support `{emoji}`. Enter pastes and closes the launcher, Ctrl+C
+copies and keeps the grid open so several emoji can be collected in one
+session. Both record usage, so recently and frequently used emoji lead an
+unfiltered grid.
+
+Searching matches whole words and word prefixes across an entry's keywords —
+`smi fac` finds `smiling face`, and every term must match. A keyword at the
+front of an entry outranks one at the back. Ctrl+S pins the selected emoji to
+the front of the grid; pins are keyed by capability, so replacing the provider
+preserves them. Pinned emoji stay inside the picker rather than appearing on
+the launcher's starting view, and match quality always outranks pins and usage
+history, so a search never leads with an emoji that does not match it.
+
+Left and Right move one cell, Up and Down move one row, PageUp and PageDown
+move one screen, and Escape clears the query and then leaves the picker.
+
 ## Workflow extension
 
 Workflow extensions contribute a launcher entry and a bounded tree of host-rendered stages. They can compose menus, text input, and Omalaunch's host-provided directory picker without shipping QML or implementing filesystem navigation:
@@ -224,7 +274,7 @@ The highest-priority matching live-query extension runs. Live queries debounce f
 - `schemaVersion`: Extension format version; currently `1`.
 - `id`: Stable, unique extension identifier.
 - `capability`: Stable behavior being supplied or replaced; defaults to `id`.
-- `mode`: `prefix`, `query`, `files`, or `workflow`; defaults to `prefix`.
+- `mode`: `prefix`, `query`, `files`, `workflow`, or `emoji`; defaults to `prefix`.
 - `label`, `icon`, `iconFont`, `description`: Result presentation.
 - `rootDescription`: Optional description for the extension shortcut in Extensions and global search. Use it when activating the extension differs from activating one of its results; defaults to `description`.
 - `priority`: Selection priority; defaults to `0`.

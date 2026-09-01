@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "id": "omalaunch.emoji",
+  "capability": "emoji",
+  "mode": "emoji",
+  "label": "Emoji",
+  "prefixes": ["emoji"],
+  "icon": "",
+  "description": "Press Enter to paste",
+  "rootDescription": "Search and paste emoji",
+  "priority": 10,
+  "requires": ["omarchy-menu-emoji-insert", "wl-copy"],
+  "data": "{omarchyPath}/shell/plugins/emojis/emojis.json",
+  "command": ["omarchy-menu-emoji-insert", "{emoji}"],
+  "copyCommand": ["wl-copy", "--", "{emoji}"]
+}

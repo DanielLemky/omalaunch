@@ -640,6 +640,106 @@ assert(menu.compareSearchRows(
   false
 ) > 0, 'queries shorter than three characters ignore usage history')
 
+// ---------------------------------------------------------------- emoji
+
+const emojiExtensions = menu.parseExtensions(JSON.stringify([{
+  schemaVersion: 1,
+  id: 'omalaunch.emoji',
+  capability: 'emoji',
+  mode: 'emoji',
+  label: 'Emoji',
+  prefixes: ['emoji'],
+  command: ['omarchy-menu-emoji-insert', '{emoji}']
+}]))
+assert(emojiExtensions.length === 1 && emojiExtensions[0].mode === 'emoji', 'emoji extensions are parsed')
+assert(emojiExtensions[0].copyCommand.join(' ') === 'wl-copy -- {emoji}', 'emoji extensions default to a clipboard copy command')
+assert(emojiExtensions[0].data === '{omarchyPath}/shell/plugins/emojis/emojis.json',
+  'emoji extensions default to the dataset Omarchy ships')
+assert(menu.extensionRootActivation(emojiExtensions[0]) === 'emoji', 'emoji extension roots open the picker')
+assert(menu.parseExtensions(JSON.stringify([{
+  schemaVersion: 1, id: 'no-prefix', mode: 'emoji', label: 'Emoji', command: ['true']
+}])).length === 0, 'emoji extensions without a prefix are ignored')
+assert(menu.parseExtensions(JSON.stringify([{
+  schemaVersion: 1, id: 'no-command', mode: 'emoji', label: 'Emoji', prefixes: ['emoji']
+}])).length === 0, 'emoji extensions without a command are ignored')
+assert(menu.openStateReset().emojiPickerActive === false && menu.openStateReset().emojiExtension === null,
+  'a new launcher session leaves the emoji picker')
+
+assert(menu.emojiDataPath(emojiExtensions[0], '/usr/share/omarchy') === '/usr/share/omarchy/shell/plugins/emojis/emojis.json',
+  '{omarchyPath} expands in the emoji dataset path')
+const relativeDataExtension = menu.parseExtensions(JSON.stringify([{
+  schemaVersion: 1, id: 'relative', mode: 'emoji', label: 'Emoji', prefixes: ['emoji'],
+  data: 'emojis.json', command: ['true']
+}]))[0]
+assert(menu.emojiDataPath(relativeDataExtension, '/usr/share/omarchy') === '', 'relative emoji dataset paths are rejected')
+const escapingDataExtension = menu.parseExtensions(JSON.stringify([{
+  schemaVersion: 1, id: 'escaping', mode: 'emoji', label: 'Emoji', prefixes: ['emoji'],
+  data: '{extensionDir}/../../etc/passwd', command: ['true']
+}]))[0]
+assert(menu.emojiDataPath(escapingDataExtension, '/usr/share/omarchy') === '', 'emoji dataset paths cannot escape with ..')
+assert(menu.emojiDataPath(extensions[0], '/usr/share/omarchy') === '', 'non-emoji extensions have no dataset path')
+
+const emojiData = menu.parseEmojiData(JSON.stringify([
+  { e: '\u{1F600}', k: 'grinning face smile grinning happy' },
+  { e: '\u{1F680}', k: 'ship rocket launch' },
+  { e: '\u{1F600}', k: 'duplicate entry' },
+  { e: '', k: 'missing glyph' },
+  'not an object',
+  { e: '\u{1F42C}', k: 'dolphin flipper' }
+]))
+assert(emojiData.length === 3, 'emoji datasets drop duplicates, empty glyphs, and non-objects')
+assert(emojiData[0].caption === 'Grinning face smile happy', 'emoji captions deduplicate repeated keywords')
+assert(menu.parseEmojiData('{bad json').length === 0, 'malformed emoji datasets are ignored')
+assert(menu.parseEmojiData(JSON.stringify({ emojis: [{ emoji: '\u{1F680}', keywords: 'rocket' }] })).length === 1,
+  'emoji datasets accept an object wrapper and long field names')
+
+assert(menu.emojiMatchScore('ship rocket launch', ['rocket']) > 0, 'emoji keywords match by word')
+assert(menu.emojiMatchScore('ship rocket launch', ['roc']) > 0, 'emoji keywords match by word prefix')
+assert(menu.emojiMatchScore('ship rocket launch', ['ocket']) < 0, 'emoji keywords do not match mid-word')
+assert(menu.emojiMatchScore('ship rocket launch', ['rocket', 'ship']) > 0, 'every emoji term must match')
+assert(menu.emojiMatchScore('ship rocket launch', ['rocket', 'plane']) < 0, 'an unmatched emoji term rejects the entry')
+assert(menu.emojiMatchScore('ship rocket launch', ['ship']) > menu.emojiMatchScore('ship rocket launch', ['launch']),
+  'a leading emoji keyword outranks a trailing one')
+
+const emojiCapabilityRows = menu.emojiRows(emojiData, 'rocket', { capability: 'emoji' })
+assert(emojiCapabilityRows.length === 1 && emojiCapabilityRows[0].emoji === '\u{1F680}', 'emoji rows filter by query')
+assert(menu.emojiFavorite(emojiCapabilityRows[0].itemId).capability === 'emoji'
+  && menu.emojiFavorite(emojiCapabilityRows[0].itemId).emoji === '\u{1F680}',
+  'emoji pins round-trip their capability and glyph')
+assert(menu.emojiFavorite('file.favorite:["files","file","/tmp"]') === null, 'file favorites are not emoji pins')
+assert(menu.emojiFavoriteId('\u{1F680}', '') === '', 'emoji pins require a capability')
+assert(menu.emojiRows(emojiData, '', { capability: 'emoji' }).map(row => row.emoji).join('') === emojiData.map(entry => entry.emoji).join(''),
+  'an empty emoji query preserves dataset order')
+assert(menu.emojiRows(emojiData, '', { capability: 'emoji', limit: 2 }).length === 2, 'emoji rows honor their limit')
+assert(menu.emojiRows(emojiData, '', {}).every(row => row.itemId === ''), 'emoji rows without a capability carry no pin id')
+
+const pinnedEmojiId = menu.emojiFavoriteId('\u{1F42C}', 'emoji')
+const pinnedEmojiRows = menu.emojiRows(emojiData, '', {
+  capability: 'emoji',
+  isStarred: itemId => itemId === pinnedEmojiId
+})
+assert(pinnedEmojiRows[0].emoji === '\u{1F42C}' && pinnedEmojiRows[0].starred, 'pinned emoji lead an unfiltered grid')
+const usedEmojiId = menu.emojiFavoriteId('\u{1F680}', 'emoji')
+const usedEmojiRows = menu.emojiRows(emojiData, '', {
+  capability: 'emoji',
+  usageCount: itemId => (itemId === usedEmojiId ? 4 : 0)
+})
+assert(usedEmojiRows[0].emoji === '\u{1F680}', 'frequently pasted emoji lead an unfiltered grid')
+const searchedEmojiRows = menu.emojiRows(emojiData, 'dolphin', {
+  capability: 'emoji',
+  isStarred: itemId => itemId === usedEmojiId,
+  usageCount: itemId => (itemId === usedEmojiId ? 40 : 0)
+})
+assert(searchedEmojiRows.length === 1 && searchedEmojiRows[0].emoji === '\u{1F42C}',
+  'pins and history never promote an emoji that does not match the query')
+
+const emojiHints = menu.actionBarHints({ emojiPickerActive: true, hasSelection: true, canStar: true, starred: false })
+assert(emojiHints[0].label === 'Paste' && emojiHints[0].shortcut === 'Enter', 'the emoji picker pastes on Enter')
+assert(emojiHints.some(hint => hint.label === 'Copy' && hint.shortcut === 'Ctrl C'), 'the emoji picker copies on Ctrl+C')
+assert(emojiHints.some(hint => hint.label === 'Star' && hint.shortcut === 'Ctrl S'), 'the emoji picker pins on Ctrl+S')
+assert(!menu.actionBarHints({ emojiPickerActive: true, hasSelection: false }).some(hint => hint.label === 'Copy'),
+  'an empty emoji grid offers no copy hint')
+
 const marker = path.join(os.tmpdir(), `omalaunch-guard-${process.pid}`)
 const hostileId = `row; touch ${marker}; #`
 const guardRun = childProcess.spawnSync('bash', ['-c', menu.guardScript({

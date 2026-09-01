@@ -521,6 +521,8 @@ function openStateReset() {
     workflowNode: null,
     workflowContext: ({}),
     workflowStack: [],
+    emojiPickerActive: false,
+    emojiExtension: null,
     focusedExtension: null,
     extensionQuery: "",
     extensionResult: "",
@@ -777,6 +779,7 @@ function extensionRootActivation(extension) {
   if (!extension || !extension.available) return ""
   if (extension.mode === "files") return "files"
   if (extension.mode === "workflow") return "workflow"
+  if (extension.mode === "emoji") return "emoji"
   return "input"
 }
 
@@ -813,7 +816,7 @@ function normalizeExtension(raw) {
   var label = String(raw.label || "").trim()
   var mode = String(raw.mode || "prefix")
   var command = stringArray(raw.command)
-  if (!id || !label || ["prefix", "query", "files", "workflow"].indexOf(mode) < 0) return null
+  if (!id || !label || ["prefix", "query", "files", "workflow", "emoji"].indexOf(mode) < 0) return null
   if (mode !== "workflow" && command.length === 0) return null
 
   var priority = finiteExtensionNumber(raw.priority, 0)
@@ -837,7 +840,7 @@ function normalizeExtension(raw) {
     missingRequires: stringArray(raw._missingRequires)
   }
 
-  if (mode === "prefix" || mode === "files" || mode === "workflow") {
+  if (mode === "prefix" || mode === "files" || mode === "workflow" || mode === "emoji") {
     var sourcePrefixes = Array.isArray(raw.prefixes) ? raw.prefixes : [raw.prefix]
     extension.prefixes = []
     for (var i = 0; i < sourcePrefixes.length; i++) {
@@ -856,6 +859,13 @@ function normalizeExtension(raw) {
       extension.copyCommand = stringArray(raw.copyCommand)
       if (extension.copyCommand.length === 0) extension.copyCommand = ["wl-copy", "--", "{path}"]
       extension.copyFileCommand = stringArray(raw.copyFileCommand)
+    } else if (mode === "emoji") {
+      // Default to the emoji set Omarchy already ships so the bundled
+      // provider carries no duplicate dataset. An external provider can point
+      // `data` at its own file with {extensionDir}.
+      extension.data = String(raw.data || "{omarchyPath}/shell/plugins/emojis/emojis.json")
+      extension.copyCommand = stringArray(raw.copyCommand)
+      if (extension.copyCommand.length === 0) extension.copyCommand = ["wl-copy", "--", "{emoji}"]
     }
   } else {
     extension.prefixes = []
@@ -1341,6 +1351,163 @@ function matchesFileFavoriteQuery(entry, query) {
   return prepared.terms.length > 0
 }
 
+var EMOJI_FAVORITE_PREFIX = "emoji.favorite:"
+// The bundled dataset holds roughly 1.8k entries. Both caps exist so a
+// malformed or hostile dataset cannot make the grid unbounded.
+var MAX_EMOJI_DEFINITIONS = 8192
+var MAX_EMOJI_ROWS = 1000
+var MAX_EMOJI_SEQUENCE = 32
+
+// Pins are keyed by capability, like extension roots and file favorites, so
+// replacing the emoji provider keeps the user's pinned emoji.
+function emojiFavoriteId(emoji, capability) {
+  var value = String(emoji || "")
+  var behavior = String(capability || "").trim()
+  if (!value || !behavior) return ""
+  return EMOJI_FAVORITE_PREFIX + JSON.stringify([behavior, value])
+}
+
+function emojiFavorite(itemId) {
+  var value = String(itemId || "")
+  if (value.indexOf(EMOJI_FAVORITE_PREFIX) !== 0) return null
+  try {
+    var parsed = JSON.parse(value.substring(EMOJI_FAVORITE_PREFIX.length))
+    if (!Array.isArray(parsed) || parsed.length !== 2) return null
+    var capability = String(parsed[0] || "").trim()
+    var emoji = String(parsed[1] || "")
+    return capability && emoji ? { capability: capability, emoji: emoji } : null
+  } catch (e) { return null }
+}
+
+// Omarchy's dataset stores one space-joined keyword blob per emoji with no
+// separate display name, so searching and captioning both derive from it.
+function emojiSearchText(keywords) {
+  return String(keywords || "").toLowerCase().replace(/[_\-\/]+/g, " ").replace(/\s+/g, " ").trim()
+}
+
+// Repeated words are common in the source keywords ("grinning face smile
+// grinning happy"). Collapse them so the caption reads as a description.
+function emojiCaption(keywords) {
+  var text = emojiSearchText(keywords)
+  if (!text) return ""
+  var words = text.split(" ")
+  var seen = ({})
+  var out = []
+  for (var i = 0; i < words.length; i++) {
+    var key = lookupKey(words[i])
+    if (!words[i] || seen[key]) continue
+    seen[key] = true
+    out.push(words[i])
+  }
+  text = out.join(" ")
+  return text.charAt(0).toUpperCase() + text.substring(1)
+}
+
+function parseEmojiData(raw) {
+  var parsed
+  try { parsed = JSON.parse(String(raw || "")) } catch (e) { return [] }
+  var source = Array.isArray(parsed) ? parsed
+    : (parsed && Array.isArray(parsed.emojis) ? parsed.emojis : [])
+  var values = []
+  var seen = ({})
+  for (var i = 0; i < source.length && values.length < MAX_EMOJI_DEFINITIONS; i++) {
+    var entry = source[i]
+    if (!entry || typeof entry !== "object") continue
+    var emoji = String(entry.e || entry.emoji || "")
+    if (!emoji || emoji.length > MAX_EMOJI_SEQUENCE) continue
+    var key = lookupKey(emoji)
+    if (seen[key]) continue
+    seen[key] = true
+    var keywords = String(entry.k || entry.keywords || entry.name || "")
+    values.push({
+      emoji: emoji,
+      keywords: keywords,
+      search: emojiSearchText(keywords),
+      caption: emojiCaption(keywords)
+    })
+  }
+  return values
+}
+
+// Word-prefix matching, so "smi fac" finds "smiling face" while a term buried
+// mid-word does not. A leading keyword scores higher than a trailing one
+// because the source blobs put the primary name first.
+function emojiMatchScore(text, terms) {
+  if (!terms || terms.length === 0) return 0
+  var words = String(text || "").split(" ")
+  var total = 0
+  for (var i = 0; i < terms.length; i++) {
+    var term = terms[i]
+    if (!term) continue
+    var best = 0
+    for (var j = 0; j < words.length; j++) {
+      if (words[j] === term) best = Math.max(best, j === 0 ? 4 : 3)
+      else if (words[j].indexOf(term) === 0) best = Math.max(best, j === 0 ? 2 : 1)
+    }
+    if (best === 0) return -1
+    total += best
+  }
+  return total
+}
+
+// Match quality outranks pins and history: a search for "cat" must not lead
+// with a pinned emoji that does not match. Without a query every score is 0,
+// which leaves pinned emoji first and then most-used.
+function compareEmojiRows(a, b) {
+  if (a.score !== b.score) return b.score - a.score
+  if (!!a.starred !== !!b.starred) return a.starred ? -1 : 1
+  if (a.usageCount !== b.usageCount) return b.usageCount - a.usageCount
+  if (a.lastUsedAt !== b.lastUsedAt) return b.lastUsedAt - a.lastUsedAt
+  return a.order - b.order
+}
+
+function emojiRows(values, query, options) {
+  var source = Array.isArray(values) ? values : []
+  var settings = options || ({})
+  var capability = String(settings.capability || "")
+  var isStarred = typeof settings.isStarred === "function" ? settings.isStarred : null
+  var usageCount = typeof settings.usageCount === "function" ? settings.usageCount : null
+  var lastUsedAt = typeof settings.lastUsedAt === "function" ? settings.lastUsedAt : null
+  var limit = finiteExtensionNumber(settings.limit, MAX_EMOJI_ROWS)
+  if (limit === null || limit < 0) limit = MAX_EMOJI_ROWS
+  limit = Math.min(limit, MAX_EMOJI_ROWS)
+
+  var terms = prepareSearchQuery(query).terms
+  var rows = []
+  for (var i = 0; i < source.length; i++) {
+    var entry = source[i]
+    if (!entry || !entry.emoji) continue
+    var score = emojiMatchScore(entry.search, terms)
+    if (score < 0) continue
+    var itemId = emojiFavoriteId(entry.emoji, capability)
+    rows.push({
+      emoji: entry.emoji,
+      caption: entry.caption,
+      itemId: itemId,
+      starred: itemId && isStarred ? isStarred(itemId) === true : false,
+      usageCount: itemId && usageCount ? Math.max(0, Number(usageCount(itemId)) || 0) : 0,
+      lastUsedAt: itemId && lastUsedAt ? Math.max(0, Number(lastUsedAt(itemId)) || 0) : 0,
+      score: score,
+      order: i
+    })
+  }
+
+  rows.sort(compareEmojiRows)
+  return rows.length > limit ? rows.slice(0, limit) : rows
+}
+
+// The dataset location is resolved by the host rather than read from an
+// arbitrary string: only {omarchyPath} and {extensionDir} expand, and the
+// result must be absolute.
+function emojiDataPath(extension, omarchyPath) {
+  if (!extension || extension.mode !== "emoji") return ""
+  var value = String(extension.data || "")
+  if (!value || value.indexOf("..") >= 0) return ""
+  value = value.replace(/\{omarchyPath\}/g, String(omarchyPath || ""))
+    .replace(/\{extensionDir\}/g, String(extension.sourceDir || ""))
+  return value.indexOf("/") === 0 ? value : ""
+}
+
 function displayRow(items, itemOrder, checkedResults, entry, detail, score, section, metadata) {
   var target = entry.kind === "link" ? entry.target : entry.id
   return {
@@ -1489,11 +1656,13 @@ function actionBarHints(state) {
   else if (value.workflowInputActive) hints.push({ label: "Continue", shortcut: "Enter" })
   else if (value.hasSelection) {
     var primary = value.actionPanelActive ? "Run"
-      : (value.directoryPickerActive || value.dmenuActive ? "Select"
-        : (value.workflowActive ? "Continue" : "Open"))
+      : (value.emojiPickerActive ? "Paste"
+        : (value.directoryPickerActive || value.dmenuActive ? "Select"
+          : (value.workflowActive ? "Continue" : "Open")))
     hints.push({ label: primary, shortcut: "Enter" })
   }
 
+  if (value.emojiPickerActive && value.hasSelection) hints.push({ label: "Copy", shortcut: "Ctrl C" })
   if (value.fileBrowserActive && value.hasSelection && !value.directoryPickerActive && !value.actionPanelActive) {
     hints.push({ label: "Actions", shortcut: "Ctrl K" })
     hints.push({ label: "Copy Path", shortcut: "Ctrl C" })
@@ -1600,6 +1769,15 @@ if (typeof module !== "undefined") {
     fileFavoriteLabel: fileFavoriteLabel,
     fileFavoriteItem: fileFavoriteItem,
     matchesFileFavoriteQuery: matchesFileFavoriteQuery,
+    emojiFavoriteId: emojiFavoriteId,
+    emojiFavorite: emojiFavorite,
+    emojiSearchText: emojiSearchText,
+    emojiCaption: emojiCaption,
+    parseEmojiData: parseEmojiData,
+    emojiMatchScore: emojiMatchScore,
+    compareEmojiRows: compareEmojiRows,
+    emojiRows: emojiRows,
+    emojiDataPath: emojiDataPath,
     displayRow: displayRow,
     actionBarHints: actionBarHints,
     compactActionBarHints: compactActionBarHints

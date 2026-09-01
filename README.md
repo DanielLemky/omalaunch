@@ -44,6 +44,7 @@ This workaround can be removed once Omarchy supports setting a widget’s sectio
 - Copy calculation results directly to the clipboard
 - Browse, recursively search, open, copy paths, and star local files and directories
 - Look up current times and convert times across DST-aware timezones
+- Search a grid of emoji and paste one straight into the focused application
 - Accept dmenu-style select and input requests
 - Load extensions contributed by enabled Omarchy plugins
 - Launch agent prompts such as Pi and Codex through optional extensions
@@ -84,11 +85,20 @@ Press Ctrl+K on a selected item to open its Action Panel. Directories can be ope
 
 ![Browsing files and using the contextual Action Panel in Omalaunch](assets/files-action-panel.gif)
 
+## Emoji
+
+Type `emoji` and activate the **Emoji** result to open a searchable grid. Type to filter by name and keyword — `smi fac` finds smiling faces — then press Enter to paste the selected emoji into whatever application had focus. Ctrl+C copies it to the clipboard instead and leaves the grid open so several emoji can be collected in one session. Recently and frequently used emoji lead the unfiltered grid, and Ctrl+S pins one to the front of it.
+
+Left and Right move one emoji, Up and Down move one row, and PageUp and PageDown move one screen. Escape clears the query and then leaves the grid.
+
+The grid reads the emoji set your Omarchy installation already ships, so it stays current with Omarchy rather than carrying its own copy of the data.
+
 ## Requirements
 
 - A current Omarchy installation with the manifest-based shell plugin system
 - [`libqalculate`](https://qalculate.github.io/) (`qalc`) to enable calculations and conversions
 - `fd`, `fzf`, `jq`, Python 3, Bash, and `wl-clipboard` (provided by a standard Omarchy installation; Python drives extension loading and file indexing)
+- `wtype` and Omarchy's `omarchy-menu-emoji-insert` to paste emoji into the focused application (both provided by a standard Omarchy installation)
 
 Install the calculation dependency through Omarchy:
 
@@ -112,15 +122,16 @@ Examples:
 browser
 wifi
 files
+emoji
 ```
 
 Calculation results appear first and are copied to the clipboard when activated.
 
 ### Extensions
 
-Open the fixed top-level **Extensions** directory to find every active bundled and external extension, including Calculator, Currency conversion, Files, Timezone, and installed workflow integrations such as Codex. Star an extension with Ctrl+S to add the same shortcut to the starting view; it remains in **Extensions**, where starred shortcuts sort first and all others sort alphabetically. The directory itself cannot be starred. Global search finds extension shortcuts whether or not they are starred.
+Open the fixed top-level **Extensions** directory to find every active bundled and external extension, including Calculator, Currency conversion, Emoji, Files, Timezone, and installed workflow integrations such as Codex. Star an extension with Ctrl+S to add the same shortcut to the starting view; it remains in **Extensions**, where starred shortcuts sort first and all others sort alphabetically. The directory itself cannot be starred. Global search finds extension shortcuts whether or not they are starred.
 
-Shortcut activation follows the extension type: Files opens its browser, Timezone prepares its prefix, Calculator and Currency conversion open focused query input, and workflow extensions open their workflow. A replacement provider keeps the same shortcut and favorite because identity is based on stable capability rather than provider id. Missing dependencies are shown on the shortcut without affecting unrelated extensions.
+Shortcut activation follows the extension type: Files opens its browser, Emoji opens its grid, Timezone prepares its prefix, Calculator and Currency conversion open focused query input, and workflow extensions open their workflow. A replacement provider keeps the same shortcut and favorite because identity is based on stable capability rather than provider id. Missing dependencies are shown on the shortcut without affecting unrelated extensions.
 
 Omalaunch includes replaceable bundled extensions. Every external Omalaunch extension is simply a standard Omarchy plugin, so it uses the same installation, enable/disable, update, and removal workflow as any other Omarchy plugin.
 
