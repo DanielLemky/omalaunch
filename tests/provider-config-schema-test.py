@@ -41,6 +41,10 @@ check(not pc.validate_config("omalaunch.quicklinks",{"version":1,"rankByUsage":F
 check(len(pc.config_default("omalaunch.web-search")["engines"])==5 and pc.config_default("omalaunch.web-search")["rankByUsage"] is True,"Web Search supplies five default engines and enables usage ranking")
 check(pc.validate_config("omalaunch.web-search",{"version":1,"engines":[{"id":"example","name":"Example","url":"https://example.test/?q={query}"}]})["engines"][0]["id"]=="example","Web Search accepts a safe engine template")
 check(pc.validate_config("omalaunch.web-search",{"version":1,"rankByUsage":False,"engines":[{"id":"example","name":"Example","url":"https://example.test/?q={query}"}]})["rankByUsage"] is False,"Web Search usage ranking can be disabled")
+try: pc.validate_state("omalaunch.web-search",{"version":1,"globalSearchExcludedEngines":["google"],"starredEngines":["google"]},Path("/home/test"))
+except ValueError: pass
+else: raise AssertionError("Web Search accepted a starred engine excluded from global search")
+print("ok - Web Search rejects contradictory star and global-search state")
 for bad in ({"version":1,"favorites":[]},{"version":2},{"version":1,"includeGitIgnored":"yes"}):
     try: pc.validate_config("omalaunch.files",bad)
     except ValueError: pass

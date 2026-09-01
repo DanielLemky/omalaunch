@@ -305,10 +305,6 @@ assert(menu.dynamicMenuSearchIdentity('extension.menu:not-json') === null, 'malf
 assert(dynamicMenu.items[0].actions[2].refreshExtensions, 'mutation actions can request an extension refresh')
 assert(dynamicMenu.items[1].kind === 'input' && dynamicMenu.items[1].prompt === 'URL', 'rows can open bounded host input forms')
 assert(menu.workflowCommand(dynamicMenu.items[1], 'https://literal.test/?q=$(bad)', {}).slice(-1)[0] === 'https://literal.test/?q=$(bad)', 'dynamic input is substituted as one literal argument')
-const dynamicSettings = menu.normalizeDynamicMenuOutput([{ id: 'settings', kind: 'menu', label: 'Search Engines', items: [
-  { id: 'google', kind: 'action', label: 'Disable Google', command: ['search', 'toggle', 'google'] }
-] }])
-assert(dynamicSettings && dynamicSettings.items[0].kind === 'menu' && dynamicSettings.items[0].items.length === 1, 'dynamic rows can open a bounded settings submenu')
 const scopedSearch = menu.normalizeDynamicMenuOutput([
   { id: 'global', label: 'Google', globalSearch: true, trailingIcon: 'globe', command: ['search', 'google'] },
   { id: 'menu-only', label: 'Bing', globalSearch: false, command: ['search', 'bing'] }

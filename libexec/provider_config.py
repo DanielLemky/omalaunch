@@ -160,6 +160,7 @@ def validate_state(provider:str,value:Any,home:Path)->dict[str,Any]:
         entries=value.get("globalSearchExcludedEngines",[]); starred=value.get("starredEngines",[])
         for values,label in ((entries,"global search exclusions"),(starred,"starred search engines")):
             if not isinstance(values,list) or len(values)>32 or any(not identity(x,64) for x in values) or len(set(values))!=len(values): raise ValueError("invalid "+label)
+        if set(entries)&set(starred): raise ValueError("starred search engines must be in global search")
         result["globalSearchExcludedEngines"]=list(entries); result["starredEngines"]=list(starred)
     elif provider=="omalaunch.files":
         entries=value.get("favorites",[])

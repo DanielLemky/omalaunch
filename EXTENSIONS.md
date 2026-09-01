@@ -196,8 +196,6 @@ Dynamic-menu extensions let a trusted external plugin calculate a short menu whe
 
 The provider receives no stdin. It writes one JSON object with an `items` array, or writes the array directly. A result can contain at most 100 rows. The process has a five-second timeout and a 256 KiB stdout limit. Invalid JSON, a nonzero exit, excessive output, duplicate row IDs, an invalid row, or an excessive row count rejects the complete snapshot. Omalaunch does not run a partial menu. Leaving the menu or closing the launcher makes the old generation stale, so its result cannot replace a later menu. Providers must be fast and should only read state.
 
-A row can also be a bounded host-rendered submenu by setting `kind` to `menu` and supplying `items`. Nested items use the workflow node format. This is useful for short configuration lists calculated by the provider.
-
 A basic row runs `command` directly:
 
 ```json
@@ -212,7 +210,7 @@ A basic row runs `command` directly:
 }
 ```
 
-Every row requires a unique, nonempty `id` and a nonempty `label`. Action rows also require a nonempty argument-array `command`; submenu rows require bounded `items` instead. Presentation strings and command arguments are bounded. Omalaunch does not invoke a shell and does not expand command text. `{extensionDir}` and form `{input}` values are substituted as complete literal arguments. Set `closeOnSuccess: true` for launch/open rows that should close Omalaunch after the command exits successfully. Other successful menu commands reload the provider so mutations appear immediately.
+Every row requires a unique, nonempty `id`, a nonempty `label`, and a nonempty argument-array `command`. Presentation strings and command arguments are bounded. Omalaunch does not invoke a shell and does not expand command text. `{extensionDir}` and form `{input}` values are substituted as complete literal arguments. Set `closeOnSuccess: true` for launch/open rows that should close Omalaunch after the command exits successfully. Other successful menu commands reload the provider so mutations appear immediately.
 
 A row can ask for confirmation before dispatch:
 
