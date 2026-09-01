@@ -300,6 +300,7 @@ assert(menu.dynamicMenuUsageItemId(dynamicMenuExtensions[0], dynamicMenu.items[0
 assert(menu.dynamicMenuUsageItemId(dynamicMenuExtensions[0], dynamicMenu.items[1]) === '', 'Add and other non-launch mutations do not publish usage')
 assert(menu.dynamicMenuUsageItemId({ ...dynamicMenuExtensions[0], id: 'omalaunch.quicklinks', config: { rankByUsage: false } }, dynamicMenu.items[0]) === '', 'bundled Quicklinks can disable usage ranking')
 assert(menu.dynamicMenuUsageItemId({ ...dynamicMenuExtensions[0], id: 'replacement.quicklinks', config: { rankByUsage: false } }, dynamicMenu.items[0]) === menu.dynamicMenuItemId('replacement.quicklinks', 'open'), 'bundled Quicklinks configuration does not control replacement providers or leak usage identity')
+assert(menu.dynamicMenuUsageItemId({ ...dynamicMenuExtensions[0], id: 'omalaunch.web-search', config: { rankByUsage: false } }, dynamicMenu.items[0]) === '', 'bundled Web Search can disable usage ranking for all engines')
 assert(menu.dynamicMenuSearchIdentity('extension.menu:not-json') === null, 'malformed dynamic search identities are rejected')
 assert(dynamicMenu.items[0].actions[2].refreshExtensions, 'mutation actions can request an extension refresh')
 assert(dynamicMenu.items[1].kind === 'input' && dynamicMenu.items[1].prompt === 'URL', 'rows can open bounded host input forms')

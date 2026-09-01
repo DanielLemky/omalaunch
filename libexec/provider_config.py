@@ -79,7 +79,7 @@ def read_json(path:Path,*,jsonc:bool)->Any:
 def config_default(provider:str)->dict[str,Any]:
     if provider=="omalaunch.files": return {"version":1,"includeGitIgnored":False}
     if provider=="omalaunch.quicklinks": return {"version":1,"rankByUsage":True}
-    if provider=="omalaunch.web-search": return {"version":1,"engines":[dict(engine) for engine in DEFAULT_SEARCH_ENGINES]}
+    if provider=="omalaunch.web-search": return {"version":1,"rankByUsage":True,"engines":[dict(engine) for engine in DEFAULT_SEARCH_ENGINES]}
     return {}
 def state_default(provider:str)->dict[str,Any]:
     if provider=="omalaunch.quicklinks": return {"version":1,"links":[]}
@@ -123,7 +123,9 @@ def validate_config(provider:str,value:Any)->dict[str,Any]:
         track=value.get("rankByUsage",True)
         if not isinstance(track,bool): raise ValueError("rankByUsage must be boolean")
         return {"version":1,"rankByUsage":track}
-    if not isinstance(value,dict) or value.get("version")!=1 or set(value)!={"version","engines"}: raise ValueError("invalid Web Search configuration")
+    if not isinstance(value,dict) or value.get("version")!=1 or set(value)-{"version","rankByUsage","engines"} or "engines" not in value: raise ValueError("invalid Web Search configuration")
+    rank=value.get("rankByUsage",True)
+    if not isinstance(rank,bool): raise ValueError("rankByUsage must be boolean")
     engines=value.get("engines")
     if not isinstance(engines,list) or not 1<=len(engines)<=32: raise ValueError("invalid search engines")
     result=[]; seen=set()
@@ -134,7 +136,7 @@ def validate_config(provider:str,value:Any)->dict[str,Any]:
         if not isinstance(name,str) or not 1<=len(name)<=120 or CONTROL.search(name): raise ValueError("invalid search engine name")
         if not isinstance(url,str) or url.count("{query}")!=1 or not valid_url(url.replace("{query}","search")): raise ValueError("invalid search engine URL template")
         seen.add(ident); result.append({"id":ident,"name":name,"url":url})
-    return {"version":1,"engines":result}
+    return {"version":1,"rankByUsage":rank,"engines":result}
 def validate_state(provider:str,value:Any,home:Path)->dict[str,Any]:
     if provider not in PROVIDERS or not isinstance(value,dict) or value.get("version")!=1: raise ValueError("expected version-1 provider state")
     allowed={"version","links"} if provider=="omalaunch.quicklinks" else ({"version","disabledEngines"} if provider=="omalaunch.web-search" else {"version","favorites"})

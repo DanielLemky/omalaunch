@@ -18,7 +18,7 @@ quicklinks_config=schema(config_dir/"omalaunch.quicklinks.v1.schema.json")
 web_search_config=schema(config_dir/"omalaunch.web-search.v1.schema.json")
 check(set(files_config["properties"])=={"version","includeGitIgnored"},"Files configuration contains no machine state")
 check(set(quicklinks_config["properties"])=={"version","rankByUsage"},"Quicklinks configuration contains only usage ranking")
-check(set(web_search_config["properties"])=={"version","engines"},"Web Search configuration owns search engine definitions")
+check(set(web_search_config["properties"])=={"version","rankByUsage","engines"},"Web Search configuration owns engine definitions and usage ranking")
 for provider in pc.PROVIDERS:
     value=schema(state_dir/f"{provider}.v1.schema.json")
     check("includeGitIgnored" not in value["properties"],provider+" state excludes user configuration")
@@ -38,8 +38,9 @@ for provider,value in valid.items():
 check(pc.validate_config("omalaunch.files",{"version":1,"includeGitIgnored":True})["includeGitIgnored"],"valid Files JSONC shape passes")
 check(pc.validate_config("omalaunch.quicklinks",{"version":1})["rankByUsage"],"Quicklinks usage ranking defaults to true")
 check(not pc.validate_config("omalaunch.quicklinks",{"version":1,"rankByUsage":False})["rankByUsage"],"Quicklinks usage ranking can be disabled")
-check(len(pc.config_default("omalaunch.web-search")["engines"])==5,"Web Search supplies five default engines")
+check(len(pc.config_default("omalaunch.web-search")["engines"])==5 and pc.config_default("omalaunch.web-search")["rankByUsage"] is True,"Web Search supplies five default engines and enables usage ranking")
 check(pc.validate_config("omalaunch.web-search",{"version":1,"engines":[{"id":"example","name":"Example","url":"https://example.test/?q={query}"}]})["engines"][0]["id"]=="example","Web Search accepts a safe engine template")
+check(pc.validate_config("omalaunch.web-search",{"version":1,"rankByUsage":False,"engines":[{"id":"example","name":"Example","url":"https://example.test/?q={query}"}]})["rankByUsage"] is False,"Web Search usage ranking can be disabled")
 for bad in ({"version":1,"favorites":[]},{"version":2},{"version":1,"includeGitIgnored":"yes"}):
     try: pc.validate_config("omalaunch.files",bad)
     except ValueError: pass

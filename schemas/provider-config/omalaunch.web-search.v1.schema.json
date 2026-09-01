@@ -6,6 +6,7 @@
   "required": ["version", "engines"],
   "properties": {
     "version": { "const": 1 },
+    "rankByUsage": { "type": "boolean", "default": true },
     "engines": {
       "type": "array",
       "minItems": 1,

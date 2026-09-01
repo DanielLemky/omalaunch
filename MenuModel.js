@@ -908,8 +908,8 @@ function dynamicMenuSearchIdentity(itemId) {
 
 function dynamicMenuUsageItemId(extension, node) {
   if (!extension || extension.mode !== "menu" || !node || !node.usageItemId) return ""
-  if (extension.id === "omalaunch.quicklinks" && extension.config
-      && extension.config.rankByUsage === false) return ""
+  if ((extension.id === "omalaunch.quicklinks" || extension.id === "omalaunch.web-search")
+      && extension.config && extension.config.rankByUsage === false) return ""
   // Usage belongs to the exact provider. The search/routing identity uses the
   // capability so replacement remains safe, but replacements must not inherit
   // another provider's learned ranking.

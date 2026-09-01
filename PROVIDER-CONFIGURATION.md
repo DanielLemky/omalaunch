@@ -74,13 +74,15 @@ The optional `omalaunch.web-search.jsonc` configuration defines 1 to 32 search e
 ```jsonc
 {
   "version": 1,
+  // Rank engines from successful searches.
+  "rankByUsage": true,
   "engines": [
     { "id": "google", "name": "Google", "url": "https://www.google.com/search?q={query}" },
   ],
 }
 ```
 
-The launcher percent-encodes the query before it replaces the placeholder. Search Engines in the Web Search menu changes only `disabledEngines` in machine-managed state. Thus, UI changes do not rewrite the user JSONC file. New configured engines are enabled unless their ID is in that state list.
+The launcher percent-encodes the query before it replaces the placeholder. `rankByUsage` defaults to `true` and learns one rank for each engine from successful searches. Set it to `false` to disable learned ranking for the complete extension. Search engine menu controls change only `disabledEngines` in machine-managed state. Thus, UI changes do not rewrite the user JSONC file. New configured engines are enabled unless their ID is in that state list.
 
 ## Quicklinks
 
