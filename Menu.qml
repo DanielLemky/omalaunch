@@ -3884,7 +3884,7 @@ Item {
                 anchors.right: parent.right
                 anchors.rightMargin: root.rowReservedBorderRight + Style.space(8)
                 y: contentColumn.y + labelText.y + (labelText.height - height) / 2
-                spacing: 0
+                spacing: Style.space(6)
 
                 Text {
                   visible: row.trailingIcon.length > 0
