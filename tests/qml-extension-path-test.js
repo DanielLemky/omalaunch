@@ -76,6 +76,18 @@ assert(dynamicProviderBody.includes('root.dynamicMenuOutputBytes')
   && dynamicProviderBody.includes('dynamicMenuProc.generation !== root.dynamicMenuGeneration')
   && qml.includes('id: dynamicMenuTimeout'),
 'dynamic menu providers have output, timeout, and stale-generation bounds')
+assert(qml.includes('id: dynamicMenuKillTimer')
+  && qml.includes('generation !== dynamicMenuProc.stopGeneration')
+  && qml.includes('generation !== dynamicMenuProc.generation')
+  && qml.includes('dynamicMenuProc.signal(9)')
+  && qml.includes('root.invalidateDynamicMenu()'),
+'dynamic menu timeout and output cancellation escalate SIGTERM only for the same provider child')
+assert(qml.includes('id: dynamicMenuSearchKillTimer')
+  && qml.includes('generation !== dynamicMenuSearchProc.stopGeneration')
+  && qml.includes('generation !== dynamicMenuSearchProc.generation')
+  && qml.includes('dynamicMenuSearchProc.signal(9)')
+  && qml.includes('dynamicMenuSearchKillTimer.stop()'),
+'global menu preload cancellation escalates SIGTERM safely and disarms stale escalation on exit')
 assert(qml.includes(': root.workflowActive\n                ? root.filterText')
   && qml.includes('height: root.workflowHintHeight')
   && qml.includes('visible: root.workflowInputActive || root.workflowFilterMenuActive')

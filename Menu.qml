@@ -680,7 +680,7 @@ Item {
     root.dynamicMenuGeneration += 1
     if (dynamicMenuProc.running) {
       dynamicMenuProc.stopping = true
-      dynamicMenuProc.stopGeneration = root.dynamicMenuGeneration
+      dynamicMenuProc.stopGeneration = dynamicMenuProc.generation
       dynamicMenuKillTimer.generation = dynamicMenuProc.stopGeneration
       dynamicMenuProc.running = false
       dynamicMenuKillTimer.restart()
@@ -696,7 +696,10 @@ Item {
     root.dynamicMenuSearchCandidate = []
     if (dynamicMenuSearchProc.running) {
       dynamicMenuSearchProc.stopping = true
+      dynamicMenuSearchProc.stopGeneration = dynamicMenuSearchProc.generation
+      dynamicMenuSearchKillTimer.generation = dynamicMenuSearchProc.stopGeneration
       dynamicMenuSearchProc.running = false
+      dynamicMenuSearchKillTimer.restart()
     }
   }
 
@@ -2850,9 +2853,23 @@ Item {
       root.rejectDynamicMenuSearch("global menu search preload exceeded the aggregate time limit")
   }
 
+  Timer {
+    id: dynamicMenuSearchKillTimer
+    interval: root.dynamicMenuTerminationGraceMs
+    repeat: false
+    property int generation: 0
+    onTriggered: {
+      if (!dynamicMenuSearchProc.stopping || generation !== dynamicMenuSearchProc.stopGeneration
+          || generation !== dynamicMenuSearchProc.generation) return
+      console.warn("Omalaunch: global menu search provider ignored SIGTERM; sending SIGKILL to direct child")
+      dynamicMenuSearchProc.signal(9)
+    }
+  }
+
   Process {
     id: dynamicMenuSearchProc
     property int generation: 0
+    property int stopGeneration: 0
     property var extension: null
     property bool stopping: false
     property string collected: ""
@@ -2865,7 +2882,7 @@ Item {
         var next = dynamicMenuSearchProc.collected + data + "\n"
         if (next.length > root.dynamicMenuOutputBytes || nextBytes > root.dynamicMenuSearchMaxOutputBytes) {
           dynamicMenuSearchProc.outputOverflow = true
-          dynamicMenuSearchProc.running = false
+          root.rejectDynamicMenuSearch("global menu search provider exceeded an output limit")
         } else {
           root.dynamicMenuSearchOutputBytes = nextBytes
           dynamicMenuSearchProc.collected = next
@@ -2880,12 +2897,15 @@ Item {
         if (dynamicMenuSearchProc.stderrBytes > root.dynamicMenuOutputBytes
             || root.dynamicMenuSearchOutputBytes > root.dynamicMenuSearchMaxOutputBytes) {
           dynamicMenuSearchProc.outputOverflow = true
-          dynamicMenuSearchProc.running = false
+          root.rejectDynamicMenuSearch("global menu search provider exceeded an output limit")
         }
       }
     }
     onExited: function(exitCode) {
       dynamicMenuSearchProviderTimeout.stop()
+      if (dynamicMenuSearchKillTimer.generation === dynamicMenuSearchProc.generation)
+        dynamicMenuSearchKillTimer.stop()
+      dynamicMenuSearchProc.stopGeneration = 0
       if (dynamicMenuSearchProc.generation !== root.dynamicMenuSearchGeneration) {
         dynamicMenuSearchProc.stopping = false
         root.startDynamicMenuSearchProvider()
@@ -2948,7 +2968,8 @@ Item {
     repeat: false
     property int generation: 0
     onTriggered: {
-      if (!dynamicMenuProc.stopping || generation !== dynamicMenuProc.stopGeneration) return
+      if (!dynamicMenuProc.stopping || generation !== dynamicMenuProc.stopGeneration
+          || generation !== dynamicMenuProc.generation) return
       console.warn("Omalaunch: dynamic menu provider ignored SIGTERM; sending SIGKILL to direct child")
       dynamicMenuProc.signal(9)
     }
@@ -2970,7 +2991,7 @@ Item {
         if (next.length > root.dynamicMenuOutputBytes) {
           dynamicMenuProc.outputOverflow = true
           dynamicMenuProc.collected = ""
-          dynamicMenuProc.running = false
+          root.invalidateDynamicMenu()
         } else dynamicMenuProc.collected = next
       }
     }
@@ -2980,7 +3001,7 @@ Item {
         dynamicMenuProc.stderrBytes += data.length + 1
         if (dynamicMenuProc.stderrBytes > root.dynamicMenuOutputBytes) {
           dynamicMenuProc.outputOverflow = true
-          dynamicMenuProc.running = false
+          root.invalidateDynamicMenu()
         }
       }
     }
