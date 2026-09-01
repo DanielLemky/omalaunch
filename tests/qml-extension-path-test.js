@@ -7,6 +7,11 @@ function assert(condition, message) {
 }
 
 const qml = fs.readFileSync(path.join(__dirname, '..', 'Menu.qml'), 'utf8')
+const favoritesQml = fs.readFileSync(path.join(__dirname, '..', 'LauncherFavorites.qml'), 'utf8')
+
+assert(favoritesQml.includes('Quickshell.env("XDG_STATE_HOME") || (Quickshell.env("HOME") + "/.local/state")')
+  && favoritesQml.includes('root.stateHome + "/omarchy/starred-launcher-items.json"'),
+'legacy favorite compatibility reads the same XDG state root as startup migration')
 
 const openBody = qml.slice(qml.indexOf('function open(payloadJson)'), qml.indexOf('function close()', qml.indexOf('function open(payloadJson)')))
 const resetBody = qml.slice(qml.indexOf('function resetForOpen()'), qml.indexOf('function cancel()', qml.indexOf('function resetForOpen()')))

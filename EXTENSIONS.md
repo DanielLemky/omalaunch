@@ -11,7 +11,7 @@ Both use the same extension format. An external extension with the same `capabil
 
 Omalaunch gives every resolved bundled and external extension one shortcut in the fixed top-level **Extensions** directory. The directory is always present and cannot be starred. Its shortcuts are ordered with starred extensions first and then alphabetically.
 
-Extension shortcuts do not otherwise appear on the launcher's starting view. Press Ctrl+S on a shortcut to promote it there; the same shortcut remains in **Extensions**, and Ctrl+S removes it from both views. Favorites use the extension's stable `capability`, so replacing a bundled provider with an external provider preserves the shortcut and its starred state. Extension roots are also included in global search whether or not they are starred.
+Extension shortcuts do not otherwise appear on the launcher's starting view. Press Ctrl+S on a shortcut to promote it there; the same shortcut remains in **Extensions**, and Ctrl+S removes it from both views. Favorites use the extension provider's stable `id`, so a replacement does not inherit the shortcut or its starred state. Extension roots are also included in global search whether or not they are starred.
 
 Activating a shortcut enters the interface appropriate to its mode:
 
@@ -133,7 +133,7 @@ File browser extensions provide navigation, recursive search, opening, and path 
 }
 ```
 
-Ctrl+K opens the contextual Action Panel. `command` opens files, `directoryCommand` opens directories in the file manager, `terminalCommand` opens a terminal, `copyCommand` copies the path, and `copyFileCommand` places a file URI on the clipboard. All command fields support `{path}`. Files and directories can be starred from the Action Panel or with Ctrl+S and then opened directly from the launcher’s starting view. Each star retains the extension capability that created it, so the currently selected provider for that capability handles it. The bundled implementation starts at the home directory, uses `fd` traversal and fzf path ranking, omits hidden and ignored paths, and limits each ranked result set to 100 entries. Exact basename matches rank before paths that match only through a parent directory, so many descendants cannot hide a matching file or directory. Recursive candidates are indexed once per active directory and reused while typing; the index refreshes after 30 seconds or when navigation changes directories.
+Ctrl+K opens the contextual Action Panel. `command` opens files, `directoryCommand` opens directories in the file manager, `terminalCommand` opens a terminal, `copyCommand` copies the path, and `copyFileCommand` places a file URI on the clipboard. All command fields support `{path}`. Files and directories can be starred from the Action Panel or with Ctrl+S and then opened directly from the launcher’s starting view. Each star belongs to the exact provider that created it, so a replacement does not inherit bundled Files favorites. The bundled implementation starts at the home directory, uses `fd` traversal and fzf path ranking, omits hidden and ignored paths, and limits each ranked result set to 100 entries. Exact basename matches rank before paths that match only through a parent directory, so many descendants cannot hide a matching file or directory. Recursive candidates are indexed once per active directory and reused while typing; the index refreshes after 30 seconds or when navigation changes directories.
 
 ## Workflow extension
 
@@ -328,14 +328,6 @@ Select a provider by extension `id` in `config.jsonc`. The key is the capability
 }
 ```
 
-Host-supported capability settings are independent of the selected provider and use one file per capability. Omalaunch does not load arbitrary configuration files for external capabilities. The first supported file is `~/.config/omarchy/omalaunch/extensions/files.jsonc`:
+Provider settings are separate from capability selection. User-edited JSONC is under `~/.config/omarchy/omalaunch/extensions/`; machine-managed JSON state is under `${XDG_STATE_HOME:-~/.local/state}/omarchy/omalaunch/extensions/`. Both use the exact provider ID as the filename. A replacement provider never inherits, merges, or shares either namespace. UI mutations write only state and never rewrite JSONC comments or formatting.
 
-```jsonc
-{
-  "version": 1,
-  // Include paths ignored by Git, but continue to honor other fd ignore rules.
-  "includeGitIgnored": true,
-}
-```
-
-`includeGitIgnored` defaults to `false`. When true, both directory browsing and the recursive Files index use `fd --no-ignore-vcs`.
+The exact version-1 structures, defaults, limits, identities, path rules, and separate configuration and state schemas are in [PROVIDER-CONFIGURATION.md](PROVIDER-CONFIGURATION.md). Apps and Extensions have no user configuration file. Files has only `includeGitIgnored` in configuration.

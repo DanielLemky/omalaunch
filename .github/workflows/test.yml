@@ -34,8 +34,17 @@ jobs:
       - name: Run extension loader tests
         run: python tests/extension-loader-test.py
 
+      - name: Validate provider storage schemas
+        run: python tests/provider-config-schema-test.py
+
+      - name: Run provider storage runtime tests
+        run: python tests/provider-config-runtime-test.py
+
+      - name: Run provider storage migration tests
+        run: python tests/provider-config-migration-test.py
+
       - name: Compile Python helpers
-        run: python -m py_compile libexec/load-extensions.py extensions/files/file-index.py extensions/timezone/convert-timezone.py
+        run: python -m py_compile libexec/load-extensions.py libexec/provider_config.py libexec/migrate-provider-config.py extensions/files/file-index.py extensions/timezone/convert-timezone.py
 
       - name: Run qalc integration tests
         run: bash tests/qalc-integration-test.sh

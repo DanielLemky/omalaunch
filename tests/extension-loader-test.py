@@ -143,14 +143,15 @@ elif mode == 'integer-overflow':
     enabled_file = base / "enabled.json"
     enabled_file.write_text(json.dumps([{"id": "example.dynamic", "enabled": True}]), encoding="utf-8")
     write_executable(bin_dir / "omarchy", f"#!/bin/sh\ncat {enabled_file}\n")
-    env = dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}")
+    env = dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}",
+               XDG_STATE_HOME=str(home / ".local" / "state"))
     omarchy_root = base / "omarchy"
     omarchy_root.mkdir()
 
     config_root = home / ".config" / "omarchy" / "omalaunch"
     (config_root / "extensions").mkdir(parents=True)
     (config_root / "config.jsonc").write_text('{\n// selection\n"version": 1, "capabilities": {"files": {"provider": "chosen",},},\n}')
-    (config_root / "extensions" / "files.jsonc").write_text('{"version": 1, "includeGitIgnored": true,}')
+    (config_root / "extensions" / "omalaunch.files.jsonc").write_text('{"version": 1, "includeGitIgnored": true,}')
 
     catalog = run_loader(plugin_root, omarchy_root, home, env)
     check(catalog["providerPreferences"] == {"files": "chosen"}
@@ -158,8 +159,8 @@ elif mode == 'integer-overflow':
               "version": 1,
               "capabilities": {"files": {"provider": "chosen"}},
           }
-          and catalog["capabilityConfig"] == {"files": {"includeGitIgnored": True}},
-          "bounded JSONC loads core and capability configuration")
+          and catalog["providerConfig"]["omalaunch.files"] == {"version": 1, "includeGitIgnored": True, "favorites": []},
+          "bounded JSONC loads core and provider configuration")
     ids = [item.get("id") for item in catalog["extensions"]]
     messages = "\n".join(catalog["diagnostics"])
     check(ids == ["bundled", "static", "dynamic", "argument"],

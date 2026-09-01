@@ -1,0 +1,152 @@
+#!/usr/bin/env python3
+"""Strict provider configuration readers and locked provider state writers."""
+from __future__ import annotations
+import fcntl, json, math, os, re, tempfile
+from pathlib import Path
+from typing import Any, Callable
+
+MAX_BYTES=64*1024; MAX_DEPTH=8; MAX_ITEMS=256; MAX_SAFE=9007199254740991
+CONTROL=re.compile(r"[\x00-\x1f\x7f]")
+PROVIDERS=("omalaunch.apps","omalaunch.files","omalaunch.extensions")
+CONFIG_PROVIDERS=("omalaunch.files",)
+
+def reject_constant(v:str)->Any: raise ValueError(f"non-finite number {v}")
+def parse_int(v:str)->int:
+    n=int(v)
+    if abs(n)>MAX_SAFE: raise ValueError("integer exceeds safe range")
+    return n
+def parse_float(v:str)->float:
+    n=float(v)
+    if not math.isfinite(n): raise ValueError("non-finite number")
+    return n
+def depth(value:Any)->None:
+    stack=[(value,0)]
+    while stack:
+        item,parent=stack.pop()
+        if isinstance(item,(dict,list)):
+            level=parent+1
+            if level>MAX_DEPTH: raise ValueError("nesting exceeds 8 levels")
+            children=item.values() if isinstance(item,dict) else item
+            stack.extend((x,level) for x in children if isinstance(x,(dict,list)))
+def strip_jsonc(raw:bytes)->str:
+    text=raw.decode("utf-8"); out=[]; i=0; string=False; escaped=False
+    while i<len(text):
+        c=text[i]
+        if string:
+            out.append(c)
+            if escaped: escaped=False
+            elif c=="\\": escaped=True
+            elif c=='"': string=False
+            i+=1
+        elif c=='"': string=True; out.append(c); i+=1
+        elif text.startswith("//",i):
+            end=text.find("\n",i+2); i=len(text) if end<0 else end
+        elif text.startswith("/*",i):
+            end=text.find("*/",i+2)
+            if end<0: raise ValueError("unterminated block comment")
+            out.extend("\n" for c in text[i:end+2] if c=="\n"); i=end+2
+        else: out.append(c); i+=1
+    text="".join(out); out=[]; i=0; string=False; escaped=False
+    while i<len(text):
+        c=text[i]
+        if string:
+            out.append(c)
+            if escaped: escaped=False
+            elif c=="\\": escaped=True
+            elif c=='"': string=False
+        elif c=='"': string=True; out.append(c)
+        elif c==",":
+            j=i+1
+            while j<len(text) and text[j].isspace(): j+=1
+            if j>=len(text) or text[j] not in "]}": out.append(c)
+        else: out.append(c)
+        i+=1
+    return "".join(out)
+def read_json(path:Path,*,jsonc:bool)->Any:
+    raw=path.read_bytes()
+    if len(raw)>MAX_BYTES: raise ValueError("file exceeds 64 KiB")
+    value=json.loads(strip_jsonc(raw) if jsonc else raw,parse_constant=reject_constant,parse_int=parse_int,parse_float=parse_float)
+    depth(value); return value
+
+def config_default(provider:str)->dict[str,Any]:
+    if provider!="omalaunch.files": return {}
+    return {"version":1,"includeGitIgnored":False}
+def state_default(provider:str)->dict[str,Any]:
+    return {"version":1,"favorites":[]}
+def identity(v:Any,maxlen:int=255)->bool:
+    return isinstance(v,str) and 1<=len(v)<=maxlen and "/" not in v and CONTROL.search(v) is None
+def normalize_path(v:Any,home:Path)->str:
+    if not isinstance(v,str) or not 1<=len(v)<=4096: raise ValueError("invalid path")
+    if v.startswith("~/"): v=str(home)+v[1:]
+    if not v.startswith("/"): raise ValueError("path is not absolute")
+    parts=[]
+    for part in v.split("/"):
+        if not part or part==".": continue
+        if part=="..":
+            if not parts: raise ValueError("path moves above root")
+            parts.pop()
+        else: parts.append(part)
+    return "/"+"/".join(parts)
+def validate_config(provider:str,value:Any)->dict[str,Any]:
+    if provider not in CONFIG_PROVIDERS: raise ValueError("provider has no configuration")
+    if not isinstance(value,dict) or value.get("version")!=1 or set(value)-{"version","includeGitIgnored"}: raise ValueError("invalid files configuration")
+    include=value.get("includeGitIgnored",False)
+    if not isinstance(include,bool): raise ValueError("includeGitIgnored must be boolean")
+    return {"version":1,"includeGitIgnored":include}
+def validate_state(provider:str,value:Any,home:Path)->dict[str,Any]:
+    if provider not in PROVIDERS or not isinstance(value,dict) or value.get("version")!=1: raise ValueError("expected version-1 provider state")
+    allowed={"version","favorites"}
+    if set(value)-allowed: raise ValueError("unknown state fields")
+    result=state_default(provider)
+    if provider=="omalaunch.files":
+        entries=value.get("favorites",[])
+        if not isinstance(entries,list) or len(entries)>MAX_ITEMS: raise ValueError("invalid file favorites")
+        seen=set()
+        for raw in entries:
+            if not isinstance(raw,dict) or set(raw)!={"type","path"} or raw["type"] not in ("file","directory"): raise ValueError("invalid file favorite")
+            path=normalize_path(raw["path"],home); key=(raw["type"],path)
+            if key in seen: raise ValueError("duplicate file favorite")
+            seen.add(key); result["favorites"].append({"type":raw["type"],"path":path})
+    else:
+        entries=value.get("favorites",[])
+        if not isinstance(entries,list) or len(entries)>MAX_ITEMS or any(not identity(x) for x in entries) or len(set(entries))!=len(entries): raise ValueError("invalid favorites")
+        result["favorites"]=list(entries)
+    return result
+
+def config_path(provider:str,home:Path)->Path: return home/".config/omarchy/omalaunch/extensions"/(provider+".jsonc")
+def state_root(home:Path,state_home:Path|None=None)->Path:
+    return (state_home or Path(os.environ.get("XDG_STATE_HOME",home/".local/state")))/"omarchy/omalaunch/extensions"
+def state_path(provider:str,home:Path,state_home:Path|None=None)->Path: return state_root(home,state_home)/(provider+".json")
+def load_config(provider:str,home:Path)->dict[str,Any]:
+    path=config_path(provider,home)
+    return config_default(provider) if not path.exists() else validate_config(provider,read_json(path,jsonc=True))
+def load_state(provider:str,home:Path,state_home:Path|None=None)->dict[str,Any]:
+    path=state_path(provider,home,state_home)
+    return state_default(provider) if not path.exists() else validate_state(provider,read_json(path,jsonc=False),home)
+def load(provider:str,home:Path,state_home:Path|None=None)->dict[str,Any]:
+    value=load_state(provider,home,state_home)
+    if provider in CONFIG_PROVIDERS: value={**value,**load_config(provider,home)}
+    return value
+
+def atomic_write_state(provider:str,home:Path,value:dict[str,Any],state_home:Path|None=None)->None:
+    path=state_path(provider,home,state_home); value=validate_state(provider,value,home); path.parent.mkdir(parents=True,exist_ok=True,mode=0o700)
+    data=(json.dumps(value,ensure_ascii=False,indent=2,allow_nan=False)+"\n").encode()
+    if len(data)>MAX_BYTES: raise ValueError("result exceeds 64 KiB")
+    fd,tmp=tempfile.mkstemp(prefix="."+path.name+".",dir=path.parent)
+    try:
+        os.fchmod(fd,0o600)
+        with os.fdopen(fd,"wb") as f: f.write(data); f.flush(); os.fsync(f.fileno())
+        os.replace(tmp,path)
+        d=os.open(path.parent,os.O_RDONLY|getattr(os,"O_DIRECTORY",0)); os.fsync(d); os.close(d)
+    finally:
+        try: os.unlink(tmp)
+        except FileNotFoundError: pass
+def mutate(provider:str,home:Path,fn:Callable[[dict[str,Any]],None],state_home:Path|None=None)->dict[str,Any]:
+    root=state_root(home,state_home); root.mkdir(parents=True,exist_ok=True,mode=0o700)
+    lock_path=root/(provider+".lock"); lock=os.open(lock_path,os.O_RDWR|os.O_CREAT,0o600)
+    try:
+        fcntl.flock(lock,fcntl.LOCK_EX)
+        value=load_state(provider,home,state_home) # Invalid state stops before write.
+        fn(value); atomic_write_state(provider,home,value,state_home)
+        return load_state(provider,home,state_home)
+    finally: os.close(lock)

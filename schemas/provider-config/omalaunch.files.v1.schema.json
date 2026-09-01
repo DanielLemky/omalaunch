@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/DanielLemky/omalaunch/schemas/provider-config/omalaunch.files.v1.schema.json",
+  "title": "omalaunch.files user configuration version 1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version"],
+  "properties": {
+    "version": { "const": 1 },
+    "includeGitIgnored": { "type": "boolean", "default": false }
+  }
+}
