@@ -221,7 +221,11 @@ Item {
   // Bound to the central [menu] section in shell.toml via Color.qml.
   // Each color already includes its alpha companion (composed in the
   // singleton), so consumers can drop them straight into a Rectangle.
-  LauncherFavorites { id: favorites }
+  LauncherFavorites {
+    id: favorites
+    helperPath: root.pluginPath + "/libexec/provider-config"
+    extensions: root.extensions
+  }
   LauncherUsage { id: usage }
   CurrencyExtension.CurrencyRates { id: currencyRates }
 
@@ -2774,6 +2778,7 @@ Item {
         var oldWorkflowNode = root.workflowNode
         var oldWorkflowStack = root.workflowStack
         root.extensions = catalog.extensions
+        favorites.configure(catalog.providerConfig, catalog.migrationComplete)
         root.preloadDynamicMenuSearch()
 
         if (focusedCapability) {

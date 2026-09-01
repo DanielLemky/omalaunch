@@ -1,0 +1,37 @@
+#!/usr/bin/env python3
+"""Check separate strict configuration and state schema contracts."""
+import importlib.util, json
+from pathlib import Path
+ROOT=Path(__file__).resolve().parents[1]
+spec=importlib.util.spec_from_file_location("pc",ROOT/"libexec/provider_config.py"); pc=importlib.util.module_from_spec(spec); spec.loader.exec_module(pc)
+def check(v,m):
+    if not v: raise AssertionError(m)
+    print("ok - "+m)
+def schema(path):
+    value=json.loads(path.read_text())
+    check(value["$schema"]=="https://json-schema.org/draft/2020-12/schema" and value["additionalProperties"] is False,path.name+" is a strict draft-2020-12 schema")
+    return value
+config_dir=ROOT/"schemas/provider-config"; state_dir=ROOT/"schemas/provider-state"
+check(sorted(x.name for x in config_dir.glob("*.json"))==["omalaunch.files.v1.schema.json"],"only Files has a user configuration schema")
+files_config=schema(config_dir/"omalaunch.files.v1.schema.json")
+check(set(files_config["properties"])=={"version","includeGitIgnored"},"Files configuration contains no machine state")
+for provider in pc.PROVIDERS:
+    value=schema(state_dir/f"{provider}.v1.schema.json")
+    check("includeGitIgnored" not in value["properties"],provider+" state excludes user configuration")
+valid={
+ "omalaunch.apps":{"version":1,"favorites":["app.desktop"]},
+ "omalaunch.files":{"version":1,"favorites":[{"type":"directory","path":"/tmp/docs"}]},
+ "omalaunch.extensions":{"version":1,"favorites":["omalaunch.files"]},
+}
+for provider,value in valid.items():
+    check(pc.validate_state(provider,value,Path("/home/test"))==value,provider+" valid state passes strict runtime validation")
+    bad={**value,"unknown":True}
+    try: pc.validate_state(provider,bad,Path("/home/test"))
+    except ValueError: pass
+    else: raise AssertionError(provider+" accepted unknown state")
+check(pc.validate_config("omalaunch.files",{"version":1,"includeGitIgnored":True})["includeGitIgnored"],"valid Files JSONC shape passes")
+for bad in ({"version":1,"favorites":[]},{"version":2},{"version":1,"includeGitIgnored":"yes"}):
+    try: pc.validate_config("omalaunch.files",bad)
+    except ValueError: pass
+    else: raise AssertionError("invalid Files config passed")
+print("ok - separate provider configuration and state schema suite")

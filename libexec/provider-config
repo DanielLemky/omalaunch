@@ -1,0 +1,43 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+import json, os, sys
+from pathlib import Path
+sys.path.insert(0,str(Path(__file__).parent))
+import provider_config as pc
+
+def fail(e:object)->None:
+    print("provider-config: "+str(e),file=sys.stderr); raise SystemExit(1)
+def main(a:list[str])->None:
+    home=Path(os.environ.get("HOME",str(Path.home())))
+    if not a: fail("missing command")
+    if a[0]=="read-all":
+        values={}; diagnostics=[]
+        for provider in pc.PROVIDERS:
+            try: state=pc.load_state(provider,home)
+            except (OSError,UnicodeError,ValueError,json.JSONDecodeError) as e:
+                state=pc.state_default(provider); diagnostics.append(f"Could not load state for {provider}: {e}"[:512])
+            config={}
+            if provider in pc.CONFIG_PROVIDERS:
+                try: config=pc.load_config(provider,home)
+                except (OSError,UnicodeError,ValueError,json.JSONDecodeError) as e:
+                    config=pc.config_default(provider); diagnostics.append(f"Could not load configuration for {provider}: {e}"[:512])
+            values[provider]={**state,**config}
+        print(json.dumps({"configs":values,"diagnostics":diagnostics[:64]},ensure_ascii=False)); return
+    if len(a)<2: fail("missing provider")
+    command,provider=a[:2]
+    if command=="read": print(json.dumps(pc.load(provider,home),ensure_ascii=False)); return
+    def toggle(data,key):
+        values=data["favorites"]
+        if key in values: values.remove(key)
+        elif len(values)<pc.MAX_ITEMS: values.append(key)
+        else: fail("favorites are full")
+    if command=="toggle" and len(a)==3:
+        value=a[2]
+        if provider=="omalaunch.files":
+            kind,path=value.split(":",1); path=pc.normalize_path(path,home); key={"type":kind,"path":path}
+            pc.mutate(provider,home,lambda d: d["favorites"].remove(key) if key in d["favorites"] else d["favorites"].append(key))
+        else: pc.mutate(provider,home,lambda d: toggle(d,value))
+        return
+    fail("invalid command")
+try: main(sys.argv[1:])
+except (OSError,UnicodeError,ValueError,json.JSONDecodeError,KeyError) as e: fail(e)
