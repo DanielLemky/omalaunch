@@ -1,0 +1,10 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/DanielLemky/omalaunch/schemas/provider-state/omalaunch.extensions.v1.schema.json",
+  "title": "omalaunch.extensions machine-managed state version 1",
+  "type": "object", "additionalProperties": false, "required": ["version"],
+  "properties": {
+    "version": {"const": 1},
+    "favorites": {"type": "array", "maxItems": 256, "uniqueItems": true, "items": {"type": "string", "minLength": 1, "maxLength": 255, "pattern": "^[^\\u0000-\\u001f\\u007f/]+$"}}
+  }
+}

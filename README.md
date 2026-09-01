@@ -120,7 +120,7 @@ Calculation results appear first and are copied to the clipboard when activated.
 
 Open the fixed top-level **Extensions** directory to find every active bundled and external extension, including Calculator, Currency conversion, Files, Timezone, and installed workflow integrations such as Codex. Star an extension with Ctrl+S to add the same shortcut to the starting view; it remains in **Extensions**, where starred shortcuts sort first and all others sort alphabetically. The directory itself cannot be starred. Global search finds extension shortcuts whether or not they are starred.
 
-Shortcut activation follows the extension type: Files opens its browser, Timezone prepares its prefix, Calculator and Currency conversion open focused query input, and workflow extensions open their workflow. A replacement provider keeps the same shortcut and favorite because identity is based on stable capability rather than provider id. Missing dependencies are shown on the shortcut without affecting unrelated extensions.
+Shortcut activation follows the extension type: Files opens its browser, Timezone prepares its prefix, Calculator and Currency conversion open focused query input, and workflow extensions open their workflow. A replacement provider supplies the capability shortcut, but it does not inherit the original provider's favorite because stored ownership uses the exact provider ID. Missing dependencies are shown on the shortcut without affecting unrelated extensions.
 
 Omalaunch includes replaceable bundled extensions. Every external Omalaunch extension is simply a standard Omarchy plugin, so it uses the same installation, enable/disable, update, and removal workflow as any other Omarchy plugin.
 
@@ -161,14 +161,7 @@ Omalaunch core settings live in the dedicated `~/.config/omarchy/omalaunch/confi
 }
 ```
 
-Each capability has an independent configuration file. For example, include files ignored by Git in Files browsing and search with `extensions/files.jsonc`:
-
-```jsonc
-{
-  "version": 1,
-  "includeGitIgnored": true,
-}
-```
+Bundled provider settings use provider-ID JSONC files under the configuration directory. Interactive data uses provider-ID JSON state under `${XDG_STATE_HOME:-~/.local/state}`. Replacement providers do not inherit either namespace. See [PROVIDER-CONFIGURATION.md](PROVIDER-CONFIGURATION.md) for the separate version-1 schemas and migration rules.
 
 If a preferred provider is missing or unavailable, Omalaunch reports a diagnostic and uses its normal provider selection rules.
 

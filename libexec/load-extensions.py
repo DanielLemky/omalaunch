@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass
+import importlib.util
 import json
 import math
 import os
@@ -78,7 +79,8 @@ class CatalogBuilder:
         # current and future Omalaunch core settings. Only validated settings
         # are copied from the user-owned config file.
         self.omalaunch_config: dict[str, Any] = {}
-        self.capability_config: dict[str, dict[str, Any]] = {}
+        self.provider_config: dict[str, dict[str, Any]] = {}
+        self.migration_complete = False
         # Reserve room for useful diagnostics. The final envelope still uses
         # the exact public catalog limit and trims diagnostics linearly.
         reserve = min(64 * 1024, max(64, limits.catalog_output_bytes // 4))
@@ -149,7 +151,8 @@ class CatalogBuilder:
                 "complete": complete,
                 "providerPreferences": self.provider_preferences,
                 "omalaunchConfig": self.omalaunch_config,
-                "capabilityConfig": self.capability_config,
+                "providerConfig": self.provider_config,
+                "migrationComplete": self.migration_complete,
             }
             base_size = len(self.encoded(result))
             used = base_size
@@ -476,20 +479,28 @@ def load_user_configuration(home: Path, builder: CatalogBuilder, limits: Limits)
         except (OSError, UnicodeDecodeError, ValueError) as error:
             builder.diagnostic(f"Could not load configuration {main_path}: {error}")
 
-    # Capability configuration is independent of provider identity. Load only
-    # host-supported capability schemas, so files cannot select arbitrary paths.
-    files_path = config_root / "extensions" / "files.jsonc"
-    if files_path.exists():
-        try:
-            value = read_jsonc(files_path, maximum_depth=limits.json_nesting_depth)
-            if not isinstance(value, dict) or value.get("version") != 1:
-                raise ValueError("expected an object with version 1")
-            include = value.get("includeGitIgnored", False)
-            if not isinstance(include, bool):
-                raise ValueError("includeGitIgnored must be a boolean")
-            builder.capability_config["files"] = {"includeGitIgnored": include}
-        except (OSError, UnicodeDecodeError, ValueError) as error:
-            builder.diagnostic(f"Could not load configuration {files_path}: {error}")
+def load_provider_configuration(plugin_path: Path, home: Path, builder: CatalogBuilder) -> None:
+    """Load only the files owned by bundled provider IDs."""
+    specification = importlib.util.spec_from_file_location("omalaunch_provider_config", Path(__file__).parent / "provider_config.py")
+    if specification is None or specification.loader is None:
+        raise OSError("could not load provider configuration reader")
+    module = importlib.util.module_from_spec(specification); specification.loader.exec_module(module)
+    for provider in module.PROVIDERS:
+        has_state = module.state_path(provider, home).exists()
+        has_config = provider in module.CONFIG_PROVIDERS and module.config_path(provider, home).exists()
+        if not has_state and not has_config:
+            continue
+        try: state = module.load_state(provider, home)
+        except (OSError, UnicodeDecodeError, ValueError, json.JSONDecodeError) as error:
+            state = module.state_default(provider)
+            builder.diagnostic(f"Could not load state for {provider}: {error}")
+        config = {}
+        if provider in module.CONFIG_PROVIDERS:
+            try: config = module.load_config(provider, home)
+            except (OSError, UnicodeDecodeError, ValueError, json.JSONDecodeError) as error:
+                config = module.config_default(provider)
+                builder.diagnostic(f"Could not load configuration for {provider}: {error}")
+        builder.provider_config[provider] = {**state, **config}
 
 
 def load_catalog(plugin_path: Path, omarchy_path: Path, home: Path, limits: Limits) -> dict[str, Any]:
@@ -692,7 +703,27 @@ def load_catalog(plugin_path: Path, omarchy_path: Path, home: Path, limits: Limi
                 continue
             builder.append(definitions, bundled=False, source_dir=plugin_dir, source=source)
 
+    # Provider selection is needed to resolve legacy capability favorites.
+    # Run migrations after the complete extension catalog is known, but before
+    # any provider or compatibility configuration is consumed.
     load_user_configuration(home, builder, limits)
+    try:
+        migration_path = plugin_path / "libexec" / "migrate-provider-config.py"
+        specification = importlib.util.spec_from_file_location("omalaunch_provider_migration", migration_path)
+        if specification is None or specification.loader is None:
+            raise OSError(f"could not load {migration_path}")
+        migration = importlib.util.module_from_spec(specification)
+        specification.loader.exec_module(migration)
+        migration_diagnostics, builder.migration_complete = migration.run(
+            home, builder.catalog, builder.provider_preferences
+        )
+        for message in migration_diagnostics:
+            builder.diagnostic(message)
+    except Exception as error:
+        # Legacy readers remain active, so a migration failure must not make the
+        # catalog transient or prevent the launcher from starting.
+        builder.diagnostic(f"Provider configuration migration could not run and will retry: {error}")
+    load_provider_configuration(plugin_path, home, builder)
     return builder.finish(complete=complete)
 
 
