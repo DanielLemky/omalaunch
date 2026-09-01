@@ -223,6 +223,27 @@ Currency conversion may cause `qalc` to retrieve updated exchange-rate data from
 
 ## Development
 
+Run the launcher from a source checkout, without installing it as a plugin:
+
+```bash
+tests/dev-shell.sh          # the launcher's starting view
+tests/dev-shell.sh emoji    # straight into the Emoji grid
+tests/dev-shell.sh files    # straight into the file browser
+```
+
+The argument is an extension capability. The harness symlinks Omarchy's real
+shell modules beside the checkout so themes and styles match a normal
+installation, and it exits as soon as the launcher closes, so Escape always
+returns the keyboard to the desktop. It supplies no application library, so
+application rows and the Apps menu stay empty; everything else behaves
+normally. Starring and usage ranking write to the real
+`~/.local/state/omarchy` files, so pass a throwaway `HOME` to keep a session
+from touching them.
+
+Do not develop from a copy installed under `~/.config/omarchy/plugins`:
+Omarchy watches that directory recursively and can reload the shell for every
+file changed beneath it.
+
 Run the tests with:
 
 ```bash
