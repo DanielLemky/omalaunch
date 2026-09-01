@@ -102,6 +102,26 @@ with tempfile.TemporaryDirectory() as temporary:
 
 with tempfile.TemporaryDirectory() as temporary:
     home, config, state, targets = paths(Path(temporary))
+    invalid = {"version": 1, "favorites": [], "includeGitIgnored": True}
+    write(targets / "omalaunch.files.json", invalid)
+    write(state / "omarchy/starred-launcher-items.json", {"version": 1, "ids": ['file.favorite:["files","file","/tmp/new"]']})
+    diagnostics, complete = run(home, config, state)
+    check(not complete and migration.read_data(targets / "omalaunch.files.json") == invalid,
+          "migration rejects configuration fields in provider state")
+
+with tempfile.TemporaryDirectory() as temporary:
+    home, config, state, targets = paths(Path(temporary))
+    target = targets / "omalaunch.apps.json"
+    original = {"version": 1, "favorites": ["keep"]}
+    write(target, original)
+    try: migration.atomic_write(target, {"version": 1, "favorites": ["x" * migration.MAX_BYTES]})
+    except ValueError: pass
+    else: raise AssertionError("migration wrote provider state above the runtime byte limit")
+    check(migration.read_data(target) == original and not (targets / "omalaunch.apps.json.pre-migration.bak").exists(),
+          "oversized migration output leaves state unchanged without a misleading backup")
+
+with tempfile.TemporaryDirectory() as temporary:
+    home, config, state, targets = paths(Path(temporary))
     write(state / "omarchy/starred-launcher-items.json", {"version": 1, "ids": ["apps.One"]})
     original = migration.atomic_write
     def fail_apps(path, value, **kwargs):

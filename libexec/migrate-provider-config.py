@@ -145,11 +145,8 @@ def default_config(provider: str) -> dict[str, Any]:
 
 def validate_config(provider: str, value: Any, home: Path) -> None:
     if not isinstance(value, dict) or value.get("version") != 1: raise ValueError("expected an object with version 1")
-    allowed = {"version", "favorites"}
-    if provider == "omalaunch.files": allowed.add("includeGitIgnored")
-    if not set(value) <= allowed: raise ValueError("configuration has unknown fields")
+    if not set(value) <= {"version", "favorites"}: raise ValueError("state has unknown fields")
     if provider == "omalaunch.files":
-        if "includeGitIgnored" in value and not isinstance(value["includeGitIgnored"], bool): raise ValueError("includeGitIgnored must be boolean")
         entries = value.get("favorites", [])
         identities = []
         if not isinstance(entries, list) or len(entries) > 256: raise ValueError("favorites are invalid")
@@ -195,9 +192,11 @@ def backup(path: Path) -> None:
 
 
 def atomic_write(path: Path, value: Any, *, make_backup: bool = True) -> None:
+    data = (json.dumps(value, ensure_ascii=False, indent=2, allow_nan=False) + "\n").encode()
+    if len(data) > MAX_BYTES:
+        raise ValueError(f"result is {len(data)} bytes; limit is {MAX_BYTES} bytes")
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     if make_backup: backup(path)
-    data = (json.dumps(value, ensure_ascii=False, indent=2, allow_nan=False) + "\n").encode()
     descriptor, temporary = tempfile.mkstemp(prefix="." + path.name + ".", dir=path.parent)
     try:
         os.fchmod(descriptor, 0o600)
