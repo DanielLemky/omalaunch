@@ -19,6 +19,7 @@ Activating a shortcut enters the interface appropriate to its mode:
 - A prefixed `query` or `prefix` extension focuses input with its prefix prepared.
 - A query-only extension focuses an empty, extension-specific input (for example Calculator and Currency conversion).
 - `workflow` opens its first host-rendered workflow stage.
+- `menu` runs its provider and opens the returned host-rendered action menu.
 
 Unavailable extensions remain listed with their missing dependency detail. Only dependencies in Omalaunch's own trusted setup allow-list offer an installation confirmation; other unavailable shortcuts cannot dispatch a command.
 
@@ -170,11 +171,84 @@ Workflow extensions contribute a launcher entry and a bounded tree of host-rende
 }
 ```
 
-Supported node kinds are `menu`, `directoryPicker`, and `input`. Menus contain `items`; a directory picker requires a `next` node; an input may run `command` and then enter `next`. Directory selection supplies `{path}` and `{basename}`. Input supplies `{input}`. `{extensionDir}` is the contributing extension's source directory. A node's bounded string-only `context` is inherited by its descendants. `default` initializes an input, `maxLength` bounds it, and `allowEmpty` permits submission without text. `emptyCommand` selects a distinct argument array for empty input. `refreshExtensions` reloads dynamic catalogs after a successful action. `nextBackSteps` can collapse transient input/picker history after a successful save.
+Supported node kinds are `menu`, `directoryPicker`, `input`, `action`, and `confirm`. Menus contain `items`; a directory picker requires a `next` node; an input may run `command` and then enter `next`. Action and confirmation nodes run a direct command; confirmation nodes use `confirm` and optional `confirmLabel` text. Directory selection supplies `{path}` and `{basename}`. Input supplies `{input}`. `{extensionDir}` is the contributing extension's source directory. A node's bounded string-only `context` is inherited by its descendants. `default` initializes an input, `maxLength` bounds it, and `allowEmpty` permits submission without text. `emptyCommand` selects a distinct argument array for empty input. `refreshExtensions` reloads dynamic catalogs after a successful action. `nextBackSteps` can collapse transient input/picker history after a successful save.
 
 Commands are executed directly as argument arrays. Placeholder substitution never invokes a shell, so paths, names, and prompts remain literal arguments. Workflow trees are capped at 256 nodes and eight levels. Extensions cannot contribute QML. Escape returns through workflow stages. The directory picker reuses the Files index/browse implementation but selects directories instead of opening them. Contextual workflow Ctrl+K actions are intentionally left as a future extension point; workflow definitions do not opt into the global Files Action Panel.
 
 A validated terminal leaf command whose executable is `xdg-terminal-exec` or `omarchy-launch-terminal` is dispatched detached, then Omalaunch closes and resets immediately; the launcher does not wait for a terminal wrapper to exit. Empty-input and other pre-dispatch validation failures leave the workflow open. Non-terminal commands and commands with a following stage wait for successful completion before navigating or closing. After 30 seconds, or when their workflow/session/catalog is left or replaced, Omalaunch sends SIGTERM to the tracked direct child; if it has not exited after a one-second grace period, Omalaunch sends that same generation's direct child SIGKILL. This guarantees release of the reusable Quickshell `Process` even when the direct child ignores SIGTERM. Quickshell's `Process.signal()` targets the direct process, not a process group, so independently surviving descendants are not guaranteed to be terminated. Generation checks prevent a stale process exit or kill timer from changing a later launcher session.
+
+## Actionable dynamic-menu extension
+
+Dynamic-menu extensions let a trusted external plugin calculate a short menu when the user opens its shortcut. The provider is a direct argument-array command:
+
+```json
+{
+  "schemaVersion": 1,
+  "id": "example.quicklinks",
+  "capability": "quicklinks",
+  "mode": "menu",
+  "label": "Quicklinks",
+  "prefixes": ["links"],
+  "requires": ["quicklinks"],
+  "command": ["quicklinks", "menu", "--json"]
+}
+```
+
+The provider receives no stdin. It writes one JSON object with an `items` array, or writes the array directly. A result can contain at most 100 rows. The process has a five-second timeout and a 256 KiB stdout limit. Invalid JSON, a nonzero exit, excessive output, duplicate row IDs, an invalid row, or an excessive row count rejects the complete snapshot. Omalaunch does not run a partial menu. Leaving the menu or closing the launcher makes the old generation stale, so its result cannot replace a later menu. Providers must be fast and should only read state.
+
+A basic row runs `command` directly:
+
+```json
+{
+  "items": [{
+    "id": "docs",
+    "label": "Project documentation",
+    "description": "example.test/docs",
+    "icon": "󰈙",
+    "command": ["xdg-open", "https://example.test/docs"]
+  }]
+}
+```
+
+Every row requires a unique, nonempty `id`, a nonempty `label`, and a nonempty argument-array `command`. Presentation strings and command arguments are bounded. Omalaunch does not invoke a shell and does not expand command text. `{extensionDir}` and form `{input}` values are substituted as complete literal arguments. Set `closeOnSuccess: true` for launch/open rows that should close Omalaunch after the command exits successfully. Other successful menu commands reload the provider so mutations appear immediately.
+
+A row can ask for confirmation before dispatch:
+
+```json
+{
+  "id": "remove",
+  "label": "Remove link",
+  "confirm": "Remove this saved link?",
+  "confirmLabel": "Remove",
+  "command": ["quicklinks", "remove", "docs"],
+  "refreshExtensions": true
+}
+```
+
+A row can open a host-rendered text input form. The input object supports the workflow input fields `prompt`, `default`, `maxLength`, `allowEmpty`, `emptyCommand`, `command`, and `next`. An input with `capture` stores its literal value under that named context key for interpolation by the next stage. This permits multi-step forms without temporary plugin state; backing out cancels the unfinished flow.
+
+```json
+{
+  "id": "add",
+  "label": "Add link",
+  "input": {
+    "prompt": "URL",
+    "maxLength": 2048,
+    "command": ["quicklinks", "add", "{input}"]
+  },
+  "refreshExtensions": true
+}
+```
+
+A row can include up to 16 `actions`. Press Ctrl+K on that row to open its contextual action list. Each contextual action has the same direct command, confirmation, input, and refresh fields as a row, but actions cannot contain more nested actions. A row can set `starAction` to the ID of one direct contextual action; Ctrl+S then runs that action through the normal tracked lifecycle. Providers should update the row's `starred` value and the action label/command in the next snapshot.
+
+Menu and action commands use the workflow action lifecycle. A non-terminal direct child runs for at most 30 seconds. Cancellation sends SIGTERM and then sends SIGKILL to the same direct child after one second. Stale generation checks prevent old exits from changing a new session. A successful menu mutation reloads the provider so the visible rows show current state. `refreshExtensions: true` also reloads the extension catalog after success. Failed commands leave the current menu open and do not refresh it.
+
+Set the extension field `globalSearch: true` to include its current top-level actionable rows in Omalaunch general search. The default is `false`, so omitted and false values keep the current shortcut-only behavior. Omalaunch preloads opted-in, available providers and searches each row by `label`, `description`, and optional string or string-array `aliases`. A row with `starred: true` also appears on the launcher's top-level starting view; non-starred rows remain search-only. The extension root remains visible as a separate search result. Activating a cached row runs the same primary command, including confirmation or input handling, and honors `closeOnSuccess`. Ctrl+K opens the row's cached contextual actions.
+
+The preload is one atomic cached snapshot. Omalaunch keeps the last complete snapshot if one provider fails, times out, returns invalid or excessive output, or exceeds an aggregate safeguard. At most 16 opted-in providers, 1,000 searchable rows, 1 MiB of output, and ten seconds of aggregate preload time are accepted; the existing five-second, 256 KiB, and 100-row limits still apply to each provider. Catalog changes and successful menu mutations invalidate and reload the snapshot. Generation checks reject stale provider exits. Providers must return all searchable state in the normal bounded menu response; Omalaunch does not run providers for each keystroke.
+
+Dynamic menus are for small actionable collections, not unbounded search results or a persistent RPC protocol. The plugin remains trusted local software; argument arrays prevent accidental shell parsing but do not sandbox it.
 
 ## Live-query extension
 
@@ -224,12 +298,12 @@ The highest-priority matching live-query extension runs. Live queries debounce f
 - `schemaVersion`: Extension format version; currently `1`.
 - `id`: Stable, unique extension identifier.
 - `capability`: Stable behavior being supplied or replaced; defaults to `id`.
-- `mode`: `prefix`, `query`, `files`, or `workflow`; defaults to `prefix`.
+- `mode`: `prefix`, `query`, `files`, `workflow`, or `menu`; defaults to `prefix`.
 - `label`, `icon`, `iconFont`, `description`: Result presentation.
 - `rootDescription`: Optional description for the extension shortcut in Extensions and global search. Use it when activating the extension differs from activating one of its results; defaults to `description`.
 - `priority`: Selection priority; defaults to `0`.
 - `requires`: Executable names that must be available on `PATH`.
-- `command`: Argument array. Prefix mode supports `{prompt}`; query mode supports `{query}`.
+- `command`: Argument array. Prefix mode supports `{prompt}`; query mode supports `{query}`; menu providers support `{extensionDir}`.
 
 Commands are argument arrays. Omalaunch substitutes placeholders and shell-quotes action arguments. Do not embed pipes, redirects, or other shell syntax.
 

@@ -125,9 +125,28 @@ Item {
   property var workflowNode: null
   property var workflowContext: ({})
   property var workflowStack: []
+  property bool dynamicMenuLoading: false
+  property var workflowConfirmNode: null
+  property bool workflowConfirmOpen: false
+  property int dynamicMenuGeneration: 0
+  readonly property int dynamicMenuTimeoutMs: 5000
+  readonly property int dynamicMenuTerminationGraceMs: 500
+  readonly property int dynamicMenuOutputBytes: 256 * 1024
+  property var dynamicMenuSearchSnapshot: []
+  property var dynamicMenuSearchQueue: []
+  property var dynamicMenuSearchCandidate: []
+  property int dynamicMenuSearchGeneration: 0
+  property int dynamicMenuSearchOutputBytes: 0
+  readonly property int dynamicMenuSearchMaxProviders: 16
+  readonly property int dynamicMenuSearchMaxRows: 1000
+  readonly property int dynamicMenuSearchMaxOutputBytes: 1024 * 1024
+  readonly property int dynamicMenuSearchTotalTimeoutMs: 10 * 1000
   property int workflowGeneration: 0
   readonly property int workflowActionTimeoutMs: 30 * 1000
   readonly property int workflowTerminationGraceMs: 1000
+  property int backgroundActionGeneration: 0
+  readonly property int backgroundActionTimeoutMs: 30 * 1000
+  readonly property int backgroundDiagnosticTextLimit: 256
   property int fileScanSerial: 0
   readonly property string fileIndexHelper: root.pluginPath + "/extensions/files/file-index.py"
   readonly property string extensionLoaderHelper: root.pluginPath + "/libexec/load-extensions.py"
@@ -150,6 +169,18 @@ Item {
     ? displayModel.get(root.selectedIndex) : null
   readonly property string selectedFilePath: root.selectedFileRow ? String(root.selectedFileRow.action || "") : ""
   readonly property bool imagePreviewActive: MenuModel.isImagePath(root.selectedFilePath)
+  readonly property var selectedWorkflowNode: root.workflowActive && !root.fileBrowserActive
+    && root.workflowNode && root.workflowNode.kind === "menu" && root.cursorActive
+    && root.selectedIndex >= 0 && root.selectedIndex < displayModel.count
+    ? root.workflowNode.items[Number(displayModel.get(root.selectedIndex).action)] : null
+  readonly property bool selectedWorkflowHasActions: root.selectedWorkflowNode
+    && root.selectedWorkflowNode.actions && root.selectedWorkflowNode.actions.length > 0
+  readonly property var selectedWorkflowStarAction: root.workflowStarAction(root.selectedWorkflowNode)
+  readonly property var selectedDynamicSearchEntry: !root.workflowActive && root.cursorActive
+    && root.selectedIndex >= 0 && root.selectedIndex < displayModel.count
+    ? root.dynamicMenuSearchEntry(displayModel.get(root.selectedIndex).itemId) : null
+  readonly property var selectedDynamicStarAction: root.selectedDynamicSearchEntry
+    ? root.workflowStarAction(root.selectedDynamicSearchEntry.node) : null
   readonly property int previewPaneWidth: Style.space(280)
 
   // Shared application engine (entries, hidden filters, icons, launch,
@@ -179,6 +210,8 @@ Item {
   property var dependencyTarget: null
   onOpenedChanged: if (!opened) {
     root.invalidateWorkflowAction("launcher closed")
+    root.invalidateBackgroundAction("launcher closed")
+    root.invalidateDynamicMenu()
     root.invalidateExtensionQuery("launcher closed")
     deleteConfirmOpen = false
     deleteTarget = null
@@ -201,6 +234,9 @@ Item {
   }
 
   property color background: Color.menu.background
+  // Menu theme surfaces can include alpha. Confirmation cards must be opaque
+  // because they are rendered over the menu card and its rows.
+  readonly property color dialogBackground: Qt.rgba(background.r, background.g, background.b, 1)
   property color foreground: Color.menu.text
   property color border: Color.menu.border
   property var borderSpec: Border.surfaceSpec("menu", "border", border, Math.max(1, Style.space(2)))
@@ -231,8 +267,11 @@ Item {
     : Style.space(root.imagePreviewActive ? 900 : 600), panel.width - Style.gapsOut * 2)
   readonly property bool emptyRoot: !root.dmenuActive && root.activeMenu === "root" && !root.filterText && displayModel.count === 0
   property int visibleRowsHeight: root.emptyRoot || root.workflowInputActive ? 0 : (root.dmenuActive ? dmenuRowListHeight(layoutSerial, displayModel.count, filterText) : rowListHeight(layoutSerial, displayModel.count, filterText, searchDivider))
+  readonly property bool workflowFilterMenuActive: root.workflowActive && root.workflowNode && root.workflowNode.kind === "menu"
+  property int workflowHintHeight: (root.workflowInputActive || root.workflowFilterMenuActive) ? Style.space(18) : 0
   property int cardHeight: Math.min(contentMargin + actionBarBottomPadding + headerHeight + actionBarHeight + contentSpacing
-    + (visibleRowsHeight > 0 ? contentSpacing + visibleRowsHeight : 0), panel.height - Style.gapsOut * 2)
+    + (visibleRowsHeight > 0 ? contentSpacing + visibleRowsHeight : 0)
+    + (workflowHintHeight > 0 ? contentSpacing + workflowHintHeight : 0), panel.height - Style.gapsOut * 2)
 
   readonly property var actionBarHints: MenuModel.actionBarHints({
     dmenuActive: root.dmenuActive,
@@ -242,9 +281,11 @@ Item {
     fileBrowserActive: root.fileBrowserActive,
     directoryPickerActive: root.directoryPickerActive,
     actionPanelActive: root.actionPanelActive,
+    canContextActions: root.selectedWorkflowHasActions || (root.selectedDynamicSearchEntry
+      && root.selectedDynamicSearchEntry.node.actions.length > 0),
     focusedExtension: !!root.focusedExtension,
     hasSelection: displayModel.count > 0 && root.cursorActive,
-    canStar: !root.dmenuActive && !root.workflowActive && !root.actionPanelActive
+    canStar: (!root.dmenuActive && !root.workflowActive && !root.actionPanelActive) || !!root.selectedWorkflowStarAction || !!root.selectedDynamicStarAction
       && displayModel.count > 0 && root.cursorActive && root.selectedIndex >= 0
       && root.selectedIndex < displayModel.count
       && (root.fileBrowserActive || (displayModel.get(root.selectedIndex).itemId !== "omarchy"
@@ -612,6 +653,7 @@ Item {
     var activation = MenuModel.extensionRootActivation(extension)
     if (activation === "files") root.enterFileBrowser(extension)
     else if (activation === "workflow") root.enterWorkflow(extension)
+    else if (activation === "menu") root.enterDynamicMenu(extension)
     else if (activation === "input") root.enterFocusedExtension(extension)
   }
 
@@ -630,6 +672,120 @@ Item {
     var values = node && node.context ? node.context : ({})
     for (var key in values) result[key] = MenuModel.workflowInterpolate(values[key], Object.assign({}, result, { extensionDir: root.workflowExtension ? root.workflowExtension.sourceDir : "" }))
     return result
+  }
+
+  function invalidateDynamicMenu() {
+    if (dynamicMenuProc.stopping) return
+    dynamicMenuTimeout.stop()
+    root.dynamicMenuGeneration += 1
+    if (dynamicMenuProc.running) {
+      dynamicMenuProc.stopping = true
+      dynamicMenuProc.stopGeneration = dynamicMenuProc.generation
+      dynamicMenuKillTimer.generation = dynamicMenuProc.stopGeneration
+      dynamicMenuProc.running = false
+      dynamicMenuKillTimer.restart()
+    }
+    root.dynamicMenuLoading = false
+  }
+
+  function invalidateDynamicMenuSearch() {
+    root.dynamicMenuSearchGeneration += 1
+    dynamicMenuSearchProviderTimeout.stop()
+    dynamicMenuSearchTotalTimeout.stop()
+    root.dynamicMenuSearchQueue = []
+    root.dynamicMenuSearchCandidate = []
+    if (dynamicMenuSearchProc.running) {
+      dynamicMenuSearchProc.stopping = true
+      dynamicMenuSearchProc.stopGeneration = dynamicMenuSearchProc.generation
+      dynamicMenuSearchKillTimer.generation = dynamicMenuSearchProc.stopGeneration
+      dynamicMenuSearchProc.running = false
+      dynamicMenuSearchKillTimer.restart()
+    }
+  }
+
+  function preloadDynamicMenuSearch() {
+    root.invalidateDynamicMenuSearch()
+    var queue = []
+    for (var i = 0; i < root.extensions.length; i++) {
+      var extension = root.extensions[i]
+      if (extension.mode === "menu" && extension.available && extension.globalSearch) queue.push(extension)
+    }
+    if (queue.length > root.dynamicMenuSearchMaxProviders) {
+      console.warn("Omalaunch: global menu search preload exceeds the provider limit; retained the previous snapshot")
+      return
+    }
+    if (queue.length === 0) {
+      root.dynamicMenuSearchSnapshot = []
+      root.rebuildDisplay()
+      return
+    }
+    root.dynamicMenuSearchQueue = queue
+    root.dynamicMenuSearchOutputBytes = 0
+    dynamicMenuSearchTotalTimeout.generation = root.dynamicMenuSearchGeneration
+    dynamicMenuSearchTotalTimeout.restart()
+    root.startDynamicMenuSearchProvider()
+  }
+
+  function startDynamicMenuSearchProvider() {
+    if (dynamicMenuSearchProc.running || dynamicMenuSearchProc.stopping || root.dynamicMenuSearchQueue.length === 0) return
+    var extension = root.dynamicMenuSearchQueue[0]
+    root.dynamicMenuSearchQueue = root.dynamicMenuSearchQueue.slice(1)
+    dynamicMenuSearchProc.generation = root.dynamicMenuSearchGeneration
+    dynamicMenuSearchProc.extension = extension
+    dynamicMenuSearchProc.collected = ""
+    dynamicMenuSearchProc.stderrBytes = 0
+    dynamicMenuSearchProc.outputOverflow = false
+    dynamicMenuSearchProc.command = extension.command.map(function(argument) {
+      return MenuModel.workflowInterpolate(argument, { extensionDir: extension.sourceDir })
+    })
+    dynamicMenuSearchProc.running = true
+    dynamicMenuSearchProviderTimeout.generation = root.dynamicMenuSearchGeneration
+    dynamicMenuSearchProviderTimeout.restart()
+  }
+
+  function rejectDynamicMenuSearch(reason) {
+    console.warn("Omalaunch: " + reason + "; retained the previous global menu search snapshot")
+    root.invalidateDynamicMenuSearch()
+  }
+
+  function dynamicMenuSearchEntry(itemId) {
+    for (var i = 0; i < root.dynamicMenuSearchSnapshot.length; i++)
+      if (root.dynamicMenuSearchSnapshot[i].item.id === itemId) return root.dynamicMenuSearchSnapshot[i]
+    return null
+  }
+
+  function enterDynamicMenu(extension, retainRows) {
+    if (!extension || !extension.available || extension.mode !== "menu"
+        || dynamicMenuProc.running || dynamicMenuProc.stopping) return
+    var retainCurrentRows = retainRows === true && root.workflowActive && root.workflowNode
+    root.invalidateExtensionQuery("entered dynamic menu")
+    root.invalidateWorkflowAction("entered dynamic menu")
+    root.focusedExtension = null
+    root.leaveFileBrowser(false)
+    root.workflowActive = true
+    root.workflowExtension = extension
+    root.workflowStack = []
+    root.workflowContext = ({ extensionDir: extension.sourceDir })
+    if (!retainCurrentRows) {
+      root.workflowNode = { id: "root", kind: "menu", label: extension.label, description: extension.description, items: [] }
+      root.filterText = ""
+      root.selectedIndex = 0
+      root.cursorActive = false
+    }
+    root.dynamicMenuLoading = true
+    root.dynamicMenuGeneration += 1
+    dynamicMenuProc.generation = root.dynamicMenuGeneration
+    dynamicMenuProc.extensionCapability = extension.capability
+    dynamicMenuProc.selectionNodeId = retainCurrentRows && root.selectedWorkflowNode ? root.selectedWorkflowNode.id : ""
+    dynamicMenuProc.collected = ""
+    dynamicMenuProc.stderrBytes = 0
+    dynamicMenuProc.outputOverflow = false
+    dynamicMenuProc.command = extension.command.map(function(argument) {
+      return MenuModel.workflowInterpolate(argument, { extensionDir: extension.sourceDir })
+    })
+    dynamicMenuProc.running = true
+    dynamicMenuTimeout.restart()
+    if (!retainCurrentRows) root.rebuildDisplay()
   }
 
   function enterWorkflow(extension) {
@@ -657,6 +813,9 @@ Item {
 
   function leaveWorkflow() {
     root.invalidateWorkflowAction("left workflow")
+    root.invalidateDynamicMenu()
+    root.workflowConfirmOpen = false
+    root.workflowConfirmNode = null
     root.resetFileIndex()
     root.fileBrowserActive = false
     root.directoryPickerActive = false
@@ -666,6 +825,9 @@ Item {
     root.workflowNode = null
     root.workflowContext = ({})
     root.workflowStack = []
+    root.dynamicMenuLoading = false
+    root.workflowConfirmOpen = false
+    root.workflowConfirmNode = null
     root.filterText = ""
     root.rebuildDisplay()
   }
@@ -709,7 +871,126 @@ Item {
     if (!root.workflowNode || root.workflowNode.kind !== "menu") return
     var child = root.workflowNode.items[index]
     if (!child) return
-    root.showWorkflowNode(child, root.workflowContext, true)
+    if (child.kind === "action") root.dispatchWorkflowNode(child, "")
+    else if (child.kind === "confirm") {
+      root.workflowConfirmNode = child
+      root.workflowConfirmOpen = true
+    } else root.showWorkflowNode(child, root.workflowContext, true)
+  }
+
+  function workflowStarAction(node) {
+    if (!node || !node.starAction || !node.actions) return null
+    for (var i = 0; i < node.actions.length; i++)
+      if (node.actions[i].id === node.starAction) return node.actions[i]
+    return null
+  }
+
+  function toggleSelectedWorkflowStar() {
+    var action = root.selectedWorkflowStarAction
+    if (action) root.dispatchWorkflowNode(action, "", false, true)
+  }
+
+  function openWorkflowActions() {
+    if (!root.workflowActive || root.fileBrowserActive || !root.workflowNode || root.workflowNode.kind !== "menu"
+        || !root.cursorActive || root.selectedIndex < 0 || root.selectedIndex >= root.workflowNode.items.length) return
+    var child = root.selectedWorkflowNode
+    if (!child || !child.actions || child.actions.length === 0) return
+    root.showWorkflowNode({ id: child.id + ".actions", kind: "menu", label: child.label,
+      description: "Actions", items: child.actions }, root.workflowContext, true)
+  }
+
+  function toggleSelectedDynamicStar() {
+    var entry = root.selectedDynamicSearchEntry
+    var action = root.selectedDynamicStarAction
+    if (!entry || !action) return
+    var extension = root.extensionByCapability(entry.capability)
+    if (!extension || !extension.available || extension.id !== entry.extensionId) return
+    root.dispatchBackgroundAction(extension, action, "")
+  }
+
+  function openDynamicSearchActions() {
+    var entry = root.selectedDynamicSearchEntry
+    if (!entry || !entry.node.actions || entry.node.actions.length === 0) return
+    var extension = root.extensionByCapability(entry.capability)
+    if (!extension || !extension.available || extension.id !== entry.extensionId) return
+    root.workflowActive = true
+    root.workflowExtension = extension
+    root.workflowContext = ({ extensionDir: extension.sourceDir })
+    root.workflowStack = []
+    root.workflowNode = { id: entry.node.id + ".actions", kind: "menu", label: entry.node.label,
+      description: "Actions", items: entry.node.actions }
+    root.filterText = ""
+    root.selectedIndex = 0
+    root.rebuildDisplay()
+  }
+
+  function boundedBackgroundDiagnostic(value) {
+    var text = String(value || "").replace(/[\r\n\0]/g, " ")
+    return text.substring(0, root.backgroundDiagnosticTextLimit)
+  }
+
+  function dispatchBackgroundAction(extension, node, input) {
+    if (!extension || !node) return
+    var values = Object.assign({}, root.workflowContext || ({}), { extensionDir: extension.sourceDir, input: input })
+    var command = MenuModel.workflowCommand(node, input, values)
+    if (!MenuModel.workflowBackgroundEligible(node, command)) return
+    if (backgroundActionProc.running || backgroundActionProc.stopping) {
+      console.warn("Omalaunch: background action is busy; ignored " + root.boundedBackgroundDiagnostic(node.id))
+      return
+    }
+    root.backgroundActionGeneration += 1
+    backgroundActionProc.generation = root.backgroundActionGeneration
+    backgroundActionProc.extensionCapability = extension.capability
+    backgroundActionProc.refreshExtensions = node.refreshExtensions
+    backgroundActionProc.closeAfter = node.closeOnSuccess
+    backgroundActionProc.actionId = root.boundedBackgroundDiagnostic(node.id)
+    backgroundActionProc.command = command
+    backgroundActionProc.running = true
+    backgroundActionTimeout.restart()
+  }
+
+  function invalidateBackgroundAction(reason) {
+    if (backgroundActionProc.stopping || !backgroundActionProc.running) return
+    root.backgroundActionGeneration += 1
+    backgroundActionTimeout.stop()
+    backgroundActionProc.stopping = true
+    backgroundActionProc.stopGeneration = backgroundActionProc.generation
+    backgroundActionKillTimer.generation = backgroundActionProc.stopGeneration
+    backgroundActionProc.running = false
+    backgroundActionKillTimer.restart()
+  }
+
+  function dispatchWorkflowNode(node, input, returnToRoot, backgroundRequested) {
+    if (!node) return
+    var transition = node.kind === "input" ? MenuModel.workflowInputTransition(node, input, root.workflowContext)
+      : { node: node.next, context: root.workflowContext }
+    if (!transition) return
+    var command = MenuModel.workflowCommand(node, input, root.workflowValues({ input: input }))
+    if (command.length === 0) return
+    if (backgroundRequested === true && MenuModel.workflowBackgroundEligible(node, command)) {
+      root.dispatchBackgroundAction(root.workflowExtension, node, input)
+      return
+    }
+    if (workflowActionProc.running || workflowActionProc.stopping) return
+    if (MenuModel.workflowClosesOnDispatch(node, command)) {
+      Quickshell.execDetached(command)
+      root.closeWorkflowAfterDispatch()
+      return
+    }
+    root.workflowGeneration += 1
+    workflowActionProc.generation = root.workflowGeneration
+    workflowActionProc.extensionCapability = root.workflowExtension.capability
+    workflowActionProc.nextNode = node.next
+    workflowActionProc.nextContext = transition.context
+    workflowActionProc.refreshExtensions = node.refreshExtensions
+    workflowActionProc.refreshDynamicMenu = root.workflowExtension.mode === "menu" && !node.next && !node.refreshExtensions && !node.closeOnSuccess
+    workflowActionProc.nextBackSteps = node.nextBackSteps
+    workflowActionProc.closeAfter = node.closeOnSuccess || (root.workflowExtension.mode !== "menu" && !node.next)
+    workflowActionProc.returnToRoot = returnToRoot === true
+    console.warn("Omalaunch action dispatch: " + JSON.stringify(command))
+    workflowActionProc.command = command
+    workflowActionProc.running = true
+    workflowActionTimeout.restart()
   }
 
   function enterDirectoryPicker(startPath) {
@@ -740,30 +1021,12 @@ Item {
     var transition = MenuModel.workflowInputTransition(node, value, root.workflowContext)
     // Validation happens before any generation change or launcher close.
     if (!transition) return
-    var context = root.workflowValues({ input: value })
-    var command = MenuModel.workflowCommand(node, value, context)
+    var command = MenuModel.workflowCommand(node, value, root.workflowValues({ input: value }))
     if (command.length === 0) {
       if (node.next) root.showWorkflowNode(node.next, transition.context, true)
       return
     }
-    if (MenuModel.workflowClosesOnDispatch(node, command)) {
-      // Do not attach a long-lived terminal wrapper to the reusable Process.
-      // Argument arrays preserve prompt/path values literally.
-      Quickshell.execDetached(command)
-      root.closeWorkflowAfterDispatch()
-      return
-    }
-    root.workflowGeneration += 1
-    workflowActionProc.generation = root.workflowGeneration
-    workflowActionProc.extensionCapability = root.workflowExtension.capability
-    workflowActionProc.nextNode = node.next
-    workflowActionProc.nextContext = transition.context
-    workflowActionProc.refreshExtensions = node.refreshExtensions
-    workflowActionProc.nextBackSteps = node.nextBackSteps
-    workflowActionProc.closeAfter = !node.next
-    workflowActionProc.command = command
-    workflowActionProc.running = true
-    workflowActionTimeout.restart()
+    root.dispatchWorkflowNode(node, value)
   }
 
   function invalidateWorkflowAction(reason) {
@@ -775,6 +1038,7 @@ Item {
     workflowActionProc.nextNode = null
     workflowActionProc.nextContext = ({})
     workflowActionProc.refreshExtensions = false
+    workflowActionProc.refreshDynamicMenu = false
     workflowActionProc.nextBackSteps = 0
     workflowActionProc.closeAfter = false
     if (workflowActionProc.running) {
@@ -1463,6 +1727,7 @@ Item {
       displayModel.clear()
       root.searchDivider = false
       if (root.workflowNode && root.workflowNode.kind === "menu") {
+        var workflowQuery = MenuModel.prepareSearchQuery(root.filterText.trim())
         for (var workflowIndex = 0; workflowIndex < root.workflowNode.items.length; workflowIndex++) {
           var workflowChild = root.workflowNode.items[workflowIndex]
           var workflowItem = root.normalizeItem("workflow.node." + workflowIndex, {
@@ -1470,14 +1735,19 @@ Item {
             iconFont: workflowChild.iconFont,
             label: root.workflowText(workflowChild.label),
             description: root.workflowText(workflowChild.description),
+            aliases: workflowChild.aliases,
             action: String(workflowIndex)
           })
+          if (workflowQuery && !MenuModel.matchesQuery(workflowItem, workflowQuery, true)) continue
           if (workflowChild.kind === "menu" || workflowChild.kind === "directoryPicker") workflowItem.kind = "menu"
-          displayModel.append(root.displayRow(workflowItem, workflowItem.description, workflowIndex))
+          var workflowRow = root.displayRow(workflowItem, workflowItem.description, workflowIndex)
+          workflowRow.starred = workflowChild.starred
+          displayModel.append(workflowRow)
         }
       }
       root.layoutSerial += 1
       root.selectedIndex = displayModel.count > 0 ? Math.min(root.selectedIndex, displayModel.count - 1) : 0
+      root.cursorActive = displayModel.count > 0
       return
     }
     if (root.dmenuActive) {
@@ -1516,6 +1786,20 @@ Item {
         rows.push(row)
       }
 
+      // Keep the fixed Extensions directory searchable even while dynamic
+      // catalog and global-search snapshots rebuild the ordinary item order.
+      if (!root.focusedExtension && active === "root") {
+        var extensionsDirectory = root.item("extensions")
+        var extensionsDirectorySeen = false
+        for (var extensionsSeenIndex = 0; extensionsSeenIndex < rows.length; extensionsSeenIndex++)
+          if (rows[extensionsSeenIndex].itemId === "extensions") { extensionsDirectorySeen = true; break }
+        if (!extensionsDirectorySeen && extensionsDirectory && MenuModel.matchesQuery(extensionsDirectory, preparedQuery, true)) {
+          var extensionsDirectoryRow = root.displayRow(extensionsDirectory, extensionsDirectory.description, 0)
+          extensionsDirectoryRow.matchPriority = MenuModel.searchMatchPriority(extensionsDirectory, preparedQuery)
+          rows.push(extensionsDirectoryRow)
+        }
+      }
+
       // File favorites are synthetic starting-view rows rather than members of
       // the menu tree, so add matching ones explicitly during global search.
       if (!root.focusedExtension && active === "root") {
@@ -1533,6 +1817,17 @@ Item {
           searchFavoriteRow.starred = true
           searchFavoriteRow.matchPriority = MenuModel.searchMatchPriority(searchFavoriteItem, preparedQuery)
           rows.push(searchFavoriteRow)
+        }
+      }
+
+      if (!root.focusedExtension && active === "root") {
+        for (var dynamicSearchIndex = 0; dynamicSearchIndex < root.dynamicMenuSearchSnapshot.length; dynamicSearchIndex++) {
+          var dynamicSearchEntry = root.dynamicMenuSearchSnapshot[dynamicSearchIndex]
+          if (!MenuModel.matchesQuery(dynamicSearchEntry.item, preparedQuery, true)) continue
+          var dynamicSearchRow = root.displayRow(dynamicSearchEntry.item, dynamicSearchEntry.item.description, 0)
+          dynamicSearchRow.starred = dynamicSearchEntry.node.starred
+          dynamicSearchRow.matchPriority = MenuModel.searchMatchPriority(dynamicSearchEntry.item, preparedQuery)
+          rows.push(dynamicSearchRow)
         }
       }
 
@@ -1680,6 +1975,14 @@ Item {
       }
 
       if (active === "root") {
+        for (var starredDynamicIndex = 0; starredDynamicIndex < root.dynamicMenuSearchSnapshot.length; starredDynamicIndex++) {
+          var starredDynamicEntry = root.dynamicMenuSearchSnapshot[starredDynamicIndex]
+          if (!starredDynamicEntry.node.starred) continue
+          var starredDynamicRow = root.displayRow(starredDynamicEntry.item, starredDynamicEntry.item.description, 0)
+          starredDynamicRow.starred = true
+          rows.push(starredDynamicRow)
+        }
+
         var favoriteIds = Object.keys(favorites.starredIds)
         var seenFileFavorites = ({})
         for (var favoriteIndex = 0; favoriteIndex < favoriteIds.length; favoriteIndex++) {
@@ -1868,6 +2171,25 @@ Item {
     if (index < 0 || index >= displayModel.count) return
 
     var row = displayModel.get(index)
+    var dynamicSearchEntry = root.dynamicMenuSearchEntry(row.itemId)
+    if (dynamicSearchEntry) {
+      var dynamicSearchExtension = root.extensionByCapability(dynamicSearchEntry.capability)
+      if (!dynamicSearchExtension || !dynamicSearchExtension.available
+          || dynamicSearchExtension.id !== dynamicSearchEntry.extensionId) return
+      root.workflowActive = true
+      root.workflowExtension = dynamicSearchExtension
+      root.workflowContext = ({ extensionDir: dynamicSearchExtension.sourceDir })
+      root.workflowStack = []
+      root.workflowNode = { id: "root", kind: "menu", label: dynamicSearchExtension.label,
+        description: dynamicSearchExtension.description, items: dynamicSearchEntry.items }
+      if (dynamicSearchEntry.node.kind === "action") root.dispatchWorkflowNode(dynamicSearchEntry.node, "")
+      else if (dynamicSearchEntry.node.kind === "confirm") {
+        root.workflowConfirmNode = dynamicSearchEntry.node
+        root.workflowConfirmOpen = true
+        root.rebuildDisplay()
+      } else root.showWorkflowNode(dynamicSearchEntry.node, root.workflowContext, true)
+      return
+    }
     var rootExtension = root.extensionForRootId(row.itemId)
     if (rootExtension) {
       if (rootExtension.available) usage.record(row.itemId)
@@ -2047,6 +2369,7 @@ Item {
   function resetForOpen() {
     if (root.dmenuActive && root.requestActive) root.finishRequest(null)
     root.invalidateWorkflowAction("new launcher session")
+    root.invalidateDynamicMenu()
     root.routePendingForMenuSources = false
     root.resetFileIndex()
     root.invalidateExtensionQuery("new launcher session")
@@ -2067,6 +2390,9 @@ Item {
 
   function cancel() {
     root.invalidateWorkflowAction("launcher canceled")
+    root.invalidateDynamicMenu()
+    root.workflowConfirmOpen = false
+    root.workflowConfirmNode = null
     root.routePendingForMenuSources = false
     if (root.dmenuActive) root.finishRequest(null)
     root.resetFileIndex()
@@ -2080,6 +2406,7 @@ Item {
     root.workflowNode = null
     root.workflowContext = ({})
     root.workflowStack = []
+    root.dynamicMenuLoading = false
     root.focusedExtension = null
     root.extensionQuery = ""
     root.extensionResult = ""
@@ -2222,10 +2549,27 @@ Item {
     property string copyPath: ""
     property string successMessage: "Copied path"
     onExited: function(exitCode) {
+      if (exitCode === 0) {
+        root.cancel()
+        return
+      }
       root.fileCopyFeedbackPath = fileCopyProc.copyPath
-      root.fileCopyFeedback = exitCode === 0 ? fileCopyProc.successMessage : "Copy failed"
+      root.fileCopyFeedback = "Copy failed"
       if (root.fileBrowserActive) root.rebuildFileDisplay()
       fileCopyFeedbackTimer.restart()
+    }
+  }
+
+  Process {
+    id: pasteProc
+    command: ["wl-paste", "--no-newline", "--type", "text"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        if (!root.workflowInputActive) return
+        var limit = root.workflowNode ? root.workflowNode.maxLength : 4096
+        root.setFilter((root.filterText + text).substring(0, limit))
+      }
     }
   }
 
@@ -2430,6 +2774,7 @@ Item {
         var oldWorkflowNode = root.workflowNode
         var oldWorkflowStack = root.workflowStack
         root.extensions = catalog.extensions
+        root.preloadDynamicMenuSearch()
 
         if (focusedCapability) {
           var refreshedFocus = root.extensionByCapability(focusedCapability) || root.extensionById(focusedId)
@@ -2439,12 +2784,17 @@ Item {
         }
         if (root.workflowActive) {
           var refreshedWorkflow = root.extensionByCapability(workflowCapability) || root.extensionById(workflowId)
-          var rebound = MenuModel.rebindWorkflow(refreshedWorkflow, oldWorkflowStack, oldWorkflowNode)
-          if (rebound) {
-            root.workflowExtension = refreshedWorkflow
-            root.workflowNode = rebound.node
-            root.workflowStack = rebound.stack
-          } else root.leaveWorkflow()
+          if (refreshedWorkflow && refreshedWorkflow.available && refreshedWorkflow.mode === "menu") {
+            root.leaveWorkflow()
+            root.enterDynamicMenu(refreshedWorkflow)
+          } else {
+            var rebound = MenuModel.rebindWorkflow(refreshedWorkflow, oldWorkflowStack, oldWorkflowNode)
+            if (rebound) {
+              root.workflowExtension = refreshedWorkflow
+              root.workflowNode = rebound.node
+              root.workflowStack = rebound.stack
+            } else root.leaveWorkflow()
+          }
         }
         if (root.fileBrowserActive) {
           var refreshedFiles = root.filesExtensionForCapability(fileCapability) || root.extensionById(fileId)
@@ -2486,6 +2836,210 @@ Item {
   }
 
   Timer {
+    id: dynamicMenuSearchProviderTimeout
+    interval: root.dynamicMenuTimeoutMs
+    repeat: false
+    property int generation: 0
+    onTriggered: if (generation === root.dynamicMenuSearchGeneration)
+      root.rejectDynamicMenuSearch("global menu search provider timed out after " + interval + "ms")
+  }
+
+  Timer {
+    id: dynamicMenuSearchTotalTimeout
+    interval: root.dynamicMenuSearchTotalTimeoutMs
+    repeat: false
+    property int generation: 0
+    onTriggered: if (generation === root.dynamicMenuSearchGeneration)
+      root.rejectDynamicMenuSearch("global menu search preload exceeded the aggregate time limit")
+  }
+
+  Timer {
+    id: dynamicMenuSearchKillTimer
+    interval: root.dynamicMenuTerminationGraceMs
+    repeat: false
+    property int generation: 0
+    onTriggered: {
+      if (!dynamicMenuSearchProc.stopping || generation !== dynamicMenuSearchProc.stopGeneration
+          || generation !== dynamicMenuSearchProc.generation) return
+      console.warn("Omalaunch: global menu search provider ignored SIGTERM; sending SIGKILL to direct child")
+      dynamicMenuSearchProc.signal(9)
+    }
+  }
+
+  Process {
+    id: dynamicMenuSearchProc
+    property int generation: 0
+    property int stopGeneration: 0
+    property var extension: null
+    property bool stopping: false
+    property string collected: ""
+    property int stderrBytes: 0
+    property bool outputOverflow: false
+    stdout: SplitParser {
+      onRead: function(data) {
+        if (dynamicMenuSearchProc.outputOverflow) return
+        var nextBytes = root.dynamicMenuSearchOutputBytes + data.length + 1
+        var next = dynamicMenuSearchProc.collected + data + "\n"
+        if (next.length > root.dynamicMenuOutputBytes || nextBytes > root.dynamicMenuSearchMaxOutputBytes) {
+          dynamicMenuSearchProc.outputOverflow = true
+          root.rejectDynamicMenuSearch("global menu search provider exceeded an output limit")
+        } else {
+          root.dynamicMenuSearchOutputBytes = nextBytes
+          dynamicMenuSearchProc.collected = next
+        }
+      }
+    }
+    stderr: SplitParser {
+      onRead: function(data) {
+        if (dynamicMenuSearchProc.outputOverflow) return
+        dynamicMenuSearchProc.stderrBytes += data.length + 1
+        root.dynamicMenuSearchOutputBytes += data.length + 1
+        if (dynamicMenuSearchProc.stderrBytes > root.dynamicMenuOutputBytes
+            || root.dynamicMenuSearchOutputBytes > root.dynamicMenuSearchMaxOutputBytes) {
+          dynamicMenuSearchProc.outputOverflow = true
+          root.rejectDynamicMenuSearch("global menu search provider exceeded an output limit")
+        }
+      }
+    }
+    onExited: function(exitCode) {
+      dynamicMenuSearchProviderTimeout.stop()
+      if (dynamicMenuSearchKillTimer.generation === dynamicMenuSearchProc.generation)
+        dynamicMenuSearchKillTimer.stop()
+      dynamicMenuSearchProc.stopGeneration = 0
+      if (dynamicMenuSearchProc.generation !== root.dynamicMenuSearchGeneration) {
+        dynamicMenuSearchProc.stopping = false
+        root.startDynamicMenuSearchProvider()
+        return
+      }
+      dynamicMenuSearchProc.stopping = false
+      if (exitCode !== 0 || dynamicMenuSearchProc.outputOverflow) {
+        root.rejectDynamicMenuSearch("global menu search provider failed or exceeded an output limit")
+        return
+      }
+      var workflow = MenuModel.normalizeDynamicMenuOutput(dynamicMenuSearchProc.collected)
+      if (!workflow) {
+        root.rejectDynamicMenuSearch("global menu search provider returned an invalid snapshot")
+        return
+      }
+      var searchItems = MenuModel.dynamicMenuSearchItems(dynamicMenuSearchProc.extension, workflow)
+      if (root.dynamicMenuSearchCandidate.length + searchItems.length > root.dynamicMenuSearchMaxRows) {
+        root.rejectDynamicMenuSearch("global menu search preload exceeds the aggregate row limit")
+        return
+      }
+      var candidate = root.dynamicMenuSearchCandidate.slice()
+      for (var i = 0; i < searchItems.length; i++) {
+        var searchNode = null
+        for (var nodeIndex = 0; nodeIndex < workflow.items.length; nodeIndex++)
+          if (workflow.items[nodeIndex].id === searchItems[i].action) { searchNode = workflow.items[nodeIndex]; break }
+        if (!searchNode) {
+          root.rejectDynamicMenuSearch("global menu search row lost its normalized provider identity")
+          return
+        }
+        candidate.push({
+          item: searchItems[i], node: searchNode, items: workflow.items,
+          capability: dynamicMenuSearchProc.extension.capability, extensionId: dynamicMenuSearchProc.extension.id
+        })
+      }
+      root.dynamicMenuSearchCandidate = candidate
+      if (root.dynamicMenuSearchQueue.length > 0) root.startDynamicMenuSearchProvider()
+      else {
+        dynamicMenuSearchTotalTimeout.stop()
+        root.dynamicMenuSearchSnapshot = candidate
+        root.dynamicMenuSearchCandidate = []
+        root.rebuildDisplay()
+      }
+    }
+  }
+
+  Timer {
+    id: dynamicMenuTimeout
+    interval: root.dynamicMenuTimeoutMs
+    repeat: false
+    onTriggered: {
+      if (!dynamicMenuProc.running) return
+      console.warn("Omalaunch: dynamic menu provider timed out after " + interval + "ms")
+      root.invalidateDynamicMenu()
+    }
+  }
+
+  Timer {
+    id: dynamicMenuKillTimer
+    interval: root.dynamicMenuTerminationGraceMs
+    repeat: false
+    property int generation: 0
+    onTriggered: {
+      if (!dynamicMenuProc.stopping || generation !== dynamicMenuProc.stopGeneration
+          || generation !== dynamicMenuProc.generation) return
+      console.warn("Omalaunch: dynamic menu provider ignored SIGTERM; sending SIGKILL to direct child")
+      dynamicMenuProc.signal(9)
+    }
+  }
+
+  Process {
+    id: dynamicMenuProc
+    property int generation: 0
+    property int stopGeneration: 0
+    property bool stopping: false
+    property string extensionCapability: ""
+    property string selectionNodeId: ""
+    property string collected: ""
+    property bool outputOverflow: false
+    stdout: SplitParser {
+      onRead: function(data) {
+        if (dynamicMenuProc.outputOverflow) return
+        var next = dynamicMenuProc.collected + data + "\n"
+        if (next.length > root.dynamicMenuOutputBytes) {
+          dynamicMenuProc.outputOverflow = true
+          dynamicMenuProc.collected = ""
+          root.invalidateDynamicMenu()
+        } else dynamicMenuProc.collected = next
+      }
+    }
+    stderr: SplitParser {
+      onRead: function(data) {
+        if (dynamicMenuProc.outputOverflow) return
+        dynamicMenuProc.stderrBytes += data.length + 1
+        if (dynamicMenuProc.stderrBytes > root.dynamicMenuOutputBytes) {
+          dynamicMenuProc.outputOverflow = true
+          root.invalidateDynamicMenu()
+        }
+      }
+    }
+    property int stderrBytes: 0
+    onExited: function(exitCode) {
+      dynamicMenuTimeout.stop()
+      dynamicMenuKillTimer.stop()
+      dynamicMenuProc.stopGeneration = 0
+      dynamicMenuProc.stopping = false
+      if (dynamicMenuProc.generation !== root.dynamicMenuGeneration || !root.workflowActive
+          || !root.workflowExtension || root.workflowExtension.mode !== "menu"
+          || root.workflowExtension.capability !== dynamicMenuProc.extensionCapability) return
+      root.dynamicMenuLoading = false
+      var workflow = exitCode === 0 && !dynamicMenuProc.outputOverflow
+        ? MenuModel.normalizeDynamicMenuOutput(dynamicMenuProc.collected) : null
+      if (!workflow) {
+        console.warn("Omalaunch: dynamic menu provider returned invalid or failed output")
+        root.workflowNode = { id: "root", kind: "menu", label: root.workflowExtension.label,
+          description: "Provider failed", items: [] }
+      } else root.workflowNode = { id: "root", kind: "menu", label: root.workflowExtension.label,
+        description: root.workflowExtension.description, items: workflow.items }
+      var selectedWorkflowNodeIndex = -1
+      if (workflow && dynamicMenuProc.selectionNodeId) {
+        for (var selectedWorkflowIndex = 0; selectedWorkflowIndex < workflow.items.length; selectedWorkflowIndex++)
+          if (workflow.items[selectedWorkflowIndex].id === dynamicMenuProc.selectionNodeId) { selectedWorkflowNodeIndex = selectedWorkflowIndex; break }
+      }
+      dynamicMenuProc.selectionNodeId = ""
+      root.selectedIndex = 0
+      root.cursorActive = workflow && workflow.items.length > 0
+      root.rebuildDisplay()
+      if (selectedWorkflowNodeIndex >= 0) {
+        for (var selectedDisplayIndex = 0; selectedDisplayIndex < displayModel.count; selectedDisplayIndex++)
+          if (Number(displayModel.get(selectedDisplayIndex).action) === selectedWorkflowNodeIndex) { root.selectedIndex = selectedDisplayIndex; break }
+      }
+    }
+  }
+
+  Timer {
     id: workflowActionTimeout
     interval: root.workflowActionTimeoutMs
     repeat: false
@@ -2516,9 +3070,12 @@ Item {
     property var nextNode: null
     property var nextContext: ({})
     property bool refreshExtensions: false
+    property bool refreshDynamicMenu: false
     property int nextBackSteps: 0
     property bool closeAfter: false
+    property bool returnToRoot: false
     onExited: function(exitCode) {
+      console.warn("Omalaunch action exit: " + exitCode + " command=" + JSON.stringify(workflowActionProc.command))
       workflowActionTimeout.stop()
       workflowActionKillTimer.stop()
       workflowActionProc.stopGeneration = 0
@@ -2526,9 +3083,25 @@ Item {
       if (!MenuModel.workflowActionIsCurrent(workflowActionProc.generation, root.workflowGeneration,
           root.workflowActive, workflowActionProc.extensionCapability, root.workflowExtension)) return
       workflowActionProc.generation = 0
-      if (exitCode !== 0) return
+      if (exitCode !== 0) { workflowActionProc.returnToRoot = false; return }
+      if (workflowActionProc.returnToRoot) {
+        workflowActionProc.returnToRoot = false
+        root.workflowActive = false
+        root.workflowExtension = null
+        root.workflowNode = null
+        root.workflowContext = ({})
+        root.workflowStack = []
+        root.filterText = ""
+        root.preloadDynamicMenuSearch()
+        root.rebuildDisplay()
+        return
+      }
+      if (root.workflowExtension.mode === "menu") root.preloadDynamicMenuSearch()
       if (workflowActionProc.refreshExtensions) root.loadExtensions(true)
-      if (workflowActionProc.closeAfter) {
+      if (workflowActionProc.refreshDynamicMenu) {
+        var extension = root.workflowExtension
+        root.enterDynamicMenu(extension, true)
+      } else if (workflowActionProc.closeAfter) {
         root.cancel()
       } else if (workflowActionProc.nextNode) {
         if (workflowActionProc.nextBackSteps > 0) {
@@ -2537,6 +3110,59 @@ Item {
           root.showWorkflowNode(workflowActionProc.nextNode, workflowActionProc.nextContext, false)
         } else root.showWorkflowNode(workflowActionProc.nextNode, workflowActionProc.nextContext, true)
       }
+    }
+  }
+
+  Timer {
+    id: backgroundActionTimeout
+    interval: root.backgroundActionTimeoutMs
+    repeat: false
+    onTriggered: {
+      console.warn("Omalaunch: background action timed out: " + backgroundActionProc.actionId)
+      root.invalidateBackgroundAction("background action timed out")
+    }
+  }
+
+  Timer {
+    id: backgroundActionKillTimer
+    interval: root.workflowTerminationGraceMs
+    repeat: false
+    property int generation: 0
+    onTriggered: {
+      if (!backgroundActionProc.stopping || generation !== backgroundActionProc.stopGeneration) return
+      console.warn("Omalaunch: background action ignored SIGTERM; sending SIGKILL to direct child")
+      backgroundActionProc.signal(9)
+    }
+  }
+
+  Process {
+    id: backgroundActionProc
+    property int generation: 0
+    property int stopGeneration: 0
+    property bool stopping: false
+    property string extensionCapability: ""
+    property string actionId: ""
+    property bool refreshExtensions: false
+    property bool closeAfter: false
+    onExited: function(exitCode) {
+      backgroundActionTimeout.stop()
+      backgroundActionKillTimer.stop()
+      backgroundActionProc.stopGeneration = 0
+      backgroundActionProc.stopping = false
+      var extension = root.extensionByCapability(backgroundActionProc.extensionCapability)
+      if (!MenuModel.backgroundActionIsCurrent(backgroundActionProc.generation,
+          root.backgroundActionGeneration, backgroundActionProc.extensionCapability, extension)) return
+      backgroundActionProc.generation = 0
+      if (exitCode !== 0) {
+        console.warn("Omalaunch: background action failed (exit " + exitCode + "): " + backgroundActionProc.actionId)
+        return
+      }
+      if (backgroundActionProc.refreshExtensions) root.loadExtensions(true)
+      root.preloadDynamicMenuSearch()
+      if (root.workflowActive && root.workflowExtension
+          && root.workflowExtension.capability === extension.capability)
+        root.enterDynamicMenu(extension, true)
+      if (backgroundActionProc.closeAfter) root.cancel()
     }
   }
 
@@ -2829,11 +3455,15 @@ Item {
       Item {
         id: keyCatcher
         anchors.fill: parent
-        z: (root.deleteConfirmOpen || root.dependencyConfirmOpen) ? 20 : 0
+        z: (root.workflowConfirmOpen || root.deleteConfirmOpen || root.dependencyConfirmOpen) ? 20 : 0
         focus: true
 
         Keys.priority: Keys.BeforeItem
         Keys.onPressed: function(event) {
+          if (root.workflowConfirmOpen) {
+            if (workflowConfirm.handleKey(event)) event.accepted = true
+            return
+          }
           if (root.deleteConfirmOpen) {
             if (deleteConfirm.handleKey(event)) event.accepted = true
             return
@@ -2843,11 +3473,28 @@ Item {
             return
           }
 
-          if (root.fileBrowserActive && !root.directoryPickerActive && !root.actionPanelActive && event.key === Qt.Key_K && (event.modifiers & Qt.ControlModifier)) {
+          if (root.workflowInputActive
+              && ((event.key === Qt.Key_V && (event.modifiers & Qt.ControlModifier))
+                || (event.key === Qt.Key_Insert && (event.modifiers & Qt.ShiftModifier)))) {
+            if (!pasteProc.running) pasteProc.running = true
+            event.accepted = true
+          } else if (!root.workflowActive && root.selectedDynamicSearchEntry && event.key === Qt.Key_K && (event.modifiers & Qt.ControlModifier)) {
+            root.openDynamicSearchActions()
+            event.accepted = true
+          } else if (root.workflowActive && !root.fileBrowserActive && event.key === Qt.Key_K && (event.modifiers & Qt.ControlModifier)) {
+            root.openWorkflowActions()
+            event.accepted = true
+          } else if (root.fileBrowserActive && !root.directoryPickerActive && !root.actionPanelActive && event.key === Qt.Key_K && (event.modifiers & Qt.ControlModifier)) {
             root.openActionPanel()
             event.accepted = true
           } else if (root.fileBrowserActive && !root.directoryPickerActive && !root.actionPanelActive && event.key === Qt.Key_C && (event.modifiers & Qt.ControlModifier)) {
             root.copySelectedFilePath()
+            event.accepted = true
+          } else if (root.workflowActive && root.selectedWorkflowStarAction && event.key === Qt.Key_S && (event.modifiers & Qt.ControlModifier)) {
+            root.toggleSelectedWorkflowStar()
+            event.accepted = true
+          } else if (!root.workflowActive && root.selectedDynamicStarAction && event.key === Qt.Key_S && (event.modifiers & Qt.ControlModifier)) {
+            root.toggleSelectedDynamicStar()
             event.accepted = true
           } else if (!root.dmenuActive && !root.workflowActive && event.key === Qt.Key_S && (event.modifiers & Qt.ControlModifier)) {
             root.toggleSelectedStar()
@@ -2916,6 +3563,30 @@ Item {
         }
 
         ConfirmDialog {
+          id: workflowConfirm
+          anchors.fill: parent
+          opened: root.workflowConfirmOpen
+          z: 10
+          message: root.workflowConfirmNode ? (root.workflowConfirmNode.confirm || "Do you want to run " + root.workflowConfirmNode.label + "?") : ""
+          confirmText: root.workflowConfirmNode ? root.workflowConfirmNode.confirmLabel : "Run"
+          background: root.dialogBackground
+          foreground: root.foreground
+          scrim: root.scrim
+          selectedBackground: root.selectedBackground
+          selectedText: root.selectedText
+          fontFamily: root.fontFamily
+          cornerRadius: root.cornerRadius
+          onOpenedChanged: if (opened) { selectedIndex = 1; keyCatcher.forceActiveFocus() }
+          onCanceled: { root.workflowConfirmOpen = false; root.workflowConfirmNode = null }
+          onConfirmed: {
+            var node = root.workflowConfirmNode
+            root.workflowConfirmOpen = false
+            root.workflowConfirmNode = null
+            root.dispatchWorkflowNode(node, "")
+          }
+        }
+
+        ConfirmDialog {
           id: deleteConfirm
 
           anchors.fill: parent
@@ -2923,13 +3594,14 @@ Item {
           z: 10
           message: "Do you want to uninstall " + ((root.deleteTarget && root.deleteTarget.label) || "") + "?"
           confirmText: "Uninstall"
-          background: root.background
+          background: root.dialogBackground
           foreground: root.foreground
           scrim: root.scrim
           selectedBackground: root.selectedBackground
           selectedText: root.selectedText
           fontFamily: root.fontFamily
           cornerRadius: root.cornerRadius
+          onOpenedChanged: if (opened) { selectedIndex = 1; keyCatcher.forceActiveFocus() }
           onCanceled: root.cancelDelete()
           onConfirmed: root.confirmDelete()
         }
@@ -2947,13 +3619,14 @@ Item {
             : ""
           cancelText: "Not now"
           confirmText: "Install"
-          background: root.background
+          background: root.dialogBackground
           foreground: root.foreground
           scrim: root.scrim
           selectedBackground: root.selectedBackground
           selectedText: root.selectedText
           fontFamily: root.fontFamily
           cornerRadius: root.cornerRadius
+          onOpenedChanged: if (opened) { selectedIndex = 1; keyCatcher.forceActiveFocus() }
           onCanceled: root.cancelDependencyInstall()
           onConfirmed: root.confirmDependencyInstall()
         }
@@ -2983,9 +3656,7 @@ Item {
               : root.fileBrowserActive
                 ? (root.fileBrowserPath + (root.filterText ? "  ›  " + root.filterText : ""))
               : root.workflowActive
-                ? (root.workflowInputActive
-                  ? ((root.workflowNode.prompt || root.workflowNode.label) + "…" + (root.filterText ? "  " + root.filterText : ""))
-                  : (root.workflowText(root.workflowNode ? root.workflowNode.label : root.workflowExtension.label) + "…"))
+                ? root.filterText
               : (root.filterText || (root.dmenuActive ? (root.dmenuPrompt + "…") : ((root.item(root.activeMenu) ? (root.item(root.activeMenu).title || root.item(root.activeMenu).label) : "Go") + "…")))
             color: root.foreground
             opacity: root.filterText ? 1 : 0.58
@@ -3007,6 +3678,21 @@ Item {
             elide: Text.ElideRight
           }
 
+        }
+
+        Text {
+          width: parent.width
+          height: root.workflowHintHeight
+          visible: root.workflowInputActive || root.workflowFilterMenuActive
+          text: root.workflowInputActive
+            ? root.workflowText(root.workflowNode ? (root.workflowNode.prompt || root.workflowNode.label) : "")
+            : ("Search " + root.workflowText(root.workflowNode ? root.workflowNode.label : (root.workflowExtension ? root.workflowExtension.label : "items")))
+          color: root.foreground
+          opacity: 0.58
+          font.family: root.fontFamily
+          font.pixelSize: Style.font.body
+          elide: Text.ElideRight
+          verticalAlignment: Text.AlignVCenter
         }
 
         Item {

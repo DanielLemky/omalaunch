@@ -314,7 +314,9 @@ function nameSearchText(entry) {
   var aliases = []
   var values = Array.isArray(entry.aliases) ? entry.aliases : []
   for (var i = 0; i < values.length; i++) aliases.push(searchableToken(values[i]))
-  return [entry.label, searchableToken(leafIdFor(entry.id)), aliases.join(" ")].join(" ").toLowerCase()
+  var identity = String(entry.id || "").indexOf("extension.menu:") === 0
+    ? "" : searchableToken(leafIdFor(entry.id))
+  return [entry.label, identity, aliases.join(" ")].join(" ").toLowerCase()
 }
 
 function wordSet(text) {
@@ -496,6 +498,7 @@ function safeExtensionPattern(pattern) {
 var MAX_WORKFLOW_NODES = 256
 var MAX_WORKFLOW_DEPTH = 8
 var MAX_WORKFLOW_TEXT = 4096
+var MAX_DYNAMIC_MENU_ROWS = 100
 var MAX_SAFE_JSON_INTEGER = 9007199254740991
 
 function finiteExtensionNumber(value, fallback) {
@@ -562,37 +565,61 @@ function normalizeWorkflowChildren(rawItems, state, depth) {
   return items
 }
 
+function normalizeWorkflowAliases(value) {
+  var values = value === undefined ? [] : (typeof value === "string" ? [value] : value)
+  if (!Array.isArray(values) || values.length > 16) return null
+  var result = []
+  for (var i = 0; i < values.length; i++) {
+    if (typeof values[i] !== "string") return null
+    var alias = boundedWorkflowText(values[i], 256).trim()
+    if (!alias && values[i]) return null
+    if (alias && result.indexOf(alias) < 0) result.push(alias)
+  }
+  return result
+}
+
 function normalizeWorkflowNode(raw, state, depth) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)
       || depth >= MAX_WORKFLOW_DEPTH || state.count >= MAX_WORKFLOW_NODES) return null
   var kind = String(raw.kind || "menu")
-  if (["menu", "directoryPicker", "input"].indexOf(kind) < 0) return null
+  if (["menu", "directoryPicker", "input", "action", "confirm"].indexOf(kind) < 0) return null
   var id = boundedWorkflowText(raw.id, 128).trim()
   var label = boundedWorkflowText(raw.label, 256).trim()
   if (!id || !label) return null
+  var aliases = normalizeWorkflowAliases(raw.aliases)
+  if (!aliases) return null
   state.count += 1
   var node = {
     id: id,
     kind: kind,
     label: label,
     description: boundedWorkflowText(raw.description, 512),
+    aliases: aliases,
+    starred: raw.starred === true,
     icon: boundedWorkflowText(raw.icon, 32),
     iconFont: boundedWorkflowText(raw.iconFont, 128),
     context: workflowContext(raw.context),
     items: [],
     next: null,
     prompt: boundedWorkflowText(raw.prompt, 256),
+    capture: /^[A-Za-z][A-Za-z0-9_]*$/.test(String(raw.capture || "")) ? String(raw.capture) : "",
     defaultValue: "",
     allowEmpty: raw.allowEmpty === true,
     maxLength: MAX_WORKFLOW_TEXT,
     command: stringArray(raw.command),
     emptyCommand: stringArray(raw.emptyCommand),
     refreshExtensions: raw.refreshExtensions === true,
-    nextBackSteps: 0
+    closeOnSuccess: raw.closeOnSuccess === true,
+    nextBackSteps: 0,
+    confirm: boundedWorkflowText(raw.confirm, 512),
+    confirmLabel: boundedWorkflowText(raw.confirmLabel, 64) || "Run",
+    starAction: boundedWorkflowText(raw.starAction, 128),
+    actions: []
   }
   var maxLength = finiteExtensionNumber(raw.maxLength, MAX_WORKFLOW_TEXT)
   var nextBackSteps = finiteExtensionNumber(raw.nextBackSteps, 0)
-  if (maxLength === null || nextBackSteps === null) return null
+  if (maxLength === null || nextBackSteps === null || (raw.capture !== undefined && !node.capture)
+      || (raw.starred !== undefined && typeof raw.starred !== "boolean")) return null
   node.maxLength = Math.max(1, Math.min(MAX_WORKFLOW_TEXT, maxLength))
   node.nextBackSteps = Math.max(0, Math.min(MAX_WORKFLOW_DEPTH, nextBackSteps))
   node.defaultValue = boundedWorkflowText(raw.default, MAX_WORKFLOW_TEXT).substring(0, node.maxLength)
@@ -611,6 +638,25 @@ function normalizeWorkflowNode(raw, state, depth) {
   }
   if (kind === "directoryPicker" && !node.next) return null
   if (kind === "input" && node.command.length === 0 && !node.next) return null
+  if ((kind === "action" || kind === "confirm") && node.command.length === 0) return null
+  if (Array.isArray(raw.actions) && kind !== "menu") {
+    if (raw.actions.length > 16) return null
+    node.actions = normalizeWorkflowChildren(raw.actions.map(function(action) {
+      var copy = Object.assign({}, action)
+      copy.kind = copy.confirm ? "confirm" : (copy.input ? "input" : "action")
+      if (copy.input) copy = Object.assign({}, copy, copy.input, { kind: "input", command: copy.input.command || copy.command })
+      delete copy.actions
+      return copy
+    }), state, depth + 1)
+    if (!node.actions) return null
+  }
+  if (raw.starAction !== undefined) {
+    if (!node.starAction) return null
+    var hasStarAction = false
+    for (var starIndex = 0; starIndex < node.actions.length; starIndex++)
+      if (node.actions[starIndex].id === node.starAction && node.actions[starIndex].kind === "action") { hasStarAction = true; break }
+    if (!hasStarAction) return null
+  }
   return node
 }
 
@@ -637,7 +683,7 @@ function workflowInitialInput(node, context) {
 }
 
 function workflowCommand(node, input, context) {
-  if (!node || node.kind !== "input") return []
+  if (!node || ["input", "action", "confirm"].indexOf(node.kind) < 0) return []
   var value = String(input === undefined || input === null ? "" : input).substring(0, node.maxLength)
   var source = value ? node.command : (node.emptyCommand.length > 0 ? node.emptyCommand : node.command)
   var replacements = Object.assign({}, context || ({}), { input: value })
@@ -661,7 +707,9 @@ function workflowDirectoryTransition(node, path, context) {
 function workflowInputTransition(node, input, context) {
   var value = node ? String(input || "").substring(0, node.maxLength) : ""
   if (!node || node.kind !== "input" || (!value && !node.allowEmpty)) return null
-  return { node: node.next, context: Object.assign({}, context || ({}), { input: value }) }
+  var nextContext = Object.assign({}, context || ({}), { input: value })
+  if (node.capture) nextContext[node.capture] = value
+  return { node: node.next, context: nextContext }
 }
 
 function workflowChild(node, id) {
@@ -723,7 +771,21 @@ function rebindWorkflow(extension, stack, current) {
 
 function workflowActionIsCurrent(actionGeneration, generation, workflowActive, expectedCapability, extension) {
   return actionGeneration > 0 && actionGeneration === generation && workflowActive === true
-    && !!extension && extension.available === true && extension.mode === "workflow"
+    && !!extension && extension.available === true && ["workflow", "menu"].indexOf(extension.mode) >= 0
+    && extension.capability === expectedCapability
+}
+
+// Only a complete, non-interactive leaf can use the independent background
+// runner. Input and confirmation nodes must keep the staged foreground path.
+function workflowBackgroundEligible(node, command) {
+  return !!node && node.kind === "action" && !node.next
+    && Array.isArray(command) && command.length > 0
+    && !workflowClosesOnDispatch(node, command)
+}
+
+function backgroundActionIsCurrent(actionGeneration, generation, expectedCapability, extension) {
+  return actionGeneration > 0 && actionGeneration === generation
+    && !!extension && extension.available === true && extension.mode === "menu"
     && extension.capability === expectedCapability
 }
 
@@ -777,6 +839,7 @@ function extensionRootActivation(extension) {
   if (!extension || !extension.available) return ""
   if (extension.mode === "files") return "files"
   if (extension.mode === "workflow") return "workflow"
+  if (extension.mode === "menu") return "menu"
   return "input"
 }
 
@@ -801,9 +864,57 @@ function focusedPrefixMatch(extension, input) {
 }
 
 function workflowClosesOnDispatch(node, command) {
-  if (!node || node.kind !== "input" || node.next || !Array.isArray(command) || command.length === 0) return false
+  if (!node || ["input", "action", "confirm"].indexOf(node.kind) < 0 || node.next || !Array.isArray(command) || command.length === 0) return false
   var executable = String(command[0] || "").split("/").pop()
   return executable === "xdg-terminal-exec" || executable === "omarchy-launch-terminal"
+}
+
+function dynamicMenuSearchItems(extension, workflow) {
+  if (!extension || !workflow || !Array.isArray(workflow.items)) return []
+  var result = []
+  for (var i = 0; i < workflow.items.length; i++) {
+    var node = workflow.items[i]
+    if (!node || ["action", "confirm", "input"].indexOf(node.kind) < 0) continue
+    result.push(normalizeItem("extension.menu:" + JSON.stringify([extension.capability, node.id]), {
+      parent: "extensions",
+      icon: node.icon || extension.icon,
+      iconFont: node.iconFont || extension.iconFont,
+      label: node.label,
+      description: node.description,
+      aliases: node.aliases,
+      starred: node.starred,
+      action: node.id
+    }))
+  }
+  return result
+}
+
+function dynamicMenuSearchIdentity(itemId) {
+  var prefix = "extension.menu:"
+  var value = String(itemId || "")
+  if (value.indexOf(prefix) !== 0) return null
+  try {
+    var parsed = JSON.parse(value.substring(prefix.length))
+    return Array.isArray(parsed) && parsed.length === 2 && typeof parsed[0] === "string" && typeof parsed[1] === "string"
+      ? { capability: parsed[0], id: parsed[1] } : null
+  } catch (e) { return null }
+}
+
+function normalizeDynamicMenuOutput(raw) {
+  var parsed
+  try { parsed = typeof raw === "string" ? JSON.parse(raw) : raw } catch (e) { return null }
+  var rows = Array.isArray(parsed) ? parsed : (parsed && Array.isArray(parsed.items) ? parsed.items : null)
+  if (!rows || rows.length > MAX_DYNAMIC_MENU_ROWS) return null
+  var prepared = []
+  for (var i = 0; i < rows.length; i++) {
+    var row = rows[i]
+    if (!row || typeof row !== "object" || Array.isArray(row)) return null
+    var copy = Object.assign({}, row)
+    copy.kind = copy.confirm ? "confirm" : (copy.input ? "input" : "action")
+    if (copy.input) copy = Object.assign({}, copy, copy.input, { kind: "input", command: copy.input.command || copy.command })
+    prepared.push(copy)
+  }
+  return normalizeWorkflow({ items: prepared })
 }
 
 function normalizeExtension(raw) {
@@ -813,7 +924,7 @@ function normalizeExtension(raw) {
   var label = String(raw.label || "").trim()
   var mode = String(raw.mode || "prefix")
   var command = stringArray(raw.command)
-  if (!id || !label || ["prefix", "query", "files", "workflow"].indexOf(mode) < 0) return null
+  if (!id || !label || ["prefix", "query", "files", "workflow", "menu"].indexOf(mode) < 0) return null
   if (mode !== "workflow" && command.length === 0) return null
 
   var priority = finiteExtensionNumber(raw.priority, 0)
@@ -833,11 +944,12 @@ function normalizeExtension(raw) {
     bundled: raw._bundled === true,
     sourceDir: String(raw._sourceDir || ""),
     source: String(raw._source || ""),
+    globalSearch: mode === "menu" && raw.globalSearch === true,
     requires: stringArray(raw.requires),
     missingRequires: stringArray(raw._missingRequires)
   }
 
-  if (mode === "prefix" || mode === "files" || mode === "workflow") {
+  if (mode === "prefix" || mode === "files" || mode === "workflow" || mode === "menu") {
     var sourcePrefixes = Array.isArray(raw.prefixes) ? raw.prefixes : [raw.prefix]
     extension.prefixes = []
     for (var i = 0; i < sourcePrefixes.length; i++) {
@@ -848,6 +960,10 @@ function normalizeExtension(raw) {
     if (mode === "workflow") {
       extension.workflow = normalizeWorkflow(raw.workflow)
       if (!extension.workflow) return null
+    } else if (mode === "menu") {
+      if (command.length > 32) return null
+      for (var menuArg = 0; menuArg < command.length; menuArg++)
+        if (!boundedWorkflowText(command[menuArg])) return null
     } else if (mode === "files") {
       extension.root = String(raw.root || "~")
       extension.directoryCommand = stringArray(raw.directoryCommand)
@@ -1494,8 +1610,10 @@ function actionBarHints(state) {
     hints.push({ label: primary, shortcut: "Enter" })
   }
 
-  if (value.fileBrowserActive && value.hasSelection && !value.directoryPickerActive && !value.actionPanelActive) {
+  if (value.canContextActions)
     hints.push({ label: "Actions", shortcut: "Ctrl K" })
+  if (value.fileBrowserActive && value.hasSelection && !value.directoryPickerActive && !value.actionPanelActive) {
+    if (!value.canContextActions) hints.push({ label: "Actions", shortcut: "Ctrl K" })
     hints.push({ label: "Copy Path", shortcut: "Ctrl C" })
   }
   if (value.canStar) hints.push({ label: value.starred ? "Unstar" : "Star", shortcut: "Ctrl S" })
@@ -1555,6 +1673,9 @@ if (typeof module !== "undefined") {
     safeExtensionPattern: safeExtensionPattern,
     openStateReset: openStateReset,
     normalizeWorkflow: normalizeWorkflow,
+    normalizeDynamicMenuOutput: normalizeDynamicMenuOutput,
+    dynamicMenuSearchItems: dynamicMenuSearchItems,
+    dynamicMenuSearchIdentity: dynamicMenuSearchIdentity,
     workflowInterpolate: workflowInterpolate,
     workflowInitialInput: workflowInitialInput,
     workflowCommand: workflowCommand,
@@ -1562,6 +1683,8 @@ if (typeof module !== "undefined") {
     workflowInputTransition: workflowInputTransition,
     rebindWorkflow: rebindWorkflow,
     workflowActionIsCurrent: workflowActionIsCurrent,
+    workflowBackgroundEligible: workflowBackgroundEligible,
+    backgroundActionIsCurrent: backgroundActionIsCurrent,
     workflowClosesOnDispatch: workflowClosesOnDispatch,
     extensionRootId: extensionRootId,
     extensionRootCapability: extensionRootCapability,
