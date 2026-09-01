@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "quantumfire.omalaunch",
   "name": "Omalaunch",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "author": "Daniel Lemky",
   "license": "MIT",
   "description": "Extensible command launcher for Omarchy",
