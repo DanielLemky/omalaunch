@@ -79,7 +79,7 @@ time 2026-11-15 8pm new york to london
 
 ## Web Search
 
-Open **Web Search**, select a search engine, enter a query, and press Enter. Omalaunch opens the encoded search in your default browser. Open **Search Engines** in the same menu to enable or disable engines. Define engine names and URL templates in `~/.config/omarchy/omalaunch/extensions/omalaunch.web-search.jsonc`; see [PROVIDER-CONFIGURATION.md](PROVIDER-CONFIGURATION.md).
+Open **Web Search**, select a search engine, enter a query, and press Enter. Omalaunch opens the encoded search in your default browser. Each engine can be added to or removed from global search while it remains available in the Web Search menu. Define engine names and URL templates in `~/.config/omarchy/omalaunch/extensions/omalaunch.web-search.jsonc`; see [PROVIDER-CONFIGURATION.md](PROVIDER-CONFIGURATION.md).
 
 ## Files
 

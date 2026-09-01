@@ -3,10 +3,10 @@
   "title": "Omalaunch Web Search state v1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["version", "disabledEngines"],
+  "required": ["version", "globalSearchExcludedEngines"],
   "properties": {
     "version": { "const": 1 },
-    "disabledEngines": {
+    "globalSearchExcludedEngines": {
       "type": "array",
       "maxItems": 32,
       "uniqueItems": true,

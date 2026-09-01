@@ -596,6 +596,7 @@ function normalizeWorkflowNode(raw, state, depth) {
     description: boundedWorkflowText(raw.description, 512),
     aliases: aliases,
     starred: raw.starred === true,
+    globalSearch: raw.globalSearch !== false,
     icon: boundedWorkflowText(raw.icon, 32),
     iconFont: boundedWorkflowText(raw.iconFont, 128),
     context: workflowContext(raw.context),
@@ -619,7 +620,8 @@ function normalizeWorkflowNode(raw, state, depth) {
   var maxLength = finiteExtensionNumber(raw.maxLength, MAX_WORKFLOW_TEXT)
   var nextBackSteps = finiteExtensionNumber(raw.nextBackSteps, 0)
   if (maxLength === null || nextBackSteps === null || (raw.capture !== undefined && !node.capture)
-      || (raw.starred !== undefined && typeof raw.starred !== "boolean")) return null
+      || (raw.starred !== undefined && typeof raw.starred !== "boolean")
+      || (raw.globalSearch !== undefined && typeof raw.globalSearch !== "boolean")) return null
   node.maxLength = Math.max(1, Math.min(MAX_WORKFLOW_TEXT, maxLength))
   node.nextBackSteps = Math.max(0, Math.min(MAX_WORKFLOW_DEPTH, nextBackSteps))
   node.defaultValue = boundedWorkflowText(raw.default, MAX_WORKFLOW_TEXT).substring(0, node.maxLength)
@@ -874,7 +876,7 @@ function dynamicMenuSearchItems(extension, workflow) {
   var result = []
   for (var i = 0; i < workflow.items.length; i++) {
     var node = workflow.items[i]
-    if (!node || ["action", "confirm", "input"].indexOf(node.kind) < 0) continue
+    if (!node || ["action", "confirm", "input"].indexOf(node.kind) < 0 || node.globalSearch === false) continue
     result.push(normalizeItem(dynamicMenuItemId(extension.capability, node.id), {
       parent: "extensions",
       icon: node.icon || extension.icon,

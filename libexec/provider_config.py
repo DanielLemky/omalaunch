@@ -83,7 +83,7 @@ def config_default(provider:str)->dict[str,Any]:
     return {}
 def state_default(provider:str)->dict[str,Any]:
     if provider=="omalaunch.quicklinks": return {"version":1,"links":[]}
-    if provider=="omalaunch.web-search": return {"version":1,"disabledEngines":[]}
+    if provider=="omalaunch.web-search": return {"version":1,"globalSearchExcludedEngines":[]}
     return {"version":1,"favorites":[]}
 def identity(v:Any,maxlen:int=255)->bool:
     return isinstance(v,str) and 1<=len(v)<=maxlen and "/" not in v and CONTROL.search(v) is None
@@ -139,7 +139,7 @@ def validate_config(provider:str,value:Any)->dict[str,Any]:
     return {"version":1,"rankByUsage":rank,"engines":result}
 def validate_state(provider:str,value:Any,home:Path)->dict[str,Any]:
     if provider not in PROVIDERS or not isinstance(value,dict) or value.get("version")!=1: raise ValueError("expected version-1 provider state")
-    allowed={"version","links"} if provider=="omalaunch.quicklinks" else ({"version","disabledEngines"} if provider=="omalaunch.web-search" else {"version","favorites"})
+    allowed={"version","links"} if provider=="omalaunch.quicklinks" else ({"version","globalSearchExcludedEngines"} if provider=="omalaunch.web-search" else {"version","favorites"})
     if set(value)-allowed: raise ValueError("unknown state fields")
     result=state_default(provider)
     if provider=="omalaunch.quicklinks":
@@ -157,9 +157,9 @@ def validate_state(provider:str,value:Any,home:Path)->dict[str,Any]:
             else: raise ValueError("invalid openWith")
             seen.add(ident); result["links"].append({"id":ident,"name":name,"url":url,"starred":starred,"openWith":dict(ow)})
     elif provider=="omalaunch.web-search":
-        entries=value.get("disabledEngines",[])
-        if not isinstance(entries,list) or len(entries)>32 or any(not identity(x,64) for x in entries) or len(set(entries))!=len(entries): raise ValueError("invalid disabled search engines")
-        result["disabledEngines"]=list(entries)
+        entries=value.get("globalSearchExcludedEngines",[])
+        if not isinstance(entries,list) or len(entries)>32 or any(not identity(x,64) for x in entries) or len(set(entries))!=len(entries): raise ValueError("invalid global search exclusions")
+        result["globalSearchExcludedEngines"]=list(entries)
     elif provider=="omalaunch.files":
         entries=value.get("favorites",[])
         if not isinstance(entries,list) or len(entries)>MAX_ITEMS: raise ValueError("invalid file favorites")
