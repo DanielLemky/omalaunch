@@ -67,3 +67,70 @@ assert(qml.includes('root.invalidateExtensionQuery("launcher closed")')
 'close/open and catalog/query context changes invalidate live-query generations')
 assert(qml.includes('if (root.directoryPickerActive) root.workflowBack()'),
 'directory picker Backspace at filesystem root returns through workflow history')
+
+const dynamicProviderBody = qml.slice(qml.indexOf('id: dynamicMenuProc'), qml.indexOf('id: workflowActionTimeout'))
+assert(qml.includes('else if (activation === "menu") root.enterDynamicMenu(extension)')
+  && qml.includes('MenuModel.normalizeDynamicMenuOutput(dynamicMenuProc.collected)'),
+'dynamic menu roots run a provider and install only normalized snapshots')
+assert(dynamicProviderBody.includes('root.dynamicMenuOutputBytes')
+  && dynamicProviderBody.includes('dynamicMenuProc.generation !== root.dynamicMenuGeneration')
+  && qml.includes('id: dynamicMenuTimeout'),
+'dynamic menu providers have output, timeout, and stale-generation bounds')
+assert(qml.includes(': root.workflowActive\n                ? root.filterText')
+  && qml.includes('height: root.workflowHintHeight')
+  && qml.includes('visible: root.workflowInputActive || root.workflowFilterMenuActive')
+  && qml.includes('root.workflowNode.prompt || root.workflowNode.label')
+  && qml.includes('"Search " + root.workflowText'),
+'workflow inputs and filterable menus keep context helper text below the typed-value field')
+assert(qml.includes('id: pasteProc')
+  && qml.includes('["wl-paste", "--no-newline", "--type", "text"]')
+  && qml.includes('event.key === Qt.Key_V && (event.modifiers & Qt.ControlModifier)')
+  && qml.includes('event.key === Qt.Key_Insert && (event.modifiers & Qt.ShiftModifier)')
+  && qml.includes('root.setFilter((root.filterText + text).substring(0, limit))'),
+'workflow inputs accept bounded Ctrl+V and global clipboard text')
+assert(qml.includes('root.enterDynamicMenu(extension, true)')
+  && qml.includes('if (!retainCurrentRows) root.rebuildDisplay()')
+  && qml.includes('dynamicMenuProc.selectionNodeId = retainCurrentRows')
+  && qml.includes('Number(displayModel.get(selectedDisplayIndex).action) === selectedWorkflowNodeIndex'),
+'dynamic menu mutations retain visible rows and selection until the refreshed provider snapshot is ready')
+assert(qml.includes('root.workflowActive && root.selectedWorkflowStarAction && event.key === Qt.Key_S')
+  && qml.includes('root.dispatchWorkflowNode(action, "", false, true)'),
+'workflow rows with a declared star action support Ctrl+S through the background action lifecycle')
+assert(qml.includes('!root.workflowActive && root.selectedDynamicStarAction && event.key === Qt.Key_S')
+  && qml.includes('root.dispatchBackgroundAction(extension, action, "")')
+  && qml.includes('id: backgroundActionProc')
+  && !qml.slice(qml.indexOf('function toggleSelectedDynamicStar()'), qml.indexOf('function openDynamicSearchActions()')).includes('root.workflowActive = true'),
+'globally searchable dynamic rows use an independent runner without entering visible workflow state')
+assert(qml.includes('workflowRow.starred = workflowChild.starred')
+  && qml.includes('if (!starredDynamicEntry.node.starred) continue')
+  && qml.includes('starredDynamicRow.starred = true'),
+'starred globally searchable dynamic rows appear on the top-level launcher view')
+assert(qml.includes('var extensionsDirectory = root.item("extensions")')
+  && qml.includes('MenuModel.matchesQuery(extensionsDirectory, preparedQuery, true)'),
+'fixed Extensions directory remains explicit in top-level global search during dynamic snapshot rebuilds')
+assert(qml.includes('var workflowQuery = MenuModel.prepareSearchQuery(root.filterText.trim())')
+  && qml.includes('MenuModel.matchesQuery(workflowItem, workflowQuery, true)')
+  && qml.includes('root.workflowNode.items[Number(displayModel.get(root.selectedIndex).action)]'),
+'workflow menus filter provider rows while retaining original activation and action identities')
+assert(qml.includes('function dispatchWorkflowNode(node, input, returnToRoot, backgroundRequested)')
+  && qml.includes('workflowActionProc.refreshDynamicMenu = root.workflowExtension.mode === "menu"')
+  && qml.includes('workflowActionProc.closeAfter = node.closeOnSuccess')
+  && qml.includes('if (workflowActionProc.refreshExtensions) root.loadExtensions(true)'),
+'dynamic row mutations reuse tracked workflow actions and refresh successful state')
+const fileCopyExit = qml.slice(qml.indexOf('id: fileCopyProc'), qml.indexOf('id: pasteProc'))
+assert(fileCopyExit.includes('if (exitCode === 0) {')
+  && fileCopyExit.includes('root.cancel()')
+  && fileCopyExit.includes('root.fileCopyFeedback = "Copy failed"')
+  && fileCopyExit.indexOf('root.cancel()') < fileCopyExit.indexOf('root.fileCopyFeedback = "Copy failed"'),
+'Files copy completion closes only after success and keeps failure feedback in the open launcher')
+assert(qml.includes('function openWorkflowActions()')
+  && qml.includes('root.openWorkflowActions()')
+  && qml.includes('id: workflowConfirm'),
+'dynamic rows expose host-rendered contextual actions and confirmations')
+assert(qml.includes('readonly property color dialogBackground: Qt.rgba(background.r, background.g, background.b, 1)')
+  && (qml.match(/background: root\.dialogBackground/g) || []).length === 3,
+'confirmation cards use one theme-compatible opaque surface')
+assert(qml.includes('z: (root.workflowConfirmOpen || root.deleteConfirmOpen || root.dependencyConfirmOpen) ? 20 : 0')
+  && (qml.match(/onOpenedChanged: if \(opened\) \{ selectedIndex = 1; keyCatcher\.forceActiveFocus\(\) \}/g) || []).length === 3
+  && qml.includes('workflowConfirm.handleKey(event)'),
+'confirmation dialogs retain focus, reset the safe button, and route keyboard input')
