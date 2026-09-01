@@ -129,11 +129,28 @@ assert(qml.includes('var workflowQuery = MenuModel.prepareSearchQuery(root.filte
   && qml.includes('MenuModel.matchesQuery(workflowItem, workflowQuery, true)')
   && qml.includes('root.workflowNode.items[Number(displayModel.get(root.selectedIndex).action)]'),
 'workflow menus filter provider rows while retaining original activation and action identities')
+assert(qml.includes('if (rootExtension.available && rootExtension.mode !== "menu") usage.record(row.itemId)'),
+'dynamic provider roots do not record usage while static extension behavior remains unchanged')
+assert(qml.includes('var dynamicUsageId = MenuModel.dynamicMenuUsageItemId(')
+  && qml.includes('dynamicSearchRow.usageCount = usage.count(dynamicUsageId)')
+  && qml.includes('dynamicSearchRow.lastUsedAt = usage.lastUsedAt(dynamicUsageId)'),
+'dynamic search ranking reads the same provider-owned identity that successful Open records')
 assert(qml.includes('function dispatchWorkflowNode(node, input, returnToRoot, backgroundRequested)')
   && qml.includes('workflowActionProc.refreshDynamicMenu = root.workflowExtension.mode === "menu"')
   && qml.includes('workflowActionProc.closeAfter = node.closeOnSuccess')
   && qml.includes('if (workflowActionProc.refreshExtensions) root.loadExtensions(true)'),
 'dynamic row mutations reuse tracked workflow actions and refresh successful state')
+const workflowExit = qml.slice(qml.indexOf('id: workflowActionProc'), qml.indexOf('id: backgroundActionTimeout'))
+assert(workflowExit.includes('if (exitCode !== 0)')
+  && workflowExit.includes('if (usageItemId) usage.record(usageItemId)')
+  && workflowExit.indexOf('if (exitCode !== 0)') < workflowExit.indexOf('usage.record(usageItemId)')
+  && workflowExit.includes('MenuModel.workflowActionIsCurrent'),
+'dynamic usage is published only after a successful current foreground action')
+const backgroundExit = qml.slice(qml.indexOf('id: backgroundActionProc'), qml.indexOf('id: resultProc'))
+assert(backgroundExit.includes('MenuModel.backgroundActionIsCurrent')
+  && backgroundExit.includes('if (exitCode !== 0)')
+  && backgroundExit.includes('if (usageItemId) usage.record(usageItemId)'),
+'background lifecycle rejects stale generations and failed commands before usage publication')
 const fileCopyExit = qml.slice(qml.indexOf('id: fileCopyProc'), qml.indexOf('id: pasteProc'))
 assert(fileCopyExit.includes('if (exitCode === 0) {')
   && fileCopyExit.includes('root.cancel()')

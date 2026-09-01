@@ -1,6 +1,6 @@
 # Bundled provider storage
 
-This document defines the version-1 storage contract for `omalaunch.apps`, `omalaunch.files`, and `omalaunch.extensions`.
+This document defines the version-1 storage contract for `omalaunch.apps`, `omalaunch.files`, `omalaunch.quicklinks`, and `omalaunch.extensions`.
 
 ## Ownership and locations
 
@@ -66,6 +66,41 @@ Extensions has no version-1 user configuration file. Exact provider-ID favorites
 ```
 
 The array defaults to `[]` and has at most 256 unique values. A replacement provider is not starred unless its own ID is present.
+
+## Quicklinks
+
+The optional `omalaunch.quicklinks.jsonc` configuration controls usage ranking:
+
+```jsonc
+{
+  "version": 1,
+  // Learn the order of links from successful Open commands.
+  "rankByUsage": false,
+}
+```
+
+`rankByUsage` defaults to `true`. The setting applies only when the selected provider ID is exactly `omalaunch.quicklinks`. A replacement Quicklinks provider does not inherit this file. Invalid configuration is diagnosed, is not overwritten, and uses the safe default of `true`.
+
+Links, stars, and open method are one coherent machine-managed collection in `omalaunch.quicklinks.json`:
+
+```json
+{
+  "version": 1,
+  "links": [{
+    "id": "docs",
+    "name": "Omalaunch docs",
+    "url": "https://github.com/DanielLemky/omalaunch",
+    "starred": true,
+    "openWith": {"type": "profile", "profile": "Work"}
+  }]
+}
+```
+
+This state JSON is the authoritative editable location for assigning each link's `openWith` value. Stop Omalaunch mutations while editing it. A later add, edit, star, or delete validates and normalizes the complete file, including explicit default values and field formatting. This policy avoids a fragile cross-file override keyed to mutable collection records.
+
+`links` is required and has at most 256 entries. IDs are immutable, unique, 1 to 64 characters, start with an ASCII alphanumeric character, and then use ASCII letters, digits, `.`, `_`, or `-`. New links receive random lowercase 32-hex IDs. Names are 1 to 120 characters. URLs are absolute `http` or `https` URLs with a hostname and no user information. `starred` defaults to `false`. `openWith` defaults to `{"type":"default"}`; a profile name is 1 to 120 characters. Quicklinks accepts no file path, private URI scheme, application ID, or command.
+
+There is no migration from any external or unreleased Quicklinks implementation.
 
 ## Released shared-favorites migration
 

@@ -44,7 +44,7 @@ jobs:
         run: python tests/provider-config-migration-test.py
 
       - name: Compile Python helpers
-        run: python -m py_compile libexec/load-extensions.py libexec/provider_config.py libexec/migrate-provider-config.py extensions/files/file-index.py extensions/timezone/convert-timezone.py
+        run: python -m py_compile libexec/load-extensions.py libexec/provider_config.py libexec/migrate-provider-config.py extensions/quicklinks/quicklinks extensions/files/file-index.py extensions/timezone/convert-timezone.py
 
       - name: Run qalc integration tests
         run: bash tests/qalc-integration-test.sh

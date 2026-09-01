@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-import json, os, sys
+import json, os, secrets, sys
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).parent))
 import provider_config as pc
@@ -38,6 +38,20 @@ def main(a:list[str])->None:
             pc.mutate(provider,home,lambda d: d["favorites"].remove(key) if key in d["favorites"] else d["favorites"].append(key))
         else: pc.mutate(provider,home,lambda d: toggle(d,value))
         return
+    if provider=="omalaunch.quicklinks":
+        def update(data,ident,fn):
+            link=next((x for x in data["links"] if x["id"]==ident),None)
+            if link is None: fail("unknown link id")
+            fn(link)
+        if command=="add" and len(a)==4:
+            pc.mutate(provider,home,lambda d: d["links"].append({"id":secrets.token_hex(16),"name":a[3],"url":a[2],"starred":False,"openWith":{"type":"default"}})); return
+        if command in ("set-name","set-url") and len(a)==4:
+            field="name" if command=="set-name" else "url"
+            pc.mutate(provider,home,lambda d:update(d,a[2],lambda x:x.update({field:a[3]}))); return
+        if command=="star" and len(a)==4 and a[3] in ("true","false"):
+            pc.mutate(provider,home,lambda d:update(d,a[2],lambda x:x.update(starred=a[3]=="true"))); return
+        if command=="delete" and len(a)==3:
+            pc.mutate(provider,home,lambda d:update(d,a[2],lambda _:d.update(links=[x for x in d["links"] if x["id"]!=a[2]]))); return
     fail("invalid command")
 try: main(sys.argv[1:])
 except (OSError,UnicodeError,ValueError,json.JSONDecodeError,KeyError) as e: fail(e)

@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """Strict provider configuration readers and locked provider state writers."""
 from __future__ import annotations
-import fcntl, json, math, os, re, tempfile
+import fcntl, json, math, os, re, tempfile, urllib.parse
 from pathlib import Path
 from typing import Any, Callable
 
 MAX_BYTES=64*1024; MAX_DEPTH=8; MAX_ITEMS=256; MAX_SAFE=9007199254740991
-CONTROL=re.compile(r"[\x00-\x1f\x7f]")
-PROVIDERS=("omalaunch.apps","omalaunch.files","omalaunch.extensions")
-CONFIG_PROVIDERS=("omalaunch.files",)
+CONTROL=re.compile(r"[\x00-\x1f\x7f]"); LINK_ID=re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+PROVIDERS=("omalaunch.apps","omalaunch.files","omalaunch.quicklinks","omalaunch.extensions")
+CONFIG_PROVIDERS=("omalaunch.files","omalaunch.quicklinks")
 
 def reject_constant(v:str)->Any: raise ValueError(f"non-finite number {v}")
 def parse_int(v:str)->int:
@@ -69,9 +69,11 @@ def read_json(path:Path,*,jsonc:bool)->Any:
     depth(value); return value
 
 def config_default(provider:str)->dict[str,Any]:
-    if provider!="omalaunch.files": return {}
-    return {"version":1,"includeGitIgnored":False}
+    if provider=="omalaunch.files": return {"version":1,"includeGitIgnored":False}
+    if provider=="omalaunch.quicklinks": return {"version":1,"rankByUsage":True}
+    return {}
 def state_default(provider:str)->dict[str,Any]:
+    if provider=="omalaunch.quicklinks": return {"version":1,"links":[]}
     return {"version":1,"favorites":[]}
 def identity(v:Any,maxlen:int=255)->bool:
     return isinstance(v,str) and 1<=len(v)<=maxlen and "/" not in v and CONTROL.search(v) is None
@@ -87,18 +89,49 @@ def normalize_path(v:Any,home:Path)->str:
             parts.pop()
         else: parts.append(part)
     return "/"+"/".join(parts)
+def valid_url(v:Any)->bool:
+    if (not isinstance(v,str) or not 10<=len(v)<=2048 or CONTROL.search(v)
+            or "\\" in v or any(c.isspace() for c in v)): return False
+    try:
+        p=urllib.parse.urlsplit(v)
+        hostname=p.hostname
+        p.port # Reject malformed and out-of-range explicit ports.
+    except (UnicodeError,ValueError): return False
+    if p.scheme not in ("http","https") or not hostname or p.username is not None or p.password is not None: return False
+    try: hostname.encode("idna")
+    except UnicodeError: return False
+    return True
 def validate_config(provider:str,value:Any)->dict[str,Any]:
     if provider not in CONFIG_PROVIDERS: raise ValueError("provider has no configuration")
-    if not isinstance(value,dict) or value.get("version")!=1 or set(value)-{"version","includeGitIgnored"}: raise ValueError("invalid files configuration")
-    include=value.get("includeGitIgnored",False)
-    if not isinstance(include,bool): raise ValueError("includeGitIgnored must be boolean")
-    return {"version":1,"includeGitIgnored":include}
+    if provider=="omalaunch.files":
+        if not isinstance(value,dict) or value.get("version")!=1 or set(value)-{"version","includeGitIgnored"}: raise ValueError("invalid files configuration")
+        include=value.get("includeGitIgnored",False)
+        if not isinstance(include,bool): raise ValueError("includeGitIgnored must be boolean")
+        return {"version":1,"includeGitIgnored":include}
+    if not isinstance(value,dict) or value.get("version")!=1 or set(value)-{"version","rankByUsage"}: raise ValueError("invalid Quicklinks configuration")
+    track=value.get("rankByUsage",True)
+    if not isinstance(track,bool): raise ValueError("rankByUsage must be boolean")
+    return {"version":1,"rankByUsage":track}
 def validate_state(provider:str,value:Any,home:Path)->dict[str,Any]:
     if provider not in PROVIDERS or not isinstance(value,dict) or value.get("version")!=1: raise ValueError("expected version-1 provider state")
-    allowed={"version","favorites"}
+    allowed={"version","links"} if provider=="omalaunch.quicklinks" else {"version","favorites"}
     if set(value)-allowed: raise ValueError("unknown state fields")
     result=state_default(provider)
-    if provider=="omalaunch.files":
+    if provider=="omalaunch.quicklinks":
+        links=value.get("links")
+        if not isinstance(links,list) or len(links)>MAX_ITEMS: raise ValueError("invalid links")
+        seen=set()
+        for raw in links:
+            if not isinstance(raw,dict) or set(raw)-{"id","name","url","starred","openWith"}: raise ValueError("invalid link fields")
+            ident=raw.get("id"); name=raw.get("name"); url=raw.get("url"); starred=raw.get("starred",False); ow=raw.get("openWith",{"type":"default"})
+            if not isinstance(ident,str) or not LINK_ID.fullmatch(ident) or ident in seen: raise ValueError("invalid or duplicate link id")
+            if not isinstance(name,str) or not 1<=len(name)<=120 or CONTROL.search(name): raise ValueError("invalid link name")
+            if not valid_url(url) or not isinstance(starred,bool) or not isinstance(ow,dict): raise ValueError("invalid link")
+            if ow.get("type")=="default" and set(ow)=={"type"}: pass
+            elif ow.get("type")=="profile" and set(ow)=={"type","profile"} and isinstance(ow.get("profile"),str) and 1<=len(ow["profile"])<=120 and not CONTROL.search(ow["profile"]): pass
+            else: raise ValueError("invalid openWith")
+            seen.add(ident); result["links"].append({"id":ident,"name":name,"url":url,"starred":starred,"openWith":dict(ow)})
+    elif provider=="omalaunch.files":
         entries=value.get("favorites",[])
         if not isinstance(entries,list) or len(entries)>MAX_ITEMS: raise ValueError("invalid file favorites")
         seen=set()

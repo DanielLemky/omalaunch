@@ -161,7 +161,7 @@ Omalaunch core settings live in the dedicated `~/.config/omarchy/omalaunch/confi
 }
 ```
 
-Bundled provider settings use provider-ID JSONC files under the configuration directory. Interactive data uses provider-ID JSON state under `${XDG_STATE_HOME:-~/.local/state}`. Replacement providers do not inherit either namespace. See [PROVIDER-CONFIGURATION.md](PROVIDER-CONFIGURATION.md) for the separate version-1 schemas and migration rules.
+Bundled provider settings use provider-ID JSONC files under the configuration directory. Interactive data uses provider-ID JSON state under `${XDG_STATE_HOME:-~/.local/state}`. Replacement providers do not inherit either namespace. See [PROVIDER-CONFIGURATION.md](PROVIDER-CONFIGURATION.md) for the separate version-1 schemas and migration rules. Quicklinks does not import external or unreleased data.
 
 If a preferred provider is missing or unavailable, Omalaunch reports a diagnostic and uses its normal provider selection rules.
 

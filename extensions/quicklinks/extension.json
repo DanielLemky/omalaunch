@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "omalaunch.quicklinks",
+  "capability": "quicklinks",
+  "mode": "menu",
+  "label": "Quicklinks",
+  "prefixes": ["links", "quicklinks"],
+  "icon": "󰌹",
+  "description": "Open saved web links",
+  "globalSearch": true,
+  "requires": ["python", "xdg-open", "wl-copy", "omarchy-launch-browser"],
+  "command": ["{extensionDir}/quicklinks", "menu"]
+}
