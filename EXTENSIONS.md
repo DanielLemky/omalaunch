@@ -196,6 +196,8 @@ Dynamic-menu extensions let a trusted external plugin calculate a short menu whe
 
 The provider receives no stdin. It writes one JSON object with an `items` array, or writes the array directly. A result can contain at most 100 rows. The process has a five-second timeout and a 256 KiB stdout limit. Invalid JSON, a nonzero exit, excessive output, duplicate row IDs, an invalid row, or an excessive row count rejects the complete snapshot. Omalaunch does not run a partial menu. Leaving the menu or closing the launcher makes the old generation stale, so its result cannot replace a later menu. Providers must be fast and should only read state.
 
+A row can also be a bounded host-rendered submenu by setting `kind` to `menu` and supplying `items`. Nested items use the workflow node format. This is useful for short configuration lists calculated by the provider.
+
 A basic row runs `command` directly:
 
 ```json
@@ -210,7 +212,7 @@ A basic row runs `command` directly:
 }
 ```
 
-Every row requires a unique, nonempty `id`, a nonempty `label`, and a nonempty argument-array `command`. Presentation strings and command arguments are bounded. Omalaunch does not invoke a shell and does not expand command text. `{extensionDir}` and form `{input}` values are substituted as complete literal arguments. Set `closeOnSuccess: true` for launch/open rows that should close Omalaunch after the command exits successfully. Other successful menu commands reload the provider so mutations appear immediately.
+Every row requires a unique, nonempty `id` and a nonempty `label`. Action rows also require a nonempty argument-array `command`; submenu rows require bounded `items` instead. Presentation strings and command arguments are bounded. Omalaunch does not invoke a shell and does not expand command text. `{extensionDir}` and form `{input}` values are substituted as complete literal arguments. Set `closeOnSuccess: true` for launch/open rows that should close Omalaunch after the command exits successfully. Other successful menu commands reload the provider so mutations appear immediately.
 
 A row can ask for confirmation before dispatch:
 
@@ -330,6 +332,6 @@ Select a provider by extension `id` in `config.jsonc`. The key is the capability
 
 Provider settings are separate from capability selection. User-edited JSONC is under `~/.config/omarchy/omalaunch/extensions/`; machine-managed JSON state is under `${XDG_STATE_HOME:-~/.local/state}/omarchy/omalaunch/extensions/`. Both use the exact provider ID as the filename. A replacement provider never inherits, merges, or shares either namespace. UI mutations write only state and never rewrite JSONC comments or formatting.
 
-The exact version-1 structures, defaults, limits, identities, path rules, and separate configuration and state schemas are in [PROVIDER-CONFIGURATION.md](PROVIDER-CONFIGURATION.md). Apps and Extensions have no user configuration file. Files has only `includeGitIgnored` in configuration. Quicklinks has only `rankByUsage`, which defaults to true and applies only to the exact bundled provider ID. Quicklinks uses state as the authoritative editable location for each link's `openWith` assignment and does not import external or unreleased Quicklinks data.
+The exact version-1 structures, defaults, limits, identities, path rules, and separate configuration and state schemas are in [PROVIDER-CONFIGURATION.md](PROVIDER-CONFIGURATION.md). Apps and Extensions have no user configuration file. Files has only `includeGitIgnored` in configuration. Web Search defines its engine IDs, names, and URL templates in configuration; menu toggles store disabled engine IDs in state. Quicklinks has only `rankByUsage`, which defaults to true and applies only to the exact bundled provider ID. Quicklinks uses state as the authoritative editable location for each link's `openWith` assignment and does not import external or unreleased Quicklinks data.
 
 The bundled `omalaunch.quicklinks` extension is URL-only. It supports add, name and URL edits, delete, URL copy, default or configured browser-profile opening, filtering, global search, and extension-owned stars. It does not use favicons, file paths, or profile-editing UI.

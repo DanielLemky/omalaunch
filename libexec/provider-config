@@ -38,6 +38,15 @@ def main(a:list[str])->None:
             pc.mutate(provider,home,lambda d: d["favorites"].remove(key) if key in d["favorites"] else d["favorites"].append(key))
         else: pc.mutate(provider,home,lambda d: toggle(d,value))
         return
+    if provider=="omalaunch.web-search" and command=="toggle-engine" and len(a)==3:
+        ident=a[2]
+        config=pc.load_config(provider,home)
+        if ident not in {engine["id"] for engine in config["engines"]}: fail("unknown search engine id")
+        def toggle_engine(data):
+            values=data["disabledEngines"]
+            if ident in values: values.remove(ident)
+            else: values.append(ident)
+        pc.mutate(provider,home,toggle_engine); return
     if provider=="omalaunch.quicklinks":
         def update(data,ident,fn):
             link=next((x for x in data["links"] if x["id"]==ident),None)

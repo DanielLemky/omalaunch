@@ -44,6 +44,7 @@ This workaround can be removed once Omarchy supports setting a widget’s sectio
 - Copy calculation results directly to the clipboard
 - Browse, recursively search, open, copy paths, and star local files and directories
 - Look up current times and convert times across DST-aware timezones
+- Search with Google, DuckDuckGo, Bing, Brave Search, or Ecosia
 - Accept dmenu-style select and input requests
 - Load extensions contributed by enabled Omarchy plugins
 - Launch agent prompts such as Pi and Codex through optional extensions
@@ -75,6 +76,10 @@ time seattle
 time 9am winnipeg to tokyo
 time 2026-11-15 8pm new york to london
 ```
+
+## Web Search
+
+Open **Web Search**, select a search engine, enter a query, and press Enter. Omalaunch opens the encoded search in your default browser. Open **Search Engines** in the same menu to enable or disable engines. Define engine names and URL templates in `~/.config/omarchy/omalaunch/extensions/omalaunch.web-search.jsonc`; see [PROVIDER-CONFIGURATION.md](PROVIDER-CONFIGURATION.md).
 
 ## Files
 
@@ -118,7 +123,7 @@ Calculation results appear first and are copied to the clipboard when activated.
 
 ### Extensions
 
-Open the fixed top-level **Extensions** directory to find every active bundled and external extension, including Calculator, Currency conversion, Files, Timezone, and installed workflow integrations such as Codex. Star an extension with Ctrl+S to add the same shortcut to the starting view; it remains in **Extensions**, where starred shortcuts sort first and all others sort alphabetically. The directory itself cannot be starred. Global search finds extension shortcuts whether or not they are starred.
+Open the fixed top-level **Extensions** directory to find every active bundled and external extension, including Calculator, Currency conversion, Files, Timezone, Web Search, and installed workflow integrations such as Codex. Star an extension with Ctrl+S to add the same shortcut to the starting view; it remains in **Extensions**, where starred shortcuts sort first and all others sort alphabetically. The directory itself cannot be starred. Global search finds extension shortcuts whether or not they are starred.
 
 Shortcut activation follows the extension type: Files opens its browser, Timezone prepares its prefix, Calculator and Currency conversion open focused query input, and workflow extensions open their workflow. A replacement provider supplies the capability shortcut, but it does not inherit the original provider's favorite because stored ownership uses the exact provider ID. Missing dependencies are shown on the shortcut without affecting unrelated extensions.
 

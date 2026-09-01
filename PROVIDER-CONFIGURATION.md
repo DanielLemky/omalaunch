@@ -1,6 +1,6 @@
 # Bundled provider storage
 
-This document defines the version-1 storage contract for `omalaunch.apps`, `omalaunch.files`, `omalaunch.quicklinks`, and `omalaunch.extensions`.
+This document defines the version-1 storage contract for `omalaunch.apps`, `omalaunch.files`, `omalaunch.quicklinks`, `omalaunch.web-search`, and `omalaunch.extensions`.
 
 ## Ownership and locations
 
@@ -66,6 +66,21 @@ Extensions has no version-1 user configuration file. Exact provider-ID favorites
 ```
 
 The array defaults to `[]` and has at most 256 unique values. A replacement provider is not starred unless its own ID is present.
+
+## Web Search
+
+The optional `omalaunch.web-search.jsonc` configuration defines 1 to 32 search engines. A missing file supplies Google, DuckDuckGo, Bing, Brave Search, and Ecosia. Each engine has a stable `id`, display `name`, and absolute HTTP(S) `url` template with exactly one `{query}` placeholder:
+
+```jsonc
+{
+  "version": 1,
+  "engines": [
+    { "id": "google", "name": "Google", "url": "https://www.google.com/search?q={query}" },
+  ],
+}
+```
+
+The launcher percent-encodes the query before it replaces the placeholder. Search Engines in the Web Search menu changes only `disabledEngines` in machine-managed state. Thus, UI changes do not rewrite the user JSONC file. New configured engines are enabled unless their ID is in that state list.
 
 ## Quicklinks
 

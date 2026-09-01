@@ -11,6 +11,7 @@ with tempfile.TemporaryDirectory() as raw:
     for provider in pc.PROVIDERS: check(pc.load_state(provider,home)==pc.state_default(provider),provider+" has missing-state defaults")
     check(pc.load_config("omalaunch.files",home)=={"version":1,"includeGitIgnored":False},"Files has a missing-config default")
     check(pc.load_config("omalaunch.quicklinks",home)=={"version":1,"rankByUsage":True},"Quicklinks has an enabled missing-config default")
+    check(len(pc.load_config("omalaunch.web-search",home)["engines"])==5,"Web Search has default engines")
     for provider in ("omalaunch.apps","omalaunch.extensions"):
         check(not pc.config_path(provider,home).exists(),provider+" has no meaningless config file")
     config=pc.config_path("omalaunch.files",home); config.parent.mkdir(parents=True)
@@ -21,10 +22,20 @@ with tempfile.TemporaryDirectory() as raw:
     subprocess.run([cli,"toggle","omalaunch.files","directory:/tmp/a/../docs"],env=env,check=True)
     subprocess.run([cli,"toggle","omalaunch.extensions","omalaunch.files"],env=env,check=True)
     subprocess.run([cli,"add","omalaunch.quicklinks","https://example.test/docs","Docs"],env=env,check=True)
+    subprocess.run([cli,"toggle-engine","omalaunch.web-search","bing"],env=env,check=True)
     check(config.read_bytes()==original and quicklinks_config.read_bytes()==quicklinks_original,"UI mutations preserve JSONC comments and formatting byte for byte")
     check(pc.load("omalaunch.files",home)["includeGitIgnored"] is True,"runtime merges read-only Files configuration with state")
     check(pc.load("omalaunch.quicklinks",home)["rankByUsage"] is False,"runtime merges read-only Quicklinks configuration with state")
     check(pc.load_state("omalaunch.files",home)["favorites"]==[{"type":"directory","path":"/tmp/docs"}],"Files stores normalized typed favorites in state")
+    check(pc.load_state("omalaunch.web-search",home)["disabledEngines"]==["bing"],"Web Search stores disabled engines in state")
+    web_search=subprocess.run([ROOT/"extensions/web-search/web-search","menu"],env=env,check=True,capture_output=True,text=True)
+    search_items=json.loads(web_search.stdout)["items"]
+    check(not any(item["id"]=="search-bing" for item in search_items) and search_items[-1]["kind"]=="menu","Web Search hides disabled engines and exposes its settings menu")
+    bin_dir=base/"bin"; bin_dir.mkdir(); opened=base/"opened-url"
+    opener=bin_dir/"xdg-open"; opener.write_text("#!/bin/sh\nprintf '%s' \"$1\" > \"$OPENED_URL\"\n"); opener.chmod(0o755)
+    open_env={**env,"PATH":str(bin_dir)+os.pathsep+env["PATH"],"OPENED_URL":str(opened)}
+    subprocess.run([ROOT/"extensions/web-search/web-search","open","google","two words & more"],env=open_env,check=True)
+    check(opened.read_text()=="https://www.google.com/search?q=two+words+%26+more","Web Search percent-encodes the complete query before opening it")
     links=pc.load_state("omalaunch.quicklinks",home)["links"]
     check(len(links)==1 and len(links[0]["id"])==32 and links[0]["openWith"]=={"type":"default"},"Quicklinks state has stable IDs and normalized openWith")
     link_id=links[0]["id"]

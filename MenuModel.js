@@ -926,7 +926,7 @@ function normalizeDynamicMenuOutput(raw) {
     var row = rows[i]
     if (!row || typeof row !== "object" || Array.isArray(row)) return null
     var copy = Object.assign({}, row)
-    copy.kind = copy.confirm ? "confirm" : (copy.input ? "input" : "action")
+    copy.kind = copy.kind === "menu" ? "menu" : (copy.confirm ? "confirm" : (copy.input ? "input" : "action"))
     if (copy.input) copy = Object.assign({}, copy, copy.input, { kind: "input", command: copy.input.command || copy.command })
     prepared.push(copy)
   }

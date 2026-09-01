@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Omalaunch Web Search state v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "disabledEngines"],
+  "properties": {
+    "version": { "const": 1 },
+    "disabledEngines": {
+      "type": "array",
+      "maxItems": 32,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1, "maxLength": 64 }
+    }
+  }
+}
