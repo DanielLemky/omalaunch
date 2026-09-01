@@ -310,10 +310,11 @@ const dynamicSettings = menu.normalizeDynamicMenuOutput([{ id: 'settings', kind:
 ] }])
 assert(dynamicSettings && dynamicSettings.items[0].kind === 'menu' && dynamicSettings.items[0].items.length === 1, 'dynamic rows can open a bounded settings submenu')
 const scopedSearch = menu.normalizeDynamicMenuOutput([
-  { id: 'global', label: 'Google', globalSearch: true, command: ['search', 'google'] },
+  { id: 'global', label: 'Google', globalSearch: true, trailingIcon: 'globe', command: ['search', 'google'] },
   { id: 'menu-only', label: 'Bing', globalSearch: false, command: ['search', 'bing'] }
 ])
 assert(menu.dynamicMenuSearchItems(dynamicMenuExtensions[0], scopedSearch).length === 1, 'dynamic rows can remain in their extension menu without entering global search')
+assert(menu.dynamicMenuSearchItems(dynamicMenuExtensions[0], scopedSearch)[0].trailingIcon === 'globe', 'dynamic rows retain bounded trailing icons')
 const capturedMenu = menu.normalizeDynamicMenuOutput([{ id: 'add', label: 'Add', input: {
   prompt: 'Target', capture: 'target', next: { id: 'name', kind: 'input', label: 'Name', command: ['links', 'add', '{target}', '{input}'] }
 } }])

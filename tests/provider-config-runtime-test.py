@@ -32,6 +32,7 @@ with tempfile.TemporaryDirectory() as raw:
     search_items=json.loads(web_search.stdout)["items"]
     check([item["id"] for item in search_items]==["search-brave","search-duckduckgo","search-ecosia","search-google","search-bing"],"Web Search sorts global engines by name before excluded engines")
     check(search_items[-1]["globalSearch"] is False and search_items[-1]["description"]=="Web Search menu","excluded engines remain usable in the Web Search menu")
+    check(search_items[0]["trailingIcon"] and search_items[-1]["trailingIcon"]=="","only global engines receive the trailing globe icon")
     check(next(item for item in search_items if item["id"]=="search-google")["input"]["closeOnSuccess"] is True,"Web Search closes after a successful query dispatch")
     bin_dir=base/"bin"; bin_dir.mkdir(); opened=base/"opened-url"
     opener=bin_dir/"xdg-open"; opener.write_text("#!/bin/sh\nprintf '%s' \"$1\" > \"$OPENED_URL\"\n"); opener.chmod(0o755)
