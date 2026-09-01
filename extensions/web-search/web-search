@@ -7,14 +7,14 @@ import provider_config as pc
 PROVIDER="omalaunch.web-search"; EXE="{extensionDir}/../../libexec/provider-config"
 def fail(error): print("web-search: "+str(error),file=sys.stderr); raise SystemExit(1)
 def menu(home:Path)->None:
-    data=pc.load(PROVIDER,home); disabled=set(data["disabledEngines"]); items=[]; settings=[]
+    data=pc.load(PROVIDER,home); disabled=set(data["disabledEngines"]); items=[]
     for engine in data["engines"]:
         enabled=engine["id"] not in disabled
-        toggle={"id":"toggle-"+engine["id"],"label":("Disable " if enabled else "Enable ")+engine["name"],"description":"Enabled" if enabled else "Disabled","icon":"󰔡" if enabled else "󰨙","command":[EXE,"toggle-engine",PROVIDER,engine["id"]]}
-        settings.append(toggle)
+        toggle={"id":"toggle","label":"Disable" if enabled else "Enable","description":("Disable " if enabled else "Enable ")+engine["name"],"icon":"󰔡" if enabled else "󰨙","command":[EXE,"toggle-engine",PROVIDER,engine["id"]]}
         if enabled:
-            items.append({"id":"search-"+engine["id"],"label":engine["name"],"description":"Search with "+engine["name"],"icon":"󰍉","aliases":[engine["id"]],"input":{"prompt":"Search "+engine["name"],"maxLength":4096,"command":[str(Path(__file__).resolve()),"open",engine["id"],"{input}"]}})
-    items.append({"id":"search-engines","kind":"menu","label":"Search Engines","description":"Enable or disable search engines","icon":"󰒓","items":settings})
+            items.append({"id":"search-"+engine["id"],"label":engine["name"],"description":"Search with "+engine["name"],"icon":"󰍉","aliases":[engine["id"]],"input":{"prompt":"Search "+engine["name"],"maxLength":4096,"command":[str(Path(__file__).resolve()),"open",engine["id"],"{input}"]},"actions":[toggle]})
+        else:
+            items.append({"id":"enable-"+engine["id"],"label":"Enable "+engine["name"],"description":"Search engine is disabled","icon":"󰨙","command":toggle["command"]})
     print(json.dumps({"items":items},ensure_ascii=False))
 def open_search(home:Path,ident:str,query:str)->None:
     engine=next((item for item in pc.load_config(PROVIDER,home)["engines"] if item["id"]==ident),None)

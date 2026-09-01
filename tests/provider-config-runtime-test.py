@@ -30,7 +30,7 @@ with tempfile.TemporaryDirectory() as raw:
     check(pc.load_state("omalaunch.web-search",home)["disabledEngines"]==["bing"],"Web Search stores disabled engines in state")
     web_search=subprocess.run([ROOT/"extensions/web-search/web-search","menu"],env=env,check=True,capture_output=True,text=True)
     search_items=json.loads(web_search.stdout)["items"]
-    check(not any(item["id"]=="search-bing" for item in search_items) and search_items[-1]["kind"]=="menu","Web Search hides disabled engines and exposes its settings menu")
+    check(not any(item["id"]=="search-bing" for item in search_items) and any(item["id"]=="enable-bing" for item in search_items),"Web Search replaces a disabled engine with an enable option")
     bin_dir=base/"bin"; bin_dir.mkdir(); opened=base/"opened-url"
     opener=bin_dir/"xdg-open"; opener.write_text("#!/bin/sh\nprintf '%s' \"$1\" > \"$OPENED_URL\"\n"); opener.chmod(0o755)
     open_env={**env,"PATH":str(bin_dir)+os.pathsep+env["PATH"],"OPENED_URL":str(opened)}
