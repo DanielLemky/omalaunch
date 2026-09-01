@@ -260,8 +260,18 @@ Item {
   // Resolved independently of an active session so the files can load as soon
   // as the catalog settles.
   readonly property var emojiProvider: root.emojiExtensionForCapability("emoji")
-  readonly property string emojiDataPath: MenuModel.emojiDataPath(root.emojiProvider, root.omarchyPath)
-  readonly property string emojiGroupsPath: MenuModel.emojiGroupsPath(root.emojiProvider, root.omarchyPath)
+  // Each file is a list of candidates read in order, so the picker survives
+  // the provider's preferred source disappearing.
+  readonly property var emojiDataPaths: MenuModel.emojiDataPaths(root.emojiProvider, root.omarchyPath)
+  readonly property var emojiGroupsPaths: MenuModel.emojiGroupsPaths(root.emojiProvider, root.omarchyPath)
+  property int emojiDataCandidate: 0
+  property int emojiGroupsCandidate: 0
+  readonly property string emojiDataPath: root.emojiDataCandidate < root.emojiDataPaths.length
+    ? root.emojiDataPaths[root.emojiDataCandidate] : ""
+  readonly property string emojiGroupsPath: root.emojiGroupsCandidate < root.emojiGroupsPaths.length
+    ? root.emojiGroupsPaths[root.emojiGroupsCandidate] : ""
+  onEmojiDataPathsChanged: root.emojiDataCandidate = 0
+  onEmojiGroupsPathsChanged: root.emojiGroupsCandidate = 0
   // Only laid out while the picker is open: pins and usage change on every
   // launcher action, and re-sectioning the whole dataset then would be waste.
   readonly property var emojiLayout: root.emojiPickerActive
@@ -1019,13 +1029,35 @@ Item {
     return index >= 0 && index < cells.length ? cells[index] : null
   }
 
+  // FileView does not re-read when its path binding changes after a failed
+  // load, so advancing a candidate has to ask for the read explicitly.
+  function advanceEmojiCandidate(current, total, reader) {
+    if (current + 1 >= total) return false
+    Qt.callLater(function() { reader.reload() })
+    return true
+  }
+
+  // A file that reads but parses to nothing is as useless as a missing one, so
+  // both outcomes fall through to the next candidate.
   function loadEmojiData(raw) {
-    root.emojiData = MenuModel.parseEmojiData(raw)
+    var values = MenuModel.parseEmojiData(raw)
+    if (values.length === 0 && root.emojiDataCandidate + 1 < root.emojiDataPaths.length) {
+      root.emojiDataCandidate += 1
+      root.advanceEmojiCandidate(root.emojiDataCandidate - 1, root.emojiDataPaths.length, emojiDataFile)
+      return
+    }
+    root.emojiData = values
     if (root.emojiPickerActive) root.rebuildEmojiDisplay()
   }
 
   function loadEmojiGroups(raw) {
-    root.emojiGroups = MenuModel.parseEmojiGroups(raw)
+    var values = MenuModel.parseEmojiGroups(raw)
+    if (values.length === 0 && root.emojiGroupsCandidate + 1 < root.emojiGroupsPaths.length) {
+      root.emojiGroupsCandidate += 1
+      root.advanceEmojiCandidate(root.emojiGroupsCandidate - 1, root.emojiGroupsPaths.length, emojiGroupsFile)
+      return
+    }
+    root.emojiGroups = values
     if (root.emojiPickerActive) root.rebuildEmojiDisplay()
   }
 
@@ -2043,7 +2075,7 @@ Item {
           var setupItem = root.normalizeItem("dependency.setup." + setupExtension.id, {
             icon: setupExtension.icon,
             iconFont: setupExtension.iconFont,
-            label: "Enable Calculator & Currency",
+            label: dependencySetup.label || ("Enable " + setupExtension.label),
             description: "Install " + dependencySetup.packageName + " · Press Enter to review"
           })
           rows.push(root.displayRow(setupItem, setupItem.description, -1))

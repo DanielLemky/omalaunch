@@ -9,8 +9,11 @@
   "description": "Press Enter to paste",
   "rootDescription": "Search and paste emoji",
   "priority": 10,
-  "requires": ["omarchy-menu-emoji-insert", "wl-copy"],
-  "data": "{omarchyPath}/shell/plugins/emojis/emojis.json",
+  "requires": ["omarchy-menu-emoji-insert", "wtype", "wl-copy"],
+  "data": [
+    "{omarchyPath}/shell/plugins/emojis/emojis.json",
+    "{extensionDir}/emojis.json"
+  ],
   "groups": "{extensionDir}/groups.json",
   "command": ["omarchy-menu-emoji-insert", "{emoji}"],
   "copyCommand": ["wl-copy", "--", "{emoji}"]

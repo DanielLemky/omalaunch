@@ -162,26 +162,34 @@ Emoji picker extensions contribute a searchable grid of emoji:
   "prefixes": ["emoji"],
   "icon": "",
   "description": "Press Enter to paste",
-  "requires": ["omarchy-menu-emoji-insert", "wl-copy"],
-  "data": "{extensionDir}/emojis.json",
+  "requires": ["omarchy-menu-emoji-insert", "wtype", "wl-copy"],
+  "data": ["{extensionDir}/emojis.json"],
   "groups": "{extensionDir}/groups.json",
   "command": ["omarchy-menu-emoji-insert", "{emoji}"],
   "copyCommand": ["wl-copy", "--", "{emoji}"]
 }
 ```
 
-`data` is the dataset the grid searches. Only `{omarchyPath}` and
-`{extensionDir}` expand in it, the result must be an absolute path, and a path
-containing `..` is rejected. It defaults to
-`{omarchyPath}/shell/plugins/emojis/emojis.json`, the set Omarchy already
-ships, so the bundled provider carries no second copy of the data. The file
-holds an array of `{"e": "😀", "k": "grinning face smile happy"}` objects;
-`{"emoji": …, "keywords": …}` and an `{"emojis": [ … ]}` wrapper are also
-accepted. Duplicate glyphs, empty glyphs, non-objects, and malformed JSON are
-dropped, and the grid reads at most 8192 entries and displays at most 1000
+`data` is the dataset the grid searches. It may be one path or an ordered list
+of at most eight candidates, read in order until one loads and parses to at
+least one emoji; a file that is missing, unreadable, or parses to nothing falls
+through to the next. Only `{omarchyPath}` and `{extensionDir}` expand, each
+result must be an absolute path, and a candidate containing `..` is dropped
+without discarding the safe ones.
+
+The bundled provider lists two: the set Omarchy ships, then its own copy.
+Omarchy's comes first so the data stays current with the system, and the
+bundled copy means disabling or removing the `omarchy.emojis` plugin, or an
+Omarchy release that stops shipping it, cannot take the picker with it.
+
+The file holds an array of `{"e": "😀", "k": "grinning face smile happy"}`
+objects; `{"emoji": …, "keywords": …}` and an `{"emojis": [ … ]}` wrapper are
+also accepted. Duplicate glyphs, empty glyphs, non-objects, and malformed JSON
+are dropped, and the grid reads at most 8192 entries and displays at most 1000
 results.
 
-`groups` names an optional category file and resolves under the same rules. It
+`groups` names an optional category file and resolves under the same rules,
+including the candidate list. It
 lists the first emoji of each category, in the order the dataset uses:
 
 ```json
@@ -208,7 +216,10 @@ entries. A query replaces all of it with one ranked, unlabelled list, because
 category order and ranking cannot both hold.
 
 `command` pastes the selected emoji and `copyCommand` places it on the
-clipboard; both support `{emoji}`. Enter pastes and closes the launcher, Ctrl+C
+clipboard; both support `{emoji}`. Declare every executable the paste path
+needs, including the ones a helper script calls: Omarchy's insert helper
+swallows a `wtype` failure, so an undeclared `wtype` would make pasting a
+silent no-op instead of a visible missing dependency. Enter pastes and closes the launcher, Ctrl+C
 copies and keeps the grid open so several emoji can be collected in one
 session. Both record usage, so recently and frequently used emoji lead an
 unfiltered grid.

@@ -93,7 +93,7 @@ Browsing leads with **Pinned**, then **Frequently Used** — your sixteen most-u
 
 Left and Right move one emoji, Up and Down move one row, and PageUp and PageDown move one screen. Escape clears the query and then leaves the grid — or closes the launcher outright if you opened the grid straight from a keybinding.
 
-The grid reads the emoji set your Omarchy installation already ships, so it stays current with Omarchy rather than carrying its own copy of the data.
+The grid reads the emoji set your Omarchy installation already ships, so it stays current with Omarchy, and falls back to a copy bundled with Omalaunch if that file is ever unavailable. The picker therefore does not need Omarchy's own `omarchy.emojis` overlay plugin to be enabled, or installed at all. That bundled copy is `extensions/emoji/emojis.json`, taken from [Omarchy](https://omarchy.org/) (MIT).
 
 Bind a key to open the grid without passing through the launcher. In
 `~/.config/hypr/bindings.lua`:
@@ -109,7 +109,7 @@ Any extension capability works the same way — `files`, `calculator`, and so on
 - A current Omarchy installation with the manifest-based shell plugin system
 - [`libqalculate`](https://qalculate.github.io/) (`qalc`) to enable calculations and conversions
 - `fd`, `fzf`, `jq`, Python 3, Bash, and `wl-clipboard` (provided by a standard Omarchy installation; Python drives extension loading and file indexing)
-- `wtype` and Omarchy's `omarchy-menu-emoji-insert` to paste emoji into the focused application (both provided by a standard Omarchy installation)
+- `wtype` and Omarchy's `omarchy-menu-emoji-insert` to paste emoji into the focused application (both provided by a standard Omarchy installation). If `wtype` is missing, the launcher offers **Enable emoji pasting**, which installs it after you confirm the exact command
 
 Install the calculation dependency through Omarchy:
 
@@ -250,6 +250,35 @@ application rows and the Apps menu stay empty; everything else behaves
 normally. Starring and usage ranking write to the real
 `~/.local/state/omarchy` files, so pass a throwaway `HOME` to keep a session
 from touching them.
+
+### Using Omalaunch's grid as your only emoji picker
+
+Omarchy also ships its own emoji overlay, bound to Super+Ctrl+E and reachable
+from the Omarchy menu. To route emoji solely through Omalaunch, bind a key as
+above, then in `~/.config/hypr/bindings.lua`:
+
+```lua
+hl.unbind("SUPER + CTRL + E")
+```
+
+and disable the overlay plugin:
+
+```bash
+omarchy plugin disable omarchy.emojis
+```
+
+Omalaunch's picker keeps working: it falls back to its bundled dataset, and the
+paste helper is part of Omarchy's core `bin/` rather than that plugin.
+
+To undo all of it:
+
+```bash
+omarchy plugin enable omarchy.emojis
+```
+
+then remove the `hl.unbind("SUPER + CTRL + E")` line, and the
+`CTRL + ALT + SPACE` binding if you no longer want it, and run
+`hyprctl reload`.
 
 Do not develop from a copy installed under `~/.config/omarchy/plugins`:
 Omarchy watches that directory recursively and can reload the shell for every

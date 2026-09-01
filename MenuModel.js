@@ -452,8 +452,18 @@ var DEPENDENCY_SETUPS = {
   qalc: {
     executable: "qalc",
     packageName: "libqalculate",
+    label: "Enable Calculator & Currency",
     reason: "arithmetic, unit conversion, and currency conversion",
     installCommand: ["omarchy", "pkg", "add", "libqalculate"]
+  },
+  // The emoji insert helper swallows a wtype failure, so without this the
+  // paste is a silent no-op rather than a visible missing dependency.
+  wtype: {
+    executable: "wtype",
+    packageName: "wtype",
+    label: "Enable emoji pasting",
+    reason: "pasting emoji into the focused application",
+    installCommand: ["omarchy", "pkg", "add", "wtype"]
   }
 }
 
@@ -777,6 +787,23 @@ function sortExtensionRootRows(rows) {
   return result
 }
 
+var MAX_EMOJI_FILE_CANDIDATES = 8
+
+// One or an ordered list of candidates; the host reads the first that loads.
+function emojiFileList(value, fallback) {
+  if (Array.isArray(value)) {
+    var paths = []
+    for (var i = 0; i < value.length && paths.length < MAX_EMOJI_FILE_CANDIDATES; i++) {
+      var entry = String(value[i] === undefined || value[i] === null ? "" : value[i])
+      if (entry && paths.indexOf(entry) < 0) paths.push(entry)
+    }
+    return paths
+  }
+  var single = String(value === undefined || value === null ? "" : value)
+  if (single) return [single]
+  return Array.isArray(fallback) ? fallback.slice() : []
+}
+
 var MAX_EXTENSION_ROUTE_CAPABILITY = 128
 
 function extensionRouteCapability(value) {
@@ -873,8 +900,11 @@ function normalizeExtension(raw) {
       // Default to the emoji set Omarchy already ships so the bundled
       // provider carries no duplicate dataset. An external provider can point
       // `data` at its own file with {extensionDir}.
-      extension.data = String(raw.data || "{omarchyPath}/shell/plugins/emojis/emojis.json")
-      extension.groups = String(raw.groups || "")
+      extension.data = emojiFileList(raw.data, [
+        "{omarchyPath}/shell/plugins/emojis/emojis.json",
+        "{extensionDir}/emojis.json"
+      ])
+      extension.groups = emojiFileList(raw.groups, [])
       extension.copyCommand = stringArray(raw.copyCommand)
       if (extension.copyCommand.length === 0) extension.copyCommand = ["wl-copy", "--", "{emoji}"]
     }
@@ -1519,12 +1549,26 @@ function emojiFilePath(extension, omarchyPath, value) {
   return path.indexOf("/") === 0 ? path : ""
 }
 
-function emojiDataPath(extension, omarchyPath) {
-  return emojiFilePath(extension, omarchyPath, extension && extension.data)
+// A list of candidates rather than one path: the bundled provider prefers the
+// dataset Omarchy ships so it stays current, and falls back to its own copy so
+// disabling or removing that plugin cannot take the picker with it.
+function emojiFilePaths(extension, omarchyPath, values) {
+  if (!extension || extension.mode !== "emoji") return []
+  var source = Array.isArray(values) ? values : (values ? [values] : [])
+  var paths = []
+  for (var i = 0; i < source.length; i++) {
+    var resolved = emojiFilePath(extension, omarchyPath, source[i])
+    if (resolved && paths.indexOf(resolved) < 0) paths.push(resolved)
+  }
+  return paths
 }
 
-function emojiGroupsPath(extension, omarchyPath) {
-  return emojiFilePath(extension, omarchyPath, extension && extension.groups)
+function emojiDataPaths(extension, omarchyPath) {
+  return emojiFilePaths(extension, omarchyPath, extension && extension.data)
+}
+
+function emojiGroupsPaths(extension, omarchyPath) {
+  return emojiFilePaths(extension, omarchyPath, extension && extension.groups)
 }
 
 var EMOJI_PINNED_SECTION = "Pinned"
@@ -1948,8 +1992,9 @@ if (typeof module !== "undefined") {
     emojiMatchScore: emojiMatchScore,
     compareEmojiRows: compareEmojiRows,
     emojiRows: emojiRows,
-    emojiDataPath: emojiDataPath,
-    emojiGroupsPath: emojiGroupsPath,
+    emojiFileList: emojiFileList,
+    emojiDataPaths: emojiDataPaths,
+    emojiGroupsPaths: emojiGroupsPaths,
     parseEmojiGroups: parseEmojiGroups,
     emojiGroupLabels: emojiGroupLabels,
     emojiSections: emojiSections,

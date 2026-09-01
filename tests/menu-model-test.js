@@ -640,6 +640,29 @@ assert(menu.compareSearchRows(
   false
 ) > 0, 'queries shorter than three characters ignore usage history')
 
+const missingWtype = menu.parseExtensions(JSON.stringify([{
+  schemaVersion: 1, id: 'omalaunch.emoji', mode: 'emoji', label: 'Emoji', prefixes: ['emoji'],
+  command: ['omarchy-menu-emoji-insert', '{emoji}'],
+  _bundled: true, _missingRequires: ['wtype']
+}]))[0]
+assert(!missingWtype.available, 'a missing wtype leaves the emoji extension unavailable')
+assert(menu.dependencySetup(missingWtype).packageName === 'wtype',
+  'wtype is offered as a trusted installable dependency')
+assert(menu.dependencySetup(missingWtype).label === 'Enable emoji pasting',
+  'each installable dependency names what it enables')
+assert(menu.unavailableExtensionDetail(missingWtype) === 'Requires wtype · Press Enter to install',
+  'a missing wtype offers installation rather than a bare dependency name')
+assert(menu.firstSetupExtension([missingWtype]) === missingWtype,
+  'the emoji extension surfaces its own setup prompt')
+const missingInsert = menu.parseExtensions(JSON.stringify([{
+  schemaVersion: 1, id: 'omalaunch.emoji', mode: 'emoji', label: 'Emoji', prefixes: ['emoji'],
+  command: ['omarchy-menu-emoji-insert', '{emoji}'],
+  _bundled: true, _missingRequires: ['omarchy-menu-emoji-insert']
+}]))[0]
+assert(menu.dependencySetup(missingInsert) === null
+  && menu.unavailableExtensionDetail(missingInsert) === 'Missing dependency: omarchy-menu-emoji-insert',
+  'a missing Omarchy helper is reported but never offered as a package install')
+
 // ---------------------------------------------------------------- emoji
 
 const emojiExtensions = menu.parseExtensions(JSON.stringify([{
@@ -653,8 +676,8 @@ const emojiExtensions = menu.parseExtensions(JSON.stringify([{
 }]))
 assert(emojiExtensions.length === 1 && emojiExtensions[0].mode === 'emoji', 'emoji extensions are parsed')
 assert(emojiExtensions[0].copyCommand.join(' ') === 'wl-copy -- {emoji}', 'emoji extensions default to a clipboard copy command')
-assert(emojiExtensions[0].data === '{omarchyPath}/shell/plugins/emojis/emojis.json',
-  'emoji extensions default to the dataset Omarchy ships')
+assert(emojiExtensions[0].data.join('|') === '{omarchyPath}/shell/plugins/emojis/emojis.json|{extensionDir}/emojis.json',
+  'emoji extensions default to Omarchy\'s dataset with a bundled fallback behind it')
 assert(menu.extensionRootActivation(emojiExtensions[0]) === 'emoji', 'emoji extension roots open the picker')
 assert(menu.parseExtensions(JSON.stringify([{
   schemaVersion: 1, id: 'no-prefix', mode: 'emoji', label: 'Emoji', command: ['true']
@@ -678,19 +701,33 @@ assert(menu.extensionRouteCapability('x'.repeat(128)).length === 128
 assert(menu.openStateReset().pendingExtensionCapability === '',
   'a new launcher session drops a pending extension route')
 
-assert(menu.emojiDataPath(emojiExtensions[0], '/usr/share/omarchy') === '/usr/share/omarchy/shell/plugins/emojis/emojis.json',
+assert(menu.emojiDataPaths(emojiExtensions[0], '/usr/share/omarchy')[0] === '/usr/share/omarchy/shell/plugins/emojis/emojis.json',
   '{omarchyPath} expands in the emoji dataset path')
+assert(menu.emojiDataPaths(emojiExtensions[0], '/usr/share/omarchy').length === 2,
+  'every readable dataset candidate is resolved in order')
+assert(menu.emojiFileList(['a', 'a', 'b']).join('|') === 'a|b', 'duplicate dataset candidates collapse')
+assert(menu.emojiFileList('one').join('|') === 'one', 'a single dataset path is still accepted')
+assert(menu.emojiFileList(undefined, ['fallback']).join('|') === 'fallback',
+  'an absent dataset falls back to the provider default')
+assert(menu.emojiFileList(Array.from({ length: 12 }, (_, i) => `p${i}`)).length === 8,
+  'dataset candidates are bounded')
+assert(menu.emojiDataPaths(menu.parseExtensions(JSON.stringify([{
+  schemaVersion: 1, id: 'mixed', mode: 'emoji', label: 'Emoji', prefixes: ['emoji'],
+  data: ['relative.json', '{omarchyPath}/ok.json', '{extensionDir}/../escape.json'],
+  command: ['true']
+}]))[0], '/usr/share/omarchy').join('|') === '/usr/share/omarchy/ok.json',
+  'unsafe dataset candidates are dropped without discarding the safe ones')
 const relativeDataExtension = menu.parseExtensions(JSON.stringify([{
   schemaVersion: 1, id: 'relative', mode: 'emoji', label: 'Emoji', prefixes: ['emoji'],
   data: 'emojis.json', command: ['true']
 }]))[0]
-assert(menu.emojiDataPath(relativeDataExtension, '/usr/share/omarchy') === '', 'relative emoji dataset paths are rejected')
+assert(menu.emojiDataPaths(relativeDataExtension, '/usr/share/omarchy').length === 0, 'relative emoji dataset paths are rejected')
 const escapingDataExtension = menu.parseExtensions(JSON.stringify([{
   schemaVersion: 1, id: 'escaping', mode: 'emoji', label: 'Emoji', prefixes: ['emoji'],
   data: '{extensionDir}/../../etc/passwd', command: ['true']
 }]))[0]
-assert(menu.emojiDataPath(escapingDataExtension, '/usr/share/omarchy') === '', 'emoji dataset paths cannot escape with ..')
-assert(menu.emojiDataPath(extensions[0], '/usr/share/omarchy') === '', 'non-emoji extensions have no dataset path')
+assert(menu.emojiDataPaths(escapingDataExtension, '/usr/share/omarchy').length === 0, 'emoji dataset paths cannot escape with ..')
+assert(menu.emojiDataPaths(extensions[0], '/usr/share/omarchy').length === 0, 'non-emoji extensions have no dataset path')
 
 const emojiData = menu.parseEmojiData(JSON.stringify([
   { e: '\u{1F600}', k: 'grinning face smile grinning happy' },
@@ -760,7 +797,7 @@ assert(emojiGroups.length === 2 && emojiGroups[0].label === 'Faces', 'emoji grou
 assert(menu.parseEmojiGroups('{bad').length === 0, 'malformed emoji group files are ignored')
 assert(menu.parseEmojiGroups('[{"label":"","start":"\u{1F600}"},{"label":"Ok"}]').length === 0,
   'emoji groups need both a label and a start glyph')
-assert(menu.emojiGroupsPath(emojiExtensions[0], '/usr/share/omarchy') === '',
+assert(menu.emojiGroupsPaths(emojiExtensions[0], '/usr/share/omarchy').length === 0,
   'an emoji extension without a groups file has no groups path')
 
 const groupedData = menu.parseEmojiData(JSON.stringify([
