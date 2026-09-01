@@ -160,6 +160,45 @@ elif mode == 'integer-overflow':
           }
           and catalog["capabilityConfig"] == {"files": {"includeGitIgnored": True}},
           "bounded JSONC loads core and capability configuration")
+    check(catalog["disabledCapabilities"] == [],
+          "no capability is disabled without being asked for")
+
+    # A separate home: the shared one above is also used by the catalog
+    # byte-limit check, which budgets for the envelope that config produces.
+    disable_home = base / "disable-home"
+    disable_config = disable_home / ".config" / "omarchy" / "omalaunch"
+    disable_config.mkdir(parents=True)
+    (disable_config / "config.jsonc").write_text(
+        '{"version": 1, "capabilities": {'
+        '"bundled": {"enabled": false},'
+        '"both": {"enabled": false, "provider": "either"},'
+        '"on": {"enabled": true},'
+        '"typo": {"enabled": "false"},'
+        '"empty": {}'
+        '}}')
+    disabled_catalog = run_loader(plugin_root, omarchy_root, disable_home, env)
+    check(disabled_catalog["disabledCapabilities"] == ["bundled", "both"],
+          "capabilities switched off are reported to the host")
+    check(disabled_catalog["omalaunchConfig"]["capabilities"] == {
+              "bundled": {"enabled": False},
+              "both": {"enabled": False, "provider": "either"},
+              "on": {"enabled": True},
+          },
+          "an enabled flag is recorded alongside any provider selection")
+    check(disabled_catalog["providerPreferences"] == {"both": "either"},
+          "a disabled capability still records its provider selection for when it is switched back on")
+    disable_messages = "\n".join(disabled_catalog["diagnostics"])
+    check("Ignored non-boolean enabled for capability 'typo'" in disable_messages,
+          "a non-boolean enabled is refused rather than treated as truthy")
+    check("Ignored invalid provider for capability 'typo'" not in disable_messages,
+          "one malformed key does not also complain about a key the user omitted")
+    check("Ignored invalid provider for capability 'empty'" in disable_messages,
+          "a capability with no recognized setting is diagnosed")
+    # The loader reports the user's choice; MenuModel is what drops the
+    # capability, so a disabled bundled extension still appears here.
+    check(any(item.get("id") == "bundled" for item in disabled_catalog["extensions"]),
+          "the loader reports disabled capabilities rather than filtering them itself")
+
     ids = [item.get("id") for item in catalog["extensions"]]
     messages = "\n".join(catalog["diagnostics"])
     check(ids == ["bundled", "static", "dynamic", "argument"],

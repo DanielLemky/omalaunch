@@ -172,16 +172,23 @@ Omalaunch reads the stock Omarchy menu and the standard user menu override:
 
 Favorites and usage data are stored in the user's state directory. Currency refreshes use `qalc` and respect a persistent cooldown to avoid unnecessary network requests.
 
-Omalaunch core settings live in the dedicated `~/.config/omarchy/omalaunch/config.jsonc` file. Select a preferred extension provider by capability:
+Omalaunch core settings live in the dedicated `~/.config/omarchy/omalaunch/config.jsonc` file. Select a preferred extension provider by capability, or turn a capability off:
 
 ```jsonc
 {
   "version": 1,
   "capabilities": {
     "files": { "provider": "omalaunch.files" },
+    "emoji": { "enabled": false },
   },
 }
 ```
+
+### Turning an extension off
+
+Bundled extensions — Calculator, Currency conversion, Emoji, Files, and Timezone — ship enabled and are not installed, so there is nothing to uninstall. Switch one off with `"enabled": false` on its capability. It then leaves no shortcut in **Extensions**, no prefix, and no search entry. Remove the key, or set it to true, to bring it back on the next launcher open; a `provider` selection saved alongside it is preserved either way.
+
+The capability names are `calculator`, `currency`, `emoji`, `files`, and `timezone`. External extensions can be switched off the same way, or removed entirely with `omarchy plugin remove`.
 
 Each capability has an independent configuration file. For example, include files ignored by Git in Files browsing and search with `extensions/files.jsonc`:
 
@@ -265,6 +272,13 @@ and disable the overlay plugin:
 
 ```bash
 omarchy plugin disable omarchy.emojis
+```
+
+If you would rather drop Omalaunch's grid and keep Omarchy's overlay, switch the
+capability off in `~/.config/omarchy/omalaunch/config.jsonc` instead:
+
+```jsonc
+{ "version": 1, "capabilities": { "emoji": { "enabled": false } } }
 ```
 
 Omalaunch's picker keeps working: it falls back to its bundled dataset, and the

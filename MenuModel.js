@@ -948,14 +948,39 @@ function lookupKey(value) {
   return "$" + String(value || "")
 }
 
-function resolveExtensions(extensions, providerPreferences, diagnostics, diagnosticState) {
+// A disabled capability is dropped before resolution rather than after, so it
+// leaves no shortcut, no prefix, and no provider to fall back to — a bundled
+// extension is always on disk, so this is the only way to remove one.
+function disabledCapabilitySet(disabledCapabilities) {
+  var disabled = ({})
+  var values = Array.isArray(disabledCapabilities) ? disabledCapabilities : []
+  for (var i = 0; i < values.length; i++) {
+    var capability = typeof values[i] === "string" ? values[i].trim() : ""
+    if (capability) disabled[lookupKey(capability)] = true
+  }
+  return disabled
+}
+
+function resolveExtensions(extensions, providerPreferences, diagnostics, diagnosticState, disabledCapabilities) {
   var selected = ({})
   var order = []
   var values = Array.isArray(extensions) ? extensions : []
   var preferences = providerPreferences && typeof providerPreferences === "object" ? providerPreferences : ({})
+  var disabled = disabledCapabilitySet(disabledCapabilities)
+  var reported = ({})
   for (var i = 0; i < values.length; i++) {
     var extension = values[i]
     var key = lookupKey(extension.capability)
+    if (disabled[key]) {
+      // One diagnostic per capability, not per provider of it.
+      if (!reported[key]) {
+        reported[key] = true
+        appendExtensionDiagnostic(diagnostics,
+          "Capability '" + extension.capability + "' is disabled in configuration; its extensions were not loaded",
+          diagnosticState)
+      }
+      continue
+    }
     var current = selected[key]
     if (!current) order.push(key)
     var preferredId = typeof preferences[extension.capability] === "string" ? preferences[extension.capability] : ""
@@ -970,6 +995,7 @@ function resolveExtensions(extensions, providerPreferences, diagnostics, diagnos
   }
   for (var capability in preferences) {
     if (!Object.prototype.hasOwnProperty.call(preferences, capability)) continue
+    if (disabled[lookupKey(capability)]) continue
     var requested = preferences[capability]
     var found = null
     for (var valueIndex = 0; valueIndex < values.length; valueIndex++)
@@ -1026,6 +1052,7 @@ function parseExtensionCatalog(text) {
     ? parsed.providerPreferences : ({})
   var capabilityConfig = parsed && typeof parsed.capabilityConfig === "object" && !Array.isArray(parsed.capabilityConfig)
     ? parsed.capabilityConfig : ({})
+  var disabledCapabilities = parsed && Array.isArray(parsed.disabledCapabilities) ? parsed.disabledCapabilities : []
   var extensions = []
   var ids = ({})
   if (values.length > MAX_EXTENSION_CATALOG_VALUES)
@@ -1051,7 +1078,7 @@ function parseExtensionCatalog(text) {
       appendExtensionDiagnostic(diagnostics, extension.id + " is missing: " + extension.missingRequires.join(", "), diagnosticState)
   }
 
-  var resolved = resolveExtensions(extensions, providerPreferences, diagnostics, diagnosticState)
+  var resolved = resolveExtensions(extensions, providerPreferences, diagnostics, diagnosticState, disabledCapabilities)
   var prefixes = ({})
   for (var j = 0; j < resolved.length; j++) {
     var current = resolved[j]
@@ -1957,6 +1984,7 @@ if (typeof module !== "undefined") {
     focusedPrefixMatch: focusedPrefixMatch,
     normalizeExtension: normalizeExtension,
     resolveExtensions: resolveExtensions,
+    disabledCapabilitySet: disabledCapabilitySet,
     parseExtensionCatalog: parseExtensionCatalog,
     parseExtensions: parseExtensions,
     matchesRules: matchesRules,

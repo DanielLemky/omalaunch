@@ -79,6 +79,9 @@ class CatalogBuilder:
         # are copied from the user-owned config file.
         self.omalaunch_config: dict[str, Any] = {}
         self.capability_config: dict[str, dict[str, Any]] = {}
+        # Capabilities the user has switched off. Bundled extensions are always
+        # present on disk, so this is the only way to remove one.
+        self.disabled_capabilities: list[str] = []
         # Reserve room for useful diagnostics. The final envelope still uses
         # the exact public catalog limit and trims diagnostics linearly.
         reserve = min(64 * 1024, max(64, limits.catalog_output_bytes // 4))
@@ -148,6 +151,7 @@ class CatalogBuilder:
                 "diagnostics": [],
                 "complete": complete,
                 "providerPreferences": self.provider_preferences,
+                "disabledCapabilities": self.disabled_capabilities,
                 "omalaunchConfig": self.omalaunch_config,
                 "capabilityConfig": self.capability_config,
             }
@@ -458,17 +462,40 @@ def load_user_configuration(home: Path, builder: CatalogBuilder, limits: Limits)
                 raise ValueError("capabilities must be an object")
             if len(capabilities) > MAX_CONFIG_CAPABILITIES:
                 builder.diagnostic(f"Configuration {main_path} has more than {MAX_CONFIG_CAPABILITIES} capabilities; trailing entries were ignored")
-            normalized_capabilities: dict[str, dict[str, str]] = {}
+            normalized_capabilities: dict[str, dict[str, Any]] = {}
             for capability, setting in list(capabilities.items())[:MAX_CONFIG_CAPABILITIES]:
                 if not isinstance(capability, str) or not capability or not isinstance(setting, dict):
                     builder.diagnostic(f"Ignored invalid capability selection in {main_path}: {capability!r}")
                     continue
-                provider = setting.get("provider")
-                if not isinstance(provider, str) or not provider:
+                normalized: dict[str, Any] = {}
+
+                # A capability may be switched off, given a provider, or both.
+                # Each key is reported only when it is actually present, so one
+                # mistake does not also complain about a key the user omitted.
+                if "enabled" in setting:
+                    enabled = setting["enabled"]
+                    # Strictly boolean: a truthy string would let a typo
+                    # silently disable a feature.
+                    if not isinstance(enabled, bool):
+                        builder.diagnostic(f"Ignored non-boolean enabled for capability {capability!r} in {main_path}")
+                    else:
+                        normalized["enabled"] = enabled
+                        if not enabled:
+                            builder.disabled_capabilities.append(capability)
+
+                if "provider" in setting:
+                    provider = setting["provider"]
+                    if not isinstance(provider, str) or not provider:
+                        builder.diagnostic(f"Ignored invalid provider for capability {capability!r} in {main_path}")
+                    else:
+                        builder.provider_preferences[capability] = provider
+                        normalized["provider"] = provider
+
+                if "enabled" not in setting and "provider" not in setting:
                     builder.diagnostic(f"Ignored invalid provider for capability {capability!r} in {main_path}")
-                    continue
-                builder.provider_preferences[capability] = provider
-                normalized_capabilities[capability] = {"provider": provider}
+
+                if normalized:
+                    normalized_capabilities[capability] = normalized
             builder.omalaunch_config = {
                 "version": 1,
                 "capabilities": normalized_capabilities,

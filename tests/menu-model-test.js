@@ -902,6 +902,44 @@ const configuredProviderCatalog = menu.parseExtensionCatalog(JSON.stringify({
 }))
 assert(configuredProviderCatalog.extensions[0].id === 'chosen-files' && configuredProviderCatalog.extensions[0].config.includeGitIgnored === true,
   'provider configuration selects an available id and capability configuration follows capability identity')
+// ---- disabling a capability ----
+
+const disabledCatalog = menu.parseExtensionCatalog(JSON.stringify({
+  extensions: [
+    { schemaVersion: 1, id: 'bundled-emoji', capability: 'emoji', mode: 'emoji', label: 'Emoji', prefixes: ['emoji'], command: ['true'], _bundled: true },
+    { schemaVersion: 1, id: 'external-emoji', capability: 'emoji', mode: 'emoji', label: 'Emoji', prefixes: ['emoji2'], command: ['true'] },
+    { schemaVersion: 1, id: 'keeper', capability: 'files', mode: 'files', label: 'Files', prefixes: ['files'], command: ['true'], _bundled: true }
+  ],
+  disabledCapabilities: ['emoji']
+}))
+assert(disabledCatalog.extensions.map(value => value.capability).join('|') === 'files',
+  'a disabled capability drops every provider of it, not just the selected one')
+assert(disabledCatalog.diagnostics.filter(value => value.indexOf("Capability 'emoji' is disabled") >= 0).length === 1,
+  'a disabled capability is diagnosed once, not once per provider')
+
+assert(menu.parseExtensionCatalog(JSON.stringify({
+  extensions: [{ schemaVersion: 1, id: 'keeper', capability: 'files', mode: 'files', label: 'Files', prefixes: ['files'], command: ['true'] }],
+  disabledCapabilities: ['emoji']
+})).extensions.length === 1, 'disabling a capability nothing provides changes nothing')
+
+// A provider selection for a capability that is switched off is a leftover, not
+// a misconfiguration, so it must not be reported as one.
+const disabledWithProvider = menu.parseExtensionCatalog(JSON.stringify({
+  extensions: [{ schemaVersion: 1, id: 'bundled-emoji', capability: 'emoji', mode: 'emoji', label: 'Emoji', prefixes: ['emoji'], command: ['true'], _bundled: true }],
+  providerPreferences: { emoji: 'gone.away' },
+  disabledCapabilities: ['emoji']
+}))
+assert(disabledWithProvider.extensions.length === 0
+  && !disabledWithProvider.diagnostics.some(value => value.indexOf('is missing; normal provider resolution') >= 0),
+  'a stale provider selection for a disabled capability is not reported as misconfigured')
+
+assert(menu.parseExtensionCatalog(JSON.stringify({
+  extensions: [{ schemaVersion: 1, id: 'bundled-emoji', capability: 'emoji', mode: 'emoji', label: 'Emoji', prefixes: ['emoji'], command: ['true'] }],
+  disabledCapabilities: 'emoji'
+})).extensions.length === 1, 'a non-array disabledCapabilities is ignored')
+assert(Object.keys(menu.disabledCapabilitySet(['  emoji  ', '', null, 42, 'files'])).length === 2,
+  'disabled capability names are trimmed and non-strings dropped')
+
 const missingProviderCatalog = menu.parseExtensionCatalog(JSON.stringify({
   extensions: [{ schemaVersion: 1, id: 'fallback', capability: 'files', mode: 'files', label: 'Fallback', prefixes: ['fallback'], command: ['true'] }],
   providerPreferences: { files: 'missing' }
