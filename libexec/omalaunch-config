@@ -103,14 +103,9 @@ def update_text(text: str, font_class: str) -> str:
         if top_level_keys.count(setting) > 1:
             raise ValueError(f"duplicate {setting} setting")
     text = remove_member(text, "menuItemFontSize")
+    text = remove_member(text, "menuItemFontClass")
     found, closing = members(text)
     encoded = json.dumps(font_class)
-    if "menuItemFontClass" in found:
-        start, _, _ = found["menuItemFontClass"]
-        token_list = list(tokens(text))
-        key_index = next(i for i, token in enumerate(token_list) if token[2] == start)
-        value_token = token_list[key_index + 2]
-        return text[:value_token[2]] + encoded + text[value_token[3]:]
     line_start = text.rfind("\n", 0, closing) + 1
     closing_indent = text[line_start:closing] if not text[line_start:closing].strip() else ""
     indent = "  "

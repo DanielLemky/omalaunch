@@ -47,6 +47,17 @@ with tempfile.TemporaryDirectory() as temporary:
     check(stat.S_IMODE(config.stat().st_mode) == 0o600, "configuration is private")
     check(stat.S_IMODE(config.with_name("config.jsonc.lock").stat().st_mode) == 0o600, "lock is private")
 
+for invalid_existing_value in ('{"bad":true}', '["bad"]'):
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary); config = root / ".config/omarchy/omalaunch/config.jsonc"
+        config.parent.mkdir(parents=True)
+        config.write_text('{"version":1,"menuItemFontClass":' + invalid_existing_value + ',"capabilities":{}}')
+        result = run(root, "title")
+        check(result.returncode == 0, result.stderr)
+        parsed = PARSE_JSONC(config.read_text())
+        check(parsed == {"version": 1, "menuItemFontClass": "title", "capabilities": {}},
+              f"complete {invalid_existing_value[0]} font-class value is replaced")
+
 with tempfile.TemporaryDirectory() as temporary:
     root = Path(temporary)
     result = run(root, "caption")
