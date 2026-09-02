@@ -140,6 +140,15 @@ Item {
   property var workflowContext: ({})
   property var workflowStack: []
   property bool dynamicMenuLoading: false
+  property bool documentLoading: false
+  property string documentError: ""
+  property int documentGeneration: 0
+  readonly property int documentTimeoutMs: 5000
+  readonly property int documentTerminationGraceMs: 500
+  readonly property int documentOutputBytes: 256 * 1024
+  readonly property bool documentActive: root.workflowActive && root.workflowNode
+    && root.workflowNode.kind === "document"
+  readonly property var activeDocument: root.documentActive ? root.workflowNode.document : null
   property var workflowConfirmNode: null
   property bool workflowConfirmOpen: false
   property int dynamicMenuGeneration: 0
@@ -229,6 +238,7 @@ Item {
   onOpenedChanged: if (!opened) {
     root.invalidateWorkflowAction("launcher closed")
     root.invalidateBackgroundAction("launcher closed")
+    root.invalidateDocument("launcher closed")
     root.invalidateDynamicMenu()
     root.invalidateExtensionQuery("launcher closed")
     deleteConfirmOpen = false
@@ -295,9 +305,14 @@ Item {
   property int layoutSerial: 0
   property int cardWidth: Math.min(root.dmenuActive
     ? Style.space(root.dmenuWidth)
-    : Style.space(root.imagePreviewActive ? 900 : 600), panel.width - Style.gapsOut * 2)
+    : Style.space(root.imagePreviewActive ? 900 : (root.documentActive ? 760 : 600)), panel.width - Style.gapsOut * 2)
   readonly property bool emptyRoot: !root.dmenuActive && root.activeMenu === "root" && !root.filterText && displayModel.count === 0
-  property int visibleRowsHeight: root.emptyRoot || root.workflowInputActive ? 0 : (root.dmenuActive ? dmenuRowListHeight(layoutSerial, displayModel.count, filterText) : rowListHeight(layoutSerial, displayModel.count, filterText, searchDivider))
+  property int visibleRowsHeight: root.emptyRoot || root.workflowInputActive ? 0
+    : (root.documentActive ? Math.min(Style.space(520), Math.max(Style.space(260), panel.height - panel.pinnedTop
+      - Style.gapsOut - root.contentMargin - root.actionBarBottomPadding - root.headerHeight
+      - root.actionBarHeight - root.contentSpacing * 2))
+    : (root.dmenuActive ? dmenuRowListHeight(layoutSerial, displayModel.count, filterText)
+      : rowListHeight(layoutSerial, displayModel.count, filterText, searchDivider)))
   readonly property bool workflowFilterMenuActive: root.workflowActive && root.workflowNode && root.workflowNode.kind === "menu"
   property int workflowHintHeight: (root.workflowInputActive || root.workflowFilterMenuActive)
     ? Math.max(Style.space(12), Math.round(Style.space(18) * menuItemScale)) : 0
@@ -313,8 +328,9 @@ Item {
     fileBrowserActive: root.fileBrowserActive,
     directoryPickerActive: root.directoryPickerActive,
     actionPanelActive: root.actionPanelActive,
-    canContextActions: root.selectedWorkflowHasActions || (root.selectedDynamicSearchEntry
-      && root.selectedDynamicSearchEntry.node.actions.length > 0),
+    canContextActions: root.selectedWorkflowHasActions
+      || (root.documentActive && root.activeDocument && root.activeDocument.actions.length > 0)
+      || (root.selectedDynamicSearchEntry && root.selectedDynamicSearchEntry.node.actions.length > 0),
     focusedExtension: !!root.focusedExtension,
     hasSelection: displayModel.count > 0 && root.cursorActive,
     canStar: (!root.dmenuActive && !root.workflowActive && !root.actionPanelActive) || !!root.selectedWorkflowStarAction || !!root.selectedDynamicStarAction
@@ -794,6 +810,7 @@ Item {
     var retainCurrentRows = retainRows === true && root.workflowActive && root.workflowNode
     root.invalidateExtensionQuery("entered dynamic menu")
     root.invalidateWorkflowAction("entered dynamic menu")
+    root.invalidateDocument("entered dynamic menu")
     root.focusedExtension = null
     root.leaveFileBrowser(false)
     root.workflowActive = true
@@ -822,6 +839,49 @@ Item {
     if (!retainCurrentRows) root.rebuildDisplay()
   }
 
+  function invalidateDocument(reason) {
+    if (documentProc.stopping) return
+    documentTimeout.stop()
+    root.documentGeneration += 1
+    if (documentProc.running) {
+      documentProc.stopping = true
+      documentProc.stopGeneration = documentProc.generation
+      documentKillTimer.generation = documentProc.stopGeneration
+      documentProc.running = false
+      documentKillTimer.restart()
+    }
+    root.documentLoading = false
+  }
+
+  function enterDocument(node) {
+    if (!node || !node.documentCommand || node.documentCommand.length === 0
+        || !root.workflowExtension || documentProc.running || documentProc.stopping) return
+    root.invalidateWorkflowAction("entered document")
+    if (root.workflowNode)
+      root.workflowStack = root.workflowStack.concat([{ node: root.workflowNode, context: root.workflowContext }])
+    root.workflowContext = root.workflowNodeContext(node, root.workflowContext)
+    root.workflowNode = { id: node.id + ".document", kind: "document", label: node.label,
+      document: null }
+    root.filterText = ""
+    root.selectedIndex = 0
+    root.cursorActive = false
+    root.documentError = ""
+    root.documentLoading = true
+    root.documentGeneration += 1
+    documentProc.generation = root.documentGeneration
+    documentProc.extensionCapability = root.workflowExtension.capability
+    documentProc.documentNodeId = root.workflowNode.id
+    documentProc.collected = ""
+    documentProc.stderrBytes = 0
+    documentProc.outputOverflow = false
+    documentProc.command = node.documentCommand.map(function(argument) {
+      return MenuModel.workflowInterpolate(argument, root.workflowValues())
+    })
+    documentProc.running = true
+    documentTimeout.restart()
+    root.rebuildDisplay()
+  }
+
   function enterWorkflow(extension) {
     if (!extension || !extension.available || extension.mode !== "workflow") return
     root.invalidateExtensionQuery("entered workflow")
@@ -847,6 +907,7 @@ Item {
 
   function leaveWorkflow() {
     root.invalidateWorkflowAction("left workflow")
+    root.invalidateDocument("left workflow")
     root.invalidateDynamicMenu()
     root.workflowConfirmOpen = false
     root.workflowConfirmNode = null
@@ -859,6 +920,8 @@ Item {
     root.workflowNode = null
     root.workflowContext = ({})
     root.workflowStack = []
+    root.documentLoading = false
+    root.documentError = ""
     root.dynamicMenuLoading = false
     root.workflowConfirmOpen = false
     root.workflowConfirmNode = null
@@ -887,6 +950,7 @@ Item {
   function workflowBack() {
     if (!root.workflowActive) return false
     root.invalidateWorkflowAction("workflow navigation changed")
+    root.invalidateDocument("workflow navigation changed")
     root.resetFileIndex()
     root.fileBrowserActive = false
     root.directoryPickerActive = false
@@ -905,7 +969,8 @@ Item {
     if (!root.workflowNode || root.workflowNode.kind !== "menu") return
     var child = root.workflowNode.items[index]
     if (!child) return
-    if (child.kind === "action") root.dispatchWorkflowNode(child, "")
+    if (child.documentCommand && child.documentCommand.length > 0) root.enterDocument(child)
+    else if (child.kind === "action") root.dispatchWorkflowNode(child, "")
     else if (child.kind === "confirm") {
       root.workflowConfirmNode = child
       root.workflowConfirmOpen = true
@@ -925,8 +990,17 @@ Item {
   }
 
   function openWorkflowActions() {
-    if (!root.workflowActive || root.fileBrowserActive || !root.workflowNode || root.workflowNode.kind !== "menu"
-        || !root.cursorActive || root.selectedIndex < 0 || root.selectedIndex >= root.workflowNode.items.length) return
+    if (!root.workflowActive || root.fileBrowserActive || !root.workflowNode) return
+    if (root.documentActive) {
+      var documentActions = root.activeDocument && root.activeDocument.actions ? root.activeDocument.actions : []
+      if (documentActions.length === 0) return
+      root.showWorkflowNode({ id: root.workflowNode.id + ".actions", kind: "menu",
+        label: root.activeDocument.title, description: "Actions", items: documentActions },
+        root.workflowContext, true)
+      return
+    }
+    if (root.workflowNode.kind !== "menu" || !root.cursorActive || root.selectedIndex < 0
+        || root.selectedIndex >= root.workflowNode.items.length) return
     var child = root.selectedWorkflowNode
     if (!child || !child.actions || child.actions.length === 0) return
     root.showWorkflowNode({ id: child.id + ".actions", kind: "menu", label: child.label,
@@ -2301,7 +2375,9 @@ Item {
       root.workflowStack = []
       root.workflowNode = { id: "root", kind: "menu", label: dynamicSearchExtension.label,
         description: dynamicSearchExtension.description, items: dynamicSearchEntry.items }
-      if (dynamicSearchEntry.node.kind === "action") root.dispatchWorkflowNode(dynamicSearchEntry.node, "")
+      if (dynamicSearchEntry.node.documentCommand && dynamicSearchEntry.node.documentCommand.length > 0)
+        root.enterDocument(dynamicSearchEntry.node)
+      else if (dynamicSearchEntry.node.kind === "action") root.dispatchWorkflowNode(dynamicSearchEntry.node, "")
       else if (dynamicSearchEntry.node.kind === "confirm") {
         root.workflowConfirmNode = dynamicSearchEntry.node
         root.workflowConfirmOpen = true
@@ -2492,6 +2568,7 @@ Item {
   function resetForOpen() {
     if (root.dmenuActive && root.requestActive) root.finishRequest(null)
     root.invalidateWorkflowAction("new launcher session")
+    root.invalidateDocument("new launcher session")
     root.invalidateDynamicMenu()
     root.routePendingForMenuSources = false
     root.resetFileIndex()
@@ -2514,6 +2591,7 @@ Item {
 
   function cancel() {
     root.invalidateWorkflowAction("launcher canceled")
+    root.invalidateDocument("launcher canceled")
     root.invalidateDynamicMenu()
     root.workflowConfirmOpen = false
     root.workflowConfirmNode = null
@@ -3077,6 +3155,89 @@ Item {
         root.dynamicMenuSearchCandidate = []
         root.rebuildDisplay()
       }
+    }
+  }
+
+  Timer {
+    id: documentTimeout
+    interval: root.documentTimeoutMs
+    repeat: false
+    onTriggered: {
+      if (!documentProc.running) return
+      root.documentError = "Detail provider timed out"
+      root.invalidateDocument("detail provider timed out")
+      root.rebuildDisplay()
+    }
+  }
+
+  Timer {
+    id: documentKillTimer
+    interval: root.documentTerminationGraceMs
+    repeat: false
+    property int generation: 0
+    onTriggered: {
+      if (!documentProc.stopping || generation !== documentProc.stopGeneration
+          || generation !== documentProc.generation) return
+      console.warn("Omalaunch: detail provider ignored SIGTERM; sending SIGKILL to direct child")
+      documentProc.signal(9)
+    }
+  }
+
+  Process {
+    id: documentProc
+    property int generation: 0
+    property int stopGeneration: 0
+    property bool stopping: false
+    property string extensionCapability: ""
+    property string documentNodeId: ""
+    property string collected: ""
+    property int stderrBytes: 0
+    property bool outputOverflow: false
+    stdout: SplitParser {
+      onRead: function(data) {
+        if (documentProc.outputOverflow) return
+        var next = documentProc.collected + data + "\n"
+        if (next.length > root.documentOutputBytes) {
+          documentProc.outputOverflow = true
+          documentProc.collected = ""
+          root.documentError = "Detail provider output was too large"
+          root.invalidateDocument("detail output exceeded limit")
+          root.rebuildDisplay()
+        } else documentProc.collected = next
+      }
+    }
+    stderr: SplitParser {
+      onRead: function(data) {
+        if (documentProc.outputOverflow) return
+        documentProc.stderrBytes += data.length + 1
+        if (documentProc.stderrBytes > root.documentOutputBytes) {
+          documentProc.outputOverflow = true
+          root.documentError = "Detail provider error output was too large"
+          root.invalidateDocument("detail error output exceeded limit")
+          root.rebuildDisplay()
+        }
+      }
+    }
+    onExited: function(exitCode) {
+      documentTimeout.stop()
+      documentKillTimer.stop()
+      documentProc.stopGeneration = 0
+      documentProc.stopping = false
+      if (documentProc.generation !== root.documentGeneration || !root.documentActive
+          || !root.workflowExtension
+          || root.workflowExtension.capability !== documentProc.extensionCapability
+          || root.workflowNode.id !== documentProc.documentNodeId) return
+      root.documentLoading = false
+      var document = exitCode === 0 && !documentProc.outputOverflow
+        ? MenuModel.normalizeDetailDocument(documentProc.collected) : null
+      if (!document) {
+        root.documentError = "Could not load details"
+        console.warn("Omalaunch: detail provider returned invalid or failed output")
+      } else {
+        root.documentError = ""
+        root.workflowNode = Object.assign({}, root.workflowNode, { document: document })
+      }
+      root.rebuildDisplay()
     }
   }
 
@@ -3683,7 +3844,16 @@ Item {
               && !(event.modifiers & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier))) {
             root.select(event.key === Qt.Key_Backtab || (event.modifiers & Qt.ShiftModifier) ? -1 : 1)
             event.accepted = true
-          } else if (Util.editsFilter(event, root.filterText)) {
+          } else if (root.documentActive && (event.key === Qt.Key_Up || event.key === Qt.Key_PageUp)) {
+            documentFlick.contentY = Math.max(documentFlick.originY,
+              documentFlick.contentY - (event.key === Qt.Key_PageUp ? documentFlick.height * 0.8 : Style.space(48)))
+            event.accepted = true
+          } else if (root.documentActive && (event.key === Qt.Key_Down || event.key === Qt.Key_PageDown)) {
+            documentFlick.contentY = Math.min(Math.max(documentFlick.originY,
+              documentFlick.originY + documentFlick.contentHeight - documentFlick.height),
+              documentFlick.contentY + (event.key === Qt.Key_PageDown ? documentFlick.height * 0.8 : Style.space(48)))
+            event.accepted = true
+          } else if (!root.documentActive && Util.editsFilter(event, root.filterText)) {
             root.setFilter(Util.editedFilter(event, root.filterText))
             event.accepted = true
           } else if ((event.key === Qt.Key_Backspace || event.key === Qt.Key_Left) && !root.filterText) {
@@ -3722,7 +3892,7 @@ Item {
             } else if (root.cursorActive) root.activateIndex(root.selectedIndex)
             else if (displayModel.count > 0) root.cursorActive = true
             event.accepted = true
-          } else if (event.text && event.text.length === 1 && event.text.charCodeAt(0) >= 32 && event.text.charCodeAt(0) !== 127 && (event.modifiers === Qt.NoModifier || event.modifiers === Qt.ShiftModifier)) {
+          } else if (!root.documentActive && event.text && event.text.length === 1 && event.text.charCodeAt(0) >= 32 && event.text.charCodeAt(0) !== 127 && (event.modifiers === Qt.NoModifier || event.modifiers === Qt.ShiftModifier)) {
             root.setFilter(root.filterText + event.text)
             event.accepted = true
           }
@@ -3821,6 +3991,8 @@ Item {
               ? ("Actions for " + ((root.actionPanelFile && root.actionPanelFile.name) || "file"))
               : root.fileBrowserActive
                 ? (root.fileBrowserPath + (root.filterText ? "  ›  " + root.filterText : ""))
+              : root.documentActive
+                ? (root.activeDocument ? root.activeDocument.title : root.workflowNode.label)
               : root.workflowActive
                 ? root.filterText
               : (root.filterText || (root.dmenuActive ? (root.dmenuPrompt + "…") : ((root.item(root.activeMenu) ? (root.item(root.activeMenu).title || root.item(root.activeMenu).label) : "Go") + "…")))
@@ -3867,6 +4039,7 @@ Item {
 
           ListView {
             id: resultList
+            visible: !root.documentActive
             anchors.fill: parent
             anchors.rightMargin: root.imagePreviewActive ? root.previewPaneWidth + root.contentSpacing : 0
             model: displayModel
@@ -4080,6 +4253,127 @@ Item {
                   root.cursorActive = true
                   root.selectedIndex = row.index
                   root.activateIndex(row.index, true)
+                }
+              }
+            }
+          }
+
+          Flickable {
+            id: documentFlick
+            visible: root.documentActive
+            anchors.fill: parent
+            clip: true
+            contentWidth: width
+            contentHeight: documentColumn.height
+            boundsBehavior: Flickable.StopAtBounds
+
+            Column {
+              id: documentColumn
+              width: documentFlick.width
+              spacing: Style.space(16)
+
+              Text {
+                width: parent.width
+                visible: root.documentLoading || !!root.documentError
+                text: root.documentLoading ? "Loading details…" : root.documentError
+                color: root.foreground
+                opacity: 0.65
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.body
+                wrapMode: Text.Wrap
+              }
+
+              Text {
+                width: parent.width
+                visible: root.activeDocument && root.activeDocument.subtitle.length > 0
+                text: root.activeDocument ? root.activeDocument.subtitle : ""
+                color: root.foreground
+                opacity: 0.62
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.body
+                wrapMode: Text.Wrap
+              }
+
+              Rectangle {
+                visible: root.activeDocument && root.activeDocument.status.length > 0
+                width: documentStatus.implicitWidth + Style.space(16)
+                height: documentStatus.implicitHeight + Style.space(8)
+                radius: height / 2
+                color: Util.alpha(root.foreground, 0.09)
+
+                Text {
+                  id: documentStatus
+                  anchors.centerIn: parent
+                  text: root.activeDocument ? root.activeDocument.status : ""
+                  color: root.foreground
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.bodySmall
+                  font.weight: Font.Medium
+                }
+              }
+
+              Column {
+                width: parent.width
+                visible: root.activeDocument && root.activeDocument.fields.length > 0
+                spacing: Style.space(8)
+
+                Repeater {
+                  model: root.activeDocument ? root.activeDocument.fields : []
+
+                  Row {
+                    required property var modelData
+                    width: documentColumn.width
+                    spacing: Style.space(14)
+
+                    Text {
+                      width: Math.min(Style.space(150), parent.width * 0.3)
+                      text: modelData.label
+                      color: root.foreground
+                      opacity: 0.56
+                      font.family: root.fontFamily
+                      font.pixelSize: Style.font.bodySmall
+                      wrapMode: Text.Wrap
+                    }
+                    Text {
+                      width: parent.width - x
+                      text: modelData.value
+                      color: root.foreground
+                      font.family: root.fontFamily
+                      font.pixelSize: Style.font.body
+                      wrapMode: Text.Wrap
+                    }
+                  }
+                }
+              }
+
+              Repeater {
+                model: root.activeDocument ? root.activeDocument.sections : []
+
+                Column {
+                  required property var modelData
+                  width: documentColumn.width
+                  spacing: Style.space(7)
+
+                  Text {
+                    width: parent.width
+                    visible: modelData.heading.length > 0
+                    text: modelData.heading
+                    color: root.foreground
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.heading
+                    font.weight: Font.Medium
+                    wrapMode: Text.Wrap
+                  }
+                  Text {
+                    width: parent.width
+                    text: modelData.text
+                    color: root.foreground
+                    opacity: 0.88
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.body
+                    wrapMode: Text.Wrap
+                    textFormat: Text.PlainText
+                  }
                 }
               }
             }

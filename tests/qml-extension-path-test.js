@@ -95,6 +95,27 @@ assert(qml.includes('id: dynamicMenuKillTimer')
   && qml.includes('dynamicMenuProc.signal(9)')
   && qml.includes('root.invalidateDynamicMenu()'),
 'dynamic menu timeout and output cancellation escalate SIGTERM only for the same provider child')
+const documentProviderBody = qml.slice(qml.indexOf('id: documentProc'), qml.indexOf('id: dynamicMenuTimeout'))
+assert(qml.includes('function enterDocument(node)')
+  && qml.includes('MenuModel.normalizeDetailDocument(documentProc.collected)')
+  && qml.includes('root.enterDocument(dynamicSearchEntry.node)'),
+'on-demand documents open from extension menus and global dynamic search')
+assert(documentProviderBody.includes('root.documentOutputBytes')
+  && documentProviderBody.includes('documentProc.generation !== root.documentGeneration')
+  && documentProviderBody.includes('root.workflowNode.id !== documentProc.documentNodeId')
+  && qml.includes('id: documentTimeout'),
+'detail providers have output, timeout, capability, row, and stale-generation bounds')
+assert(qml.includes('id: documentKillTimer')
+  && qml.includes('generation !== documentProc.stopGeneration')
+  && qml.includes('generation !== documentProc.generation')
+  && qml.includes('documentProc.signal(9)')
+  && qml.includes('root.invalidateDocument("workflow navigation changed")'),
+'detail cancellation escalates only for the same direct child and Back invalidates the request')
+assert(qml.includes('textFormat: Text.PlainText')
+  && qml.includes('model: root.activeDocument ? root.activeDocument.fields : []')
+  && qml.includes('model: root.activeDocument ? root.activeDocument.sections : []'),
+'detail documents render host-owned structured plain text')
+
 assert(qml.includes('id: dynamicMenuSearchKillTimer')
   && qml.includes('generation !== dynamicMenuSearchProc.stopGeneration')
   && qml.includes('generation !== dynamicMenuSearchProc.generation')

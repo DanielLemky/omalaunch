@@ -210,7 +210,45 @@ A basic row runs `command` directly:
 }
 ```
 
-Every row requires a unique, nonempty `id`, a nonempty `label`, and a nonempty argument-array `command`. Presentation strings and command arguments are bounded. Omalaunch does not invoke a shell and does not expand command text. `{extensionDir}` and form `{input}` values are substituted as complete literal arguments. Set `closeOnSuccess: true` for launch/open rows that should close Omalaunch after the command exits successfully. Other successful menu commands reload the provider so mutations appear immediately.
+Every row requires a unique, nonempty `id` and a nonempty `label`. An ordinary row also requires a nonempty argument-array `command`. Presentation strings and command arguments are bounded. Omalaunch does not invoke a shell and does not expand command text. `{extensionDir}` and form `{input}` values are substituted as complete literal arguments. Set `closeOnSuccess: true` for launch/open rows that should close Omalaunch after the command exits successfully. Other successful menu commands reload the provider so mutations appear immediately.
+
+A row can open an on-demand, host-rendered detail document instead of running a primary action:
+
+```json
+{
+  "id": "issue:142",
+  "label": "Fix authentication timeout",
+  "description": "example/project #142",
+  "context": { "repository": "example/project", "number": "142" },
+  "document": {
+    "command": ["{extensionDir}/bin/provider", "issue", "{repository}", "{number}"]
+  }
+}
+```
+
+The detail command uses the row context and writes one structured JSON object:
+
+```json
+{
+  "title": "Fix authentication timeout",
+  "subtitle": "example/project #142",
+  "status": "Open",
+  "fields": [
+    { "label": "Author", "value": "octocat" },
+    { "label": "Updated", "value": "2 hours ago" }
+  ],
+  "sections": [
+    { "heading": "Description", "text": "Users are signed out during a slow token refresh." }
+  ],
+  "actions": [
+    { "id": "open", "label": "Open on GitHub", "command": ["xdg-open", "https://github.com/example/project/issues/142"], "closeOnSuccess": true }
+  ]
+}
+```
+
+`title` is required. `subtitle` and `status` are optional. A document accepts at most 32 label/value fields, 16 plain-text sections, and 16 host-rendered actions. The complete normalized document text is limited to 64 KiB. HTML, Markdown, images, and extension QML are not accepted or interpreted. Ctrl+K opens the document actions. Escape returns to the source list.
+
+Omalaunch runs the detail provider only after activation. It receives no stdin, has a five-second timeout, and has a 256 KiB limit on each output stream. Leaving the document, closing the launcher, replacing its session, or changing its provider invalidates the request. Cancellation sends SIGTERM and then sends SIGKILL to the same direct child after a 500 ms grace period. Detail commands run directly as argument arrays and support the row context plus `{extensionDir}` placeholders.
 
 A row can ask for confirmation before dispatch:
 

@@ -326,6 +326,44 @@ assert(menu.normalizeDynamicMenuOutput('{bad') === null, 'malformed dynamic menu
 assert(menu.normalizeDynamicMenuOutput({ items: Array.from({ length: 101 }, (_, i) => ({ id: String(i), label: String(i), command: ['true'] })) }) === null, 'dynamic menu row counts are bounded')
 assert(menu.normalizeDynamicMenuOutput([{ id: 'bad', label: 'Bad', command: 'true' }]) === null, 'dynamic menu commands must be argument arrays')
 assert(menu.normalizeDynamicMenuOutput([{ id: 'same', label: 'One', command: ['true'] }, { id: 'same', label: 'Two', command: ['true'] }]) === null, 'dynamic menu row ids are unique')
+const documentMenu = menu.normalizeDynamicMenuOutput([{ id: 'inspect', label: 'Inspect', document: { command: ['helper', 'detail', '{extensionDir}'] } }])
+assert(documentMenu && documentMenu.items[0].kind === 'action'
+  && documentMenu.items[0].command.length === 0
+  && documentMenu.items[0].documentCommand.join(',') === 'helper,detail,{extensionDir}',
+'dynamic action rows can request a document without a primary command')
+assert(menu.normalizeDynamicMenuOutput([{ id: 'bad-document', label: 'Bad', document: { command: 'helper detail' } }]) === null,
+'dynamic document commands must be argument arrays')
+assert(menu.normalizeDynamicMenuOutput([{ id: 'bad-document-extra', label: 'Bad', document: { command: ['true'], format: 'html' } }]) === null,
+'dynamic document requests reject unsupported fields')
+assert(menu.normalizeDynamicMenuOutput([{ id: 'bad-document-command', label: 'Bad', document: { command: Array(33).fill('x') } }]) === null,
+'dynamic document commands have a bounded argument count')
+
+const detailDocument = menu.normalizeDetailDocument({
+  title: 'Build report', subtitle: 'main', status: 'Ready',
+  fields: [{ label: 'Commit', value: '<b>literal</b>' }],
+  sections: [{ heading: 'Summary', text: 'No rich text is evaluated.' }],
+  actions: [
+    { id: 'copy', label: 'Copy', command: ['wl-copy', '--', '<b>literal</b>'] },
+    { id: 'remove', label: 'Remove', confirm: 'Remove it?', command: ['helper', 'remove'] },
+    { id: 'rename', label: 'Rename', input: { prompt: 'Name', command: ['helper', 'rename', '{input}'] } }
+  ]
+})
+assert(detailDocument && detailDocument.title === 'Build report'
+  && detailDocument.fields[0].value === '<b>literal</b>'
+  && detailDocument.actions.map(action => action.kind).join(',') === 'action,confirm,input',
+'structured detail documents retain bounded plain text and host-normalized actions')
+assert(menu.normalizeDetailDocument({ subtitle: 'Missing title' }) === null, 'detail documents require a title')
+assert(menu.normalizeDetailDocument({ title: 'Report', fields: Array.from({ length: 33 }, (_, i) => ({ label: String(i), value: 'x' })) }) === null,
+'detail document field counts are bounded')
+assert(menu.normalizeDetailDocument({ title: 'Report', sections: Array.from({ length: 17 }, (_, i) => ({ heading: String(i), text: 'x' })) }) === null,
+'detail document section counts are bounded')
+assert(menu.normalizeDetailDocument({ title: 'Report', actions: Array.from({ length: 17 }, (_, i) => ({ id: String(i), label: String(i), command: ['true'] })) }) === null,
+'detail document action counts are bounded')
+assert(menu.normalizeDetailDocument({ title: 'Report', sections: [
+  { heading: 'One', text: 'x'.repeat(32768) }, { heading: 'Two', text: 'x'.repeat(32768) }
+] }) === null, 'detail documents have a 64 KiB aggregate text limit')
+assert(menu.normalizeDetailDocument({ title: 'Report', format: 'html' }) === null,
+'detail documents reject unsupported rich-content fields')
 
 assert(workflowExtensions.length === 1 && workflowExtensions[0].mode === 'workflow', 'workflow extension menus are parsed')
 assert(menu.extensionRootActivation(workflowExtensions[0]) === 'workflow', 'workflow extension roots enter their host-rendered workflow')
