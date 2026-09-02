@@ -1,6 +1,6 @@
 # Bundled provider storage
 
-This document defines the version-1 storage contract for `omalaunch.apps`, `omalaunch.files`, `omalaunch.quicklinks`, and `omalaunch.extensions`.
+This document defines the version-1 storage contract for `omalaunch.apps`, `omalaunch.files`, `omalaunch.quicklinks`, `omalaunch.web-search`, and `omalaunch.extensions`.
 
 ## Ownership and locations
 
@@ -66,6 +66,23 @@ Extensions has no version-1 user configuration file. Exact provider-ID favorites
 ```
 
 The array defaults to `[]` and has at most 256 unique values. A replacement provider is not starred unless its own ID is present.
+
+## Web Search
+
+The optional `omalaunch.web-search.jsonc` configuration defines 1 to 32 search engines. A missing file supplies Google, DuckDuckGo, Bing, Brave Search, and Ecosia. Each engine has a stable `id`, display `name`, and absolute HTTP(S) `url` template with exactly one `{query}` placeholder:
+
+```jsonc
+{
+  "version": 1,
+  // Rank engines from successful searches.
+  "rankByUsage": true,
+  "engines": [
+    { "id": "google", "name": "Google", "url": "https://www.google.com/search?q={query}" },
+  ],
+}
+```
+
+The launcher percent-encodes the query before it replaces the placeholder. `rankByUsage` defaults to `true` and learns one rank for each engine from successful searches. Set it to `false` to disable learned ranking for the complete extension. Every engine remains available in the Web Search menu. Its action adds it to or removes it from global search and changes only `globalSearchExcludedEngines` in machine-managed state. Ctrl+S and the contextual Star action add its ID to `starredEngines`, which puts the engine on the launcher's starting view. A star implies global search: starring adds the engine to global search, and removing it from global search removes its star. Thus, UI changes do not rewrite the user JSONC file. New configured engines appear in global search unless their ID is in that state list. The menu sorts global engines first and excluded engines last, with each group sorted by name.
 
 ## Quicklinks
 

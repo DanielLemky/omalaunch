@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "omalaunch.web-search",
+  "capability": "web-search",
+  "mode": "menu",
+  "label": "Web Search",
+  "prefixes": ["web", "search"],
+  "icon": "󰖟",
+  "description": "Search the web",
+  "globalSearch": true,
+  "requires": ["python", "xdg-open"],
+  "command": ["{extensionDir}/web-search", "menu"]
+}

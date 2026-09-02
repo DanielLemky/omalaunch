@@ -1,0 +1,29 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+import json, os, sys, urllib.parse
+from pathlib import Path
+ROOT=Path(__file__).resolve().parents[2]; sys.path.insert(0,str(ROOT/"libexec"))
+import provider_config as pc
+PROVIDER="omalaunch.web-search"; EXE="{extensionDir}/../../libexec/provider-config"
+def fail(error): print("web-search: "+str(error),file=sys.stderr); raise SystemExit(1)
+def menu(home:Path)->None:
+    data=pc.load(PROVIDER,home); excluded=set(data["globalSearchExcludedEngines"]); starred=set(data["starredEngines"]); items=[]
+    engines=sorted(data["engines"],key=lambda engine:(engine["id"] in excluded,engine["name"].casefold()))
+    for engine in engines:
+        global_search=engine["id"] not in excluded
+        toggle={"id":"toggle-global-search","label":"Remove from global search" if global_search else "Add to global search","description":"Keep this engine in the Web Search menu","icon":"󰅖" if global_search else "󰐕","command":[EXE,"toggle-global-search",PROVIDER,engine["id"]]}
+        star={"id":"toggle-star","label":"Unstar" if engine["id"] in starred else "Star","icon":"★","command":[EXE,"toggle-star",PROVIDER,engine["id"]]}
+        items.append({"id":"search-"+engine["id"],"label":engine["name"],"description":"Global search" if global_search else "Web Search menu","icon":"󰍉","aliases":[engine["id"]],"globalSearch":global_search,"starred":engine["id"] in starred,"starAction":"toggle-star","trailingIcon":"󰖟" if global_search else "","input":{"prompt":"Search "+engine["name"],"maxLength":4096,"command":[str(Path(__file__).resolve()),"open",engine["id"],"{input}"],"closeOnSuccess":True},"actions":[star,toggle]})
+    print(json.dumps({"items":items},ensure_ascii=False))
+def open_search(home:Path,ident:str,query:str)->None:
+    engine=next((item for item in pc.load_config(PROVIDER,home)["engines"] if item["id"]==ident),None)
+    if engine is None: fail("unknown search engine id")
+    url=engine["url"].replace("{query}",urllib.parse.quote_plus(query))
+    os.execvp("xdg-open",["xdg-open",url])
+def main():
+    home=Path(os.environ.get("HOME",str(Path.home())))
+    if len(sys.argv)==1 or sys.argv[1]=="menu": menu(home)
+    elif len(sys.argv)==4 and sys.argv[1]=="open": open_search(home,sys.argv[2],sys.argv[3])
+    else: fail("invalid command")
+try: main()
+except (OSError,UnicodeError,ValueError,json.JSONDecodeError) as error: fail(error)

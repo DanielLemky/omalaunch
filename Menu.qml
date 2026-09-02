@@ -1694,6 +1694,7 @@ Item {
         kind: "dmenu",
         icon: option.icon,
         iconFont: "",
+        trailingIcon: "",
         appIcon: "",
         appId: "",
         label: option.label,
@@ -1740,6 +1741,7 @@ Item {
           var workflowItem = root.normalizeItem("workflow.node." + workflowIndex, {
             icon: workflowChild.icon,
             iconFont: workflowChild.iconFont,
+            trailingIcon: workflowChild.trailingIcon,
             label: root.workflowText(workflowChild.label),
             description: root.workflowText(workflowChild.description),
             aliases: workflowChild.aliases,
@@ -3756,6 +3758,7 @@ Item {
               required property string kind
               required property string icon
               required property string iconFont
+              required property string trailingIcon
               required property string appIcon
               required property string appId
               required property string label
@@ -3877,11 +3880,21 @@ Item {
 
               Row {
                 id: trail
-                width: Style.space(14)
+                width: row.trailingIcon.length > 0 ? Style.space(34) : Style.space(14)
                 anchors.right: parent.right
                 anchors.rightMargin: root.rowReservedBorderRight + Style.space(8)
                 y: contentColumn.y + labelText.y + (labelText.height - height) / 2
-                spacing: 0
+                spacing: Style.space(6)
+
+                Text {
+                  visible: row.trailingIcon.length > 0
+                  text: row.trailingIcon
+                  color: row.hasCursor ? root.selectedText : root.foreground
+                  opacity: 0.7
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.body
+                  anchors.verticalCenter: parent.verticalCenter
+                }
 
                 Text {
                   visible: false

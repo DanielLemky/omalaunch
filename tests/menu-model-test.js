@@ -300,10 +300,17 @@ assert(menu.dynamicMenuUsageItemId(dynamicMenuExtensions[0], dynamicMenu.items[0
 assert(menu.dynamicMenuUsageItemId(dynamicMenuExtensions[0], dynamicMenu.items[1]) === '', 'Add and other non-launch mutations do not publish usage')
 assert(menu.dynamicMenuUsageItemId({ ...dynamicMenuExtensions[0], id: 'omalaunch.quicklinks', config: { rankByUsage: false } }, dynamicMenu.items[0]) === '', 'bundled Quicklinks can disable usage ranking')
 assert(menu.dynamicMenuUsageItemId({ ...dynamicMenuExtensions[0], id: 'replacement.quicklinks', config: { rankByUsage: false } }, dynamicMenu.items[0]) === menu.dynamicMenuItemId('replacement.quicklinks', 'open'), 'bundled Quicklinks configuration does not control replacement providers or leak usage identity')
+assert(menu.dynamicMenuUsageItemId({ ...dynamicMenuExtensions[0], id: 'omalaunch.web-search', config: { rankByUsage: false } }, dynamicMenu.items[0]) === '', 'bundled Web Search can disable usage ranking for all engines')
 assert(menu.dynamicMenuSearchIdentity('extension.menu:not-json') === null, 'malformed dynamic search identities are rejected')
 assert(dynamicMenu.items[0].actions[2].refreshExtensions, 'mutation actions can request an extension refresh')
 assert(dynamicMenu.items[1].kind === 'input' && dynamicMenu.items[1].prompt === 'URL', 'rows can open bounded host input forms')
 assert(menu.workflowCommand(dynamicMenu.items[1], 'https://literal.test/?q=$(bad)', {}).slice(-1)[0] === 'https://literal.test/?q=$(bad)', 'dynamic input is substituted as one literal argument')
+const scopedSearch = menu.normalizeDynamicMenuOutput([
+  { id: 'global', label: 'Google', globalSearch: true, trailingIcon: 'globe', command: ['search', 'google'] },
+  { id: 'menu-only', label: 'Bing', globalSearch: false, command: ['search', 'bing'] }
+])
+assert(menu.dynamicMenuSearchItems(dynamicMenuExtensions[0], scopedSearch).length === 1, 'dynamic rows can remain in their extension menu without entering global search')
+assert(menu.dynamicMenuSearchItems(dynamicMenuExtensions[0], scopedSearch)[0].trailingIcon === 'globe', 'dynamic rows retain bounded trailing icons')
 const capturedMenu = menu.normalizeDynamicMenuOutput([{ id: 'add', label: 'Add', input: {
   prompt: 'Target', capture: 'target', next: { id: 'name', kind: 'input', label: 'Name', command: ['links', 'add', '{target}', '{input}'] }
 } }])
