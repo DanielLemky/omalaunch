@@ -337,6 +337,33 @@ assert(menu.normalizeDynamicMenuOutput([{ id: 'bad-document-extra', label: 'Bad'
 'dynamic document requests reject unsupported fields')
 assert(menu.normalizeDynamicMenuOutput([{ id: 'bad-document-command', label: 'Bad', document: { command: Array(33).fill('x') } }]) === null,
 'dynamic document commands have a bounded argument count')
+const submenuMenu = menu.normalizeDynamicMenuOutput([{
+  id: 'projects', label: 'Projects', submenu: { command: ['helper', 'projects', '{extensionDir}'] }
+}])
+assert(submenuMenu && submenuMenu.items[0].kind === 'action'
+  && submenuMenu.items[0].command.length === 0
+  && submenuMenu.items[0].submenuCommand.join(',') === 'helper,projects,{extensionDir}',
+'dynamic action rows can request an on-demand submenu without a primary command')
+const nestedSubmenu = menu.normalizeDynamicMenuOutput(JSON.stringify({ items: [
+  { id: 'open', label: 'Open project', command: ['xdg-open', '/tmp/project'] },
+  { id: 'recent', label: 'Recent', submenu: { command: ['helper', 'recent'] } }
+] }))
+assert(nestedSubmenu && nestedSubmenu.items.length === 2
+  && nestedSubmenu.items[1].submenuCommand.join(',') === 'helper,recent',
+'submenu provider output uses the same dynamic menu normalization recursively')
+assert(menu.normalizeDynamicMenuOutput([{ id: 'bad-submenu', label: 'Bad', submenu: ['helper'] }]) === null,
+'dynamic submenu requests must be strict command objects')
+assert(menu.normalizeDynamicMenuOutput([{ id: 'bad-submenu-extra', label: 'Bad', submenu: { command: ['true'], format: 'menu' } }]) === null,
+'dynamic submenu requests reject unsupported fields')
+assert(menu.normalizeDynamicMenuOutput([{ id: 'bad-submenu-empty', label: 'Bad', submenu: { command: [] } }]) === null,
+'dynamic submenu commands require at least one argument')
+assert(menu.normalizeDynamicMenuOutput([{ id: 'bad-submenu-argument', label: 'Bad', submenu: { command: ['helper', ''] } }]) === null,
+'dynamic submenu command arguments must be nonempty strings')
+assert(menu.normalizeDynamicMenuOutput([{ id: 'bad-submenu-command', label: 'Bad', submenu: { command: Array(33).fill('x') } }]) === null,
+'dynamic submenu commands have a bounded argument count')
+assert(menu.normalizeDynamicMenuOutput([{
+  id: 'ambiguous', label: 'Ambiguous', document: { command: ['detail'] }, submenu: { command: ['children'] }
+}]) === null, 'dynamic rows cannot declare both a document and a submenu')
 
 const detailDocument = menu.normalizeDetailDocument({
   title: 'Build report', subtitle: 'main', status: 'Ready',

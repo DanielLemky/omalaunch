@@ -628,6 +628,7 @@ function normalizeWorkflowNode(raw, state, depth) {
     command: stringArray(raw.command),
     emptyCommand: stringArray(raw.emptyCommand),
     documentCommand: normalizeDocumentCommand(raw.document),
+    submenuCommand: normalizeDocumentCommand(raw.submenu),
     refreshExtensions: raw.refreshExtensions === true,
     closeOnSuccess: raw.closeOnSuccess === true,
     nextBackSteps: 0,
@@ -639,6 +640,8 @@ function normalizeWorkflowNode(raw, state, depth) {
   var maxLength = finiteExtensionNumber(raw.maxLength, MAX_WORKFLOW_TEXT)
   var nextBackSteps = finiteExtensionNumber(raw.nextBackSteps, 0)
   if (maxLength === null || nextBackSteps === null || node.documentCommand === null
+      || node.submenuCommand === null
+      || (raw.document !== undefined && raw.submenu !== undefined)
       || (raw.capture !== undefined && !node.capture)
       || (raw.starred !== undefined && typeof raw.starred !== "boolean")
       || (raw.globalSearch !== undefined && typeof raw.globalSearch !== "boolean")) return null
@@ -660,7 +663,8 @@ function normalizeWorkflowNode(raw, state, depth) {
   }
   if (kind === "directoryPicker" && !node.next) return null
   if (kind === "input" && node.command.length === 0 && !node.next) return null
-  if (kind === "action" && node.command.length === 0 && node.documentCommand.length === 0) return null
+  if (kind === "action" && node.command.length === 0 && node.documentCommand.length === 0
+      && node.submenuCommand.length === 0) return null
   if (kind === "confirm" && node.command.length === 0) return null
   if (Array.isArray(raw.actions) && kind !== "menu") {
     if (raw.actions.length > 16) return null

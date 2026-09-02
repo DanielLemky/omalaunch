@@ -135,11 +135,17 @@ Item {
   property string fileBrowserPath: ""
   property var fileEntries: []
   property bool workflowActive: false
+  readonly property int workflowMaxDepth: 8
   property var workflowExtension: null
   property var workflowNode: null
   property var workflowContext: ({})
   property var workflowStack: []
   property bool dynamicMenuLoading: false
+  property bool submenuLoading: false
+  property int submenuGeneration: 0
+  readonly property int submenuTimeoutMs: 5000
+  readonly property int submenuTerminationGraceMs: 500
+  readonly property int submenuOutputBytes: 256 * 1024
   property bool documentLoading: false
   property string documentError: ""
   property int documentGeneration: 0
@@ -238,6 +244,7 @@ Item {
   onOpenedChanged: if (!opened) {
     root.invalidateWorkflowAction("launcher closed")
     root.invalidateBackgroundAction("launcher closed")
+    root.invalidateSubmenu("launcher closed")
     root.invalidateDocument("launcher closed")
     root.invalidateDynamicMenu()
     root.invalidateExtensionQuery("launcher closed")
@@ -839,6 +846,50 @@ Item {
     if (!retainCurrentRows) root.rebuildDisplay()
   }
 
+  function invalidateSubmenu(reason) {
+    if (submenuProc.stopping) return
+    submenuTimeout.stop()
+    root.submenuGeneration += 1
+    if (submenuProc.running) {
+      submenuProc.stopping = true
+      submenuProc.stopGeneration = submenuProc.generation
+      submenuKillTimer.generation = submenuProc.stopGeneration
+      submenuProc.running = false
+      submenuKillTimer.restart()
+    }
+    root.submenuLoading = false
+  }
+
+  function enterSubmenu(node) {
+    if (!node || !node.submenuCommand || node.submenuCommand.length === 0
+        || !root.workflowExtension || root.workflowStack.length >= root.workflowMaxDepth
+        || submenuProc.running || submenuProc.stopping) return
+    root.invalidateWorkflowAction("entered submenu")
+    root.invalidateDocument("entered submenu")
+    if (root.workflowNode)
+      root.workflowStack = root.workflowStack.concat([{ node: root.workflowNode, context: root.workflowContext }])
+    root.workflowContext = root.workflowNodeContext(node, root.workflowContext)
+    root.workflowNode = { id: node.id + ".submenu", kind: "menu", label: node.label,
+      description: "Loading…", items: [] }
+    root.filterText = ""
+    root.selectedIndex = 0
+    root.cursorActive = false
+    root.submenuLoading = true
+    root.submenuGeneration += 1
+    submenuProc.generation = root.submenuGeneration
+    submenuProc.extensionCapability = root.workflowExtension.capability
+    submenuProc.submenuNodeId = root.workflowNode.id
+    submenuProc.collected = ""
+    submenuProc.stderrBytes = 0
+    submenuProc.outputOverflow = false
+    submenuProc.command = node.submenuCommand.map(function(argument) {
+      return MenuModel.workflowInterpolate(argument, root.workflowValues())
+    })
+    submenuProc.running = true
+    submenuTimeout.restart()
+    root.rebuildDisplay()
+  }
+
   function invalidateDocument(reason) {
     if (documentProc.stopping) return
     documentTimeout.stop()
@@ -855,7 +906,8 @@ Item {
 
   function enterDocument(node) {
     if (!node || !node.documentCommand || node.documentCommand.length === 0
-        || !root.workflowExtension || documentProc.running || documentProc.stopping) return
+        || !root.workflowExtension || root.workflowStack.length >= root.workflowMaxDepth
+        || documentProc.running || documentProc.stopping) return
     root.invalidateWorkflowAction("entered document")
     if (root.workflowNode)
       root.workflowStack = root.workflowStack.concat([{ node: root.workflowNode, context: root.workflowContext }])
@@ -907,6 +959,7 @@ Item {
 
   function leaveWorkflow() {
     root.invalidateWorkflowAction("left workflow")
+    root.invalidateSubmenu("left workflow")
     root.invalidateDocument("left workflow")
     root.invalidateDynamicMenu()
     root.workflowConfirmOpen = false
@@ -920,6 +973,7 @@ Item {
     root.workflowNode = null
     root.workflowContext = ({})
     root.workflowStack = []
+    root.submenuLoading = false
     root.documentLoading = false
     root.documentError = ""
     root.dynamicMenuLoading = false
@@ -950,6 +1004,7 @@ Item {
   function workflowBack() {
     if (!root.workflowActive) return false
     root.invalidateWorkflowAction("workflow navigation changed")
+    root.invalidateSubmenu("workflow navigation changed")
     root.invalidateDocument("workflow navigation changed")
     root.resetFileIndex()
     root.fileBrowserActive = false
@@ -969,7 +1024,8 @@ Item {
     if (!root.workflowNode || root.workflowNode.kind !== "menu") return
     var child = root.workflowNode.items[index]
     if (!child) return
-    if (child.documentCommand && child.documentCommand.length > 0) root.enterDocument(child)
+    if (child.submenuCommand && child.submenuCommand.length > 0) root.enterSubmenu(child)
+    else if (child.documentCommand && child.documentCommand.length > 0) root.enterDocument(child)
     else if (child.kind === "action") root.dispatchWorkflowNode(child, "")
     else if (child.kind === "confirm") {
       root.workflowConfirmNode = child
@@ -2375,7 +2431,9 @@ Item {
       root.workflowStack = []
       root.workflowNode = { id: "root", kind: "menu", label: dynamicSearchExtension.label,
         description: dynamicSearchExtension.description, items: dynamicSearchEntry.items }
-      if (dynamicSearchEntry.node.documentCommand && dynamicSearchEntry.node.documentCommand.length > 0)
+      if (dynamicSearchEntry.node.submenuCommand && dynamicSearchEntry.node.submenuCommand.length > 0)
+        root.enterSubmenu(dynamicSearchEntry.node)
+      else if (dynamicSearchEntry.node.documentCommand && dynamicSearchEntry.node.documentCommand.length > 0)
         root.enterDocument(dynamicSearchEntry.node)
       else if (dynamicSearchEntry.node.kind === "action") root.dispatchWorkflowNode(dynamicSearchEntry.node, "")
       else if (dynamicSearchEntry.node.kind === "confirm") {
@@ -2568,6 +2626,7 @@ Item {
   function resetForOpen() {
     if (root.dmenuActive && root.requestActive) root.finishRequest(null)
     root.invalidateWorkflowAction("new launcher session")
+    root.invalidateSubmenu("new launcher session")
     root.invalidateDocument("new launcher session")
     root.invalidateDynamicMenu()
     root.routePendingForMenuSources = false
@@ -2591,6 +2650,7 @@ Item {
 
   function cancel() {
     root.invalidateWorkflowAction("launcher canceled")
+    root.invalidateSubmenu("launcher canceled")
     root.invalidateDocument("launcher canceled")
     root.invalidateDynamicMenu()
     root.workflowConfirmOpen = false
@@ -3155,6 +3215,94 @@ Item {
         root.dynamicMenuSearchCandidate = []
         root.rebuildDisplay()
       }
+    }
+  }
+
+  Timer {
+    id: submenuTimeout
+    interval: root.submenuTimeoutMs
+    repeat: false
+    onTriggered: {
+      if (!submenuProc.running) return
+      console.warn("Omalaunch: submenu provider timed out after " + interval + "ms")
+      root.invalidateSubmenu("submenu provider timed out")
+      if (root.workflowNode) root.workflowNode = Object.assign({}, root.workflowNode,
+        { description: "Provider timed out", items: [] })
+      root.rebuildDisplay()
+    }
+  }
+
+  Timer {
+    id: submenuKillTimer
+    interval: root.submenuTerminationGraceMs
+    repeat: false
+    property int generation: 0
+    onTriggered: {
+      if (!submenuProc.stopping || generation !== submenuProc.stopGeneration
+          || generation !== submenuProc.generation) return
+      console.warn("Omalaunch: submenu provider ignored SIGTERM; sending SIGKILL to direct child")
+      submenuProc.signal(9)
+    }
+  }
+
+  Process {
+    id: submenuProc
+    property int generation: 0
+    property int stopGeneration: 0
+    property bool stopping: false
+    property string extensionCapability: ""
+    property string submenuNodeId: ""
+    property string collected: ""
+    property int stderrBytes: 0
+    property bool outputOverflow: false
+    stdout: SplitParser {
+      onRead: function(data) {
+        if (submenuProc.outputOverflow) return
+        var next = submenuProc.collected + data + "\n"
+        if (next.length > root.submenuOutputBytes) {
+          submenuProc.outputOverflow = true
+          submenuProc.collected = ""
+          root.invalidateSubmenu("submenu output exceeded limit")
+          if (root.workflowNode) root.workflowNode = Object.assign({}, root.workflowNode,
+            { description: "Provider output was too large", items: [] })
+          root.rebuildDisplay()
+        } else submenuProc.collected = next
+      }
+    }
+    stderr: SplitParser {
+      onRead: function(data) {
+        if (submenuProc.outputOverflow) return
+        submenuProc.stderrBytes += data.length + 1
+        if (submenuProc.stderrBytes > root.submenuOutputBytes) {
+          submenuProc.outputOverflow = true
+          root.invalidateSubmenu("submenu error output exceeded limit")
+          if (root.workflowNode) root.workflowNode = Object.assign({}, root.workflowNode,
+            { description: "Provider error output was too large", items: [] })
+          root.rebuildDisplay()
+        }
+      }
+    }
+    onExited: function(exitCode) {
+      submenuTimeout.stop()
+      submenuKillTimer.stop()
+      submenuProc.stopGeneration = 0
+      submenuProc.stopping = false
+      if (submenuProc.generation !== root.submenuGeneration || !root.workflowActive
+          || !root.workflowExtension
+          || root.workflowExtension.capability !== submenuProc.extensionCapability
+          || !root.workflowNode || root.workflowNode.id !== submenuProc.submenuNodeId) return
+      root.submenuLoading = false
+      var workflow = exitCode === 0 && !submenuProc.outputOverflow
+        ? MenuModel.normalizeDynamicMenuOutput(submenuProc.collected) : null
+      if (!workflow) {
+        console.warn("Omalaunch: submenu provider returned invalid or failed output")
+        root.workflowNode = Object.assign({}, root.workflowNode,
+          { description: "Provider failed", items: [] })
+      } else root.workflowNode = Object.assign({}, root.workflowNode,
+        { description: "", items: workflow.items })
+      root.selectedIndex = 0
+      root.cursorActive = workflow && workflow.items.length > 0
+      root.rebuildDisplay()
     }
   }
 
@@ -4479,7 +4627,9 @@ Item {
             Text {
               text: root.focusedExtension
                 ? "Start typing"
-                : (root.filterText ? "No matches for “" + root.filterText + "”" : "Nothing here yet")
+                : (root.filterText ? "No matches for “" + root.filterText + "”"
+                  : (root.workflowActive && root.workflowNode && root.workflowNode.description
+                    ? root.workflowNode.description : "Nothing here yet"))
               color: root.foreground
               opacity: 0.7
               font.family: root.fontFamily

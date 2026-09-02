@@ -95,6 +95,25 @@ assert(qml.includes('id: dynamicMenuKillTimer')
   && qml.includes('dynamicMenuProc.signal(9)')
   && qml.includes('root.invalidateDynamicMenu()'),
 'dynamic menu timeout and output cancellation escalate SIGTERM only for the same provider child')
+const submenuProviderBody = qml.slice(qml.indexOf('id: submenuProc'), qml.indexOf('id: documentTimeout'))
+assert(qml.includes('function enterSubmenu(node)')
+  && qml.includes('MenuModel.normalizeDynamicMenuOutput(submenuProc.collected)')
+  && qml.includes('root.enterSubmenu(dynamicSearchEntry.node)'),
+'on-demand submenus open from extension menus and global dynamic search')
+assert(submenuProviderBody.includes('root.submenuOutputBytes')
+  && submenuProviderBody.includes('submenuProc.generation !== root.submenuGeneration')
+  && submenuProviderBody.includes('root.workflowNode.id !== submenuProc.submenuNodeId')
+  && qml.includes('id: submenuTimeout'),
+'submenu providers have output, timeout, capability, row, and stale-generation bounds')
+assert(qml.includes('id: submenuKillTimer')
+  && qml.includes('generation !== submenuProc.stopGeneration')
+  && qml.includes('generation !== submenuProc.generation')
+  && qml.includes('submenuProc.signal(9)')
+  && qml.includes('root.invalidateSubmenu("workflow navigation changed")'),
+'submenu cancellation escalates only for the same direct child and Back invalidates the request')
+assert(qml.includes('root.workflowStack.length >= root.workflowMaxDepth'),
+'on-demand document and submenu navigation has a host depth bound')
+
 const documentProviderBody = qml.slice(qml.indexOf('id: documentProc'), qml.indexOf('id: dynamicMenuTimeout'))
 assert(qml.includes('function enterDocument(node)')
   && qml.includes('MenuModel.normalizeDetailDocument(documentProc.collected)')
