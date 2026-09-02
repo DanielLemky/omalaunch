@@ -150,7 +150,7 @@ elif mode == 'integer-overflow':
 
     config_root = home / ".config" / "omarchy" / "omalaunch"
     (config_root / "extensions").mkdir(parents=True)
-    (config_root / "config.jsonc").write_text('{\n// selection\n"version": 1, "capabilities": {"files": {"provider": "chosen",},},\n}')
+    (config_root / "config.jsonc").write_text('{\n// selection\n"version": 1, "menuItemFontClass": "title", "menuItemFontSize": 14, "capabilities": {"files": {"provider": "chosen",},},\n}')
     (config_root / "extensions" / "omalaunch.files.jsonc").write_text('{"version": 1, "includeGitIgnored": true,}')
 
     catalog = run_loader(plugin_root, omarchy_root, home, env)
@@ -158,6 +158,8 @@ elif mode == 'integer-overflow':
           and catalog["omalaunchConfig"] == {
               "version": 1,
               "capabilities": {"files": {"provider": "chosen"}},
+              "menuItemFontClass": "title",
+              "menuItemFontSize": 14,
           }
           and catalog["providerConfig"]["omalaunch.files"] == {"version": 1, "includeGitIgnored": True, "favorites": []},
           "bounded JSONC loads core and provider configuration")
@@ -167,6 +169,28 @@ elif mode == 'integer-overflow':
           "bundled, static, and successful dynamic definitions coexist")
     check(not marker.exists() and next(item for item in catalog["extensions"] if item.get("id") == "argument")["label"] == hostile_argument,
           "provider arguments are passed literally without shell interpretation")
+
+    for boundary in (8, 24):
+        (config_root / "config.jsonc").write_text(json.dumps({"version": 1, "menuItemFontSize": boundary}))
+        boundary_catalog = run_loader(plugin_root, omarchy_root, home, env)
+        check(boundary_catalog["omalaunchConfig"].get("menuItemFontSize") == boundary,
+              f"core menu font size boundary {boundary} is accepted")
+    for invalid_size in (7, 25, True, 12.5):
+        (config_root / "config.jsonc").write_text(json.dumps({
+            "version": 1,
+            "menuItemFontSize": invalid_size,
+            "capabilities": {"files": {"provider": "chosen"}},
+        }))
+        invalid_font_catalog = run_loader(plugin_root, omarchy_root, home, env)
+        check(invalid_font_catalog["omalaunchConfig"] == {}
+              and invalid_font_catalog["providerPreferences"] == {}
+              and "menuItemFontSize must be an integer from 8 to 24" in "\n".join(invalid_font_catalog["diagnostics"]),
+              f"invalid core menu font size {invalid_size!r} is rejected atomically")
+    (config_root / "config.jsonc").write_text('{"version":1,"menuItemFontClass":"large"}')
+    invalid_font_class_catalog = run_loader(plugin_root, omarchy_root, home, env)
+    check(invalid_font_class_catalog["omalaunchConfig"] == {}
+          and "menuItemFontClass must be a supported Style.font class" in "\n".join(invalid_font_class_catalog["diagnostics"]),
+          "invalid core menu font classes are rejected")
     check("emitted invalid JSON" in messages, "malformed provider output produces a diagnostic")
     check("exited with code 7" in messages and "provider setup failed" in messages,
           "provider failures include exit status and bounded stderr")

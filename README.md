@@ -160,11 +160,17 @@ Omalaunch core settings live in the dedicated `~/.config/omarchy/omalaunch/confi
 ```jsonc
 {
   "version": 1,
+  // Theme class for primary menu item text.
+  "menuItemFontClass": "title",
+  // Optional explicit override. Valid range: 8–24 pixels.
+  // "menuItemFontSize": 15,
   "capabilities": {
     "files": { "provider": "omalaunch.files" },
   },
 }
 ```
+
+`menuItemFontClass` accepts `caption`, `bodySmall`, `body`, `subtitle`, `title`, `heading`, `display`, or `displayLarge`. It defaults to `title`. If `menuItemFontSize` is set, its explicit pixel size takes priority over the theme class.
 
 Bundled provider settings use provider-ID JSONC files under the configuration directory. Interactive data uses provider-ID JSON state under `${XDG_STATE_HOME:-~/.local/state}`. Replacement providers do not inherit either namespace. See [PROVIDER-CONFIGURATION.md](PROVIDER-CONFIGURATION.md) for the separate version-1 schemas and migration rules. Quicklinks does not import external or unreleased data.
 
