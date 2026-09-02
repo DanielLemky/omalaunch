@@ -1471,8 +1471,6 @@ function fileFavoriteItem(itemId) {
   return normalizeItem(id, {
     label: fileFavoriteLabel(favorite.path),
     description: favorite.path,
-    // Make each path component searchable without changing the visible path.
-    aliases: [favorite.path.replace(/[\/._-]+/g, " ")],
     action: favorite.path
   })
 }
@@ -1480,14 +1478,23 @@ function fileFavoriteItem(itemId) {
 function matchesFileFavoriteQuery(entry, query) {
   if (!entry) return false
   var prepared = query && typeof query === "object" ? query : prepareSearchQuery(query)
-  var aliases = Array.isArray(entry.aliases) ? entry.aliases : []
-  // Deliberately exclude the canonical id: it contains implementation details
-  // such as the extension capability (`files`) and path type (`directory`).
-  var searchText = [entry.label].concat(aliases).join(" ").toLowerCase()
+  if (prepared.terms.length === 0) return false
+
+  // Match the visible label normally, but only match path tokens from their
+  // beginning. This prevents a short query such as `fi` from matching every
+  // favorite below `/home/quantumfire` while retaining useful path lookup.
+  var label = String(entry.label || "").toLowerCase()
+  var pathTokens = String(entry.description || "").toLowerCase().split(/[\/._\s-]+/)
   for (var i = 0; i < prepared.terms.length; i++) {
-    if (prepared.terms[i] && searchText.indexOf(prepared.terms[i]) < 0) return false
+    var term = prepared.terms[i]
+    if (!term || label.indexOf(term) >= 0) continue
+    var pathMatch = false
+    for (var tokenIndex = 0; tokenIndex < pathTokens.length; tokenIndex++) {
+      if (pathTokens[tokenIndex].indexOf(term) === 0) { pathMatch = true; break }
+    }
+    if (!pathMatch) return false
   }
-  return prepared.terms.length > 0
+  return true
 }
 
 function displayRow(items, itemOrder, checkedResults, entry, detail, score, section, metadata) {
