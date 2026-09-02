@@ -130,6 +130,8 @@ assert(qml.includes('id: documentKillTimer')
   && qml.includes('documentProc.signal(9)')
   && qml.includes('root.invalidateDocument("workflow navigation changed")'),
 'detail cancellation escalates only for the same direct child and Back invalidates the request')
+assert(qml.includes('readonly property bool emptyRoot: !root.dmenuActive && !root.workflowActive'),
+'detail documents do not collapse into the empty root-menu layout')
 assert(qml.includes('textFormat: Text.PlainText')
   && qml.includes('model: root.activeDocument ? root.activeDocument.fields : []')
   && qml.includes('model: root.activeDocument ? root.activeDocument.sections : []'),

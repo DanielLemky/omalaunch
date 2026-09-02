@@ -313,7 +313,8 @@ Item {
   property int cardWidth: Math.min(root.dmenuActive
     ? Style.space(root.dmenuWidth)
     : Style.space(root.imagePreviewActive ? 900 : (root.documentActive ? 760 : 600)), panel.width - Style.gapsOut * 2)
-  readonly property bool emptyRoot: !root.dmenuActive && root.activeMenu === "root" && !root.filterText && displayModel.count === 0
+  readonly property bool emptyRoot: !root.dmenuActive && !root.workflowActive
+    && root.activeMenu === "root" && !root.filterText && displayModel.count === 0
   property int visibleRowsHeight: root.emptyRoot || root.workflowInputActive ? 0
     : (root.documentActive ? Math.min(Style.space(520), Math.max(Style.space(260), panel.height - panel.pinnedTop
       - Style.gapsOut - root.contentMargin - root.actionBarBottomPadding - root.headerHeight
