@@ -164,6 +164,7 @@ Item {
   property int fileScanSerial: 0
   readonly property string fileIndexHelper: root.pluginPath + "/extensions/files/file-index.py"
   readonly property string extensionLoaderHelper: root.pluginPath + "/libexec/load-extensions.py"
+  readonly property string configHelper: root.pluginPath + "/libexec/omalaunch-config"
   readonly property string fileIndexInstanceId: Date.now() + "-" + Math.floor(Math.random() * 1000000000)
   readonly property string fileIndexPathPrefix: Quickshell.env("XDG_RUNTIME_DIR")
     ? Quickshell.env("XDG_RUNTIME_DIR") + "/omalaunch-file-index-" + root.fileIndexInstanceId
@@ -177,6 +178,7 @@ Item {
   property string fileCopyFeedbackPath: ""
   property string fileCopyFeedback: ""
   property bool actionPanelActive: false
+  property string settingsFeedback: ""
   property var actionPanelFile: null
   readonly property var selectedFileRow: root.fileBrowserActive && !root.actionPanelActive && root.cursorActive
     && root.selectedIndex >= 0 && root.selectedIndex < displayModel.count
@@ -1414,14 +1416,48 @@ Item {
       label: "Extensions",
       title: "Extensions"
     })
+    nextItems.settings = root.normalizeItem("settings", {
+      icon: "󰒓",
+      label: "Omalaunch Settings",
+      title: "Omalaunch Settings"
+    })
+    nextItems["settings.font-size"] = root.normalizeItem("settings.font-size", {
+      parent: "settings",
+      kind: "menu",
+      icon: "󰛖",
+      label: "Font Size",
+      title: "Font Size"
+    })
+    var fontOptions = [
+      ["compact", "Compact", "bodySmall"],
+      ["small", "Small", "body"],
+      ["default", "Default", "title"],
+      ["large", "Large", "heading"],
+      ["extra-large", "Extra Large", "display"]
+    ]
+    for (var optionIndex = 0; optionIndex < fontOptions.length; optionIndex++) {
+      var option = fontOptions[optionIndex]
+      nextItems["settings.font-size." + option[0]] = root.normalizeItem("settings.font-size." + option[0], {
+        parent: "settings.font-size",
+        kind: "action",
+        icon: "·",
+        label: option[1],
+        description: option[2],
+        action: option[2]
+      })
+    }
     for (var id in nextItems) {
-      if (id === "root" || id === "omarchy" || id === "extensions") continue
+      if (id === "root" || id === "omarchy" || id === "extensions" || id === "settings") continue
       if (nextItems[id].parent === "root") nextItems[id] = Object.assign({}, nextItems[id], { parent: "omarchy" })
     }
-    var nextOrder = mergedMenu.itemOrder.filter(function(id) { return id !== "omarchy" && id !== "extensions" })
+    var nextOrder = mergedMenu.itemOrder.filter(function(id) {
+      return id !== "omarchy" && id !== "extensions" && id !== "settings"
+    })
     var rootIndex = nextOrder.indexOf("root")
     var insertAt = rootIndex >= 0 ? rootIndex + 1 : 0
-    nextOrder.splice(insertAt, 0, "omarchy", "extensions")
+    nextOrder.splice(insertAt, 0, "omarchy", "extensions", "settings", "settings.font-size")
+    for (var fontOptionIndex = 0; fontOptionIndex < fontOptions.length; fontOptionIndex++)
+      nextOrder.splice(insertAt + 4 + fontOptionIndex, 0, "settings.font-size." + fontOptions[fontOptionIndex][0])
     root.items = nextItems
     root.itemOrder = nextOrder
     root.rebuildItemMetadata()
@@ -1804,12 +1840,13 @@ Item {
     if (query) {
       var diagnosticRows = []
       var preparedQuery = MenuModel.prepareSearchQuery(query)
-      var liveResult = root.extensionQuery === root.effectiveExtensionQuery() ? root.extensionResult : ""
+      var settingsSearchScoped = root.settingsPageActive()
+      var liveResult = !settingsSearchScoped && root.extensionQuery === root.effectiveExtensionQuery() ? root.extensionResult : ""
       for (var i = 0; !root.focusedExtension && i < root.itemOrder.length; i++) {
         var entry = root.item(root.itemOrder[i])
         if (!entry || entry.id === "root") continue
         if (MenuModel.isSearchExcluded(root.items, entry.id, root.searchExcludedRoots, root.itemMetadata)) continue
-        if (!root.isDescendantOf(entry.id, active)) continue
+        if (settingsSearchScoped ? entry.parent !== active : !root.isDescendantOf(entry.id, active)) continue
         if (!root.matchesQuery(entry, preparedQuery)) continue
 
         var detail = root.parentPathFor(entry.id)
@@ -1888,7 +1925,8 @@ Item {
         }
       }
 
-      var activeExtensionCatalog = root.focusedExtension ? [root.focusedExtension] : root.extensions
+      var activeExtensionCatalog = settingsSearchScoped ? []
+        : (root.focusedExtension ? [root.focusedExtension] : root.extensions)
       // A focused prefix extension has a hidden global prefix and one literal
       // prompt action. It must not rediscover its own root/suggestion rows.
       var focusedPrefix = MenuModel.focusedPrefixMatch(root.focusedExtension, query)
@@ -1950,7 +1988,7 @@ Item {
         else diagnosticRows.push(extensionRow)
       }
 
-      if (root.unavailableResultExtension) {
+      if (!settingsSearchScoped && root.unavailableResultExtension) {
         var unavailableDetail = MenuModel.unavailableExtensionDetail(root.unavailableResultExtension)
         var unavailableItem = root.normalizeItem("extension.unavailable." + root.unavailableResultExtension.id, {
           icon: root.unavailableResultExtension.icon,
@@ -2144,6 +2182,10 @@ Item {
     revealCursor()
   }
 
+  function settingsPageActive() {
+    return root.activeMenu === "settings" || root.activeMenu.indexOf("settings.") === 0
+  }
+
   function setFilter(nextFilter) {
     if (root.actionPanelActive) return
     if (root.workflowActive && root.workflowNode && root.workflowNode.kind === "input")
@@ -2159,9 +2201,30 @@ Item {
       root.scheduleFileScan()
       return
     }
-    if (!root.dmenuActive && root.filterText.trim()) root.loadProvidersForSearch()
+    if (!root.dmenuActive && root.filterText.trim() && !root.settingsPageActive()) root.loadProvidersForSearch()
     root.rebuildDisplay()
-    root.scheduleExtensionQuery()
+    if (root.settingsPageActive()) root.invalidateExtensionQuery("settings search is locally scoped")
+    else root.scheduleExtensionQuery()
+  }
+
+  function openSettings() {
+    root.resetForOpen()
+    root.openRoute("settings")
+  }
+
+  function isFontSizeSetting(id) {
+    return String(id || "").indexOf("settings.font-size.") === 0
+  }
+
+  function setMenuItemFontClass(fontClass) {
+    root.settingsFeedback = "Saving…"
+    if (settingsProc.running) {
+      settingsProc.queuedFontClass = fontClass
+      return
+    }
+    settingsProc.pendingFontClass = fontClass
+    settingsProc.command = [root.configHelper, "set-font-class", fontClass]
+    settingsProc.running = true
   }
 
   function setActiveMenu(id, pushHistory, fromPointer) {
@@ -2306,6 +2369,10 @@ Item {
         root.opened = false
         root.runAction(openCommand)
       }
+      return
+    }
+    if (root.isFontSizeSetting(row.itemId)) {
+      root.setMenuItemFontClass(row.action)
       return
     }
     if (row.itemId !== "extension.result") usage.record(row.itemId)
@@ -3426,6 +3493,28 @@ Item {
   }
 
   Process {
+    id: settingsProc
+    property string pendingFontClass: ""
+    property string queuedFontClass: ""
+    onExited: function(exitCode) {
+      if (exitCode === 0 && pendingFontClass) {
+        root.menuItemFontClass = pendingFontClass
+        root.configuredMenuItemFontSize = 0
+        root.settingsFeedback = ""
+        root.rebuildDisplay()
+        root.loadExtensions(true)
+      } else root.settingsFeedback = "Could not save font size"
+      pendingFontClass = ""
+      if (queuedFontClass) {
+        var nextFontClass = queuedFontClass
+        queuedFontClass = ""
+        Qt.callLater(function() { root.setMenuItemFontClass(nextFontClass) })
+      }
+      Qt.callLater(function() { keyCatcher.forceActiveFocus() })
+    }
+  }
+
+  Process {
     id: guardProc
     property string collected: ""
     stdout: SplitParser {
@@ -3527,7 +3616,10 @@ Item {
             return
           }
 
-          if (root.workflowInputActive
+          if (!root.dmenuActive && event.key === Qt.Key_Comma && (event.modifiers & Qt.ControlModifier)) {
+            root.openSettings()
+            event.accepted = true
+          } else if (root.workflowInputActive
               && ((event.key === Qt.Key_V && (event.modifiers & Qt.ControlModifier))
                 || (event.key === Qt.Key_Insert && (event.modifiers & Qt.ShiftModifier)))) {
             if (!pasteProc.running) pasteProc.running = true
@@ -3825,7 +3917,8 @@ Item {
               Text {
                 id: iconText
                 visible: row.hasIcon && !row.isApp && !row.isImageFile
-                text: row.icon
+                text: root.isFontSizeSetting(row.itemId) && root.configuredMenuItemFontSize === 0
+                  && row.action === root.menuItemFontClass ? "✓" : row.icon
                 color: row.hasCursor ? root.selectedText : root.foreground
                 font.family: row.iconFont.length > 0 ? row.iconFont : root.fontFamily
                 font.pixelSize: root.menuItemIconSize
@@ -3899,8 +3992,11 @@ Item {
 
                 Text {
                   width: parent.width
-                  text: row.detail
-                  visible: (root.filterText || row.kind === "dmenu" || row.itemId === "extension.result.pending") && row.detail.length > 0
+                  text: root.isFontSizeSetting(row.itemId) && row.index === root.selectedIndex
+                    && root.settingsFeedback ? root.settingsFeedback : row.detail
+                  visible: (root.filterText || row.kind === "dmenu" || row.itemId === "extension.result.pending"
+                    || (root.isFontSizeSetting(row.itemId) && row.index === root.selectedIndex && root.settingsFeedback))
+                    && text.length > 0
                   color: root.foreground
                   opacity: 0.52
                   font.family: root.fontFamily
