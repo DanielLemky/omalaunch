@@ -792,7 +792,9 @@ Item {
     dynamicMenuSearchProc.collected = ""
     dynamicMenuSearchProc.stderrBytes = 0
     dynamicMenuSearchProc.outputOverflow = false
-    dynamicMenuSearchProc.command = extension.command.map(function(argument) {
+    var searchCommand = extension.globalSearchCommand && extension.globalSearchCommand.length > 0
+      ? extension.globalSearchCommand : extension.command
+    dynamicMenuSearchProc.command = searchCommand.map(function(argument) {
       return MenuModel.workflowInterpolate(argument, { extensionDir: extension.sourceDir })
     })
     dynamicMenuSearchProc.running = true

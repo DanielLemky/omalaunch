@@ -1084,6 +1084,7 @@ function normalizeExtension(raw) {
     sourceDir: String(raw._sourceDir || ""),
     source: String(raw._source || ""),
     globalSearch: mode === "menu" && raw.globalSearch === true,
+    globalSearchCommand: stringArray(raw.globalSearchCommand),
     requires: stringArray(raw.requires),
     missingRequires: stringArray(raw._missingRequires)
   }
@@ -1103,6 +1104,13 @@ function normalizeExtension(raw) {
       if (command.length > 32) return null
       for (var menuArg = 0; menuArg < command.length; menuArg++)
         if (!boundedWorkflowText(command[menuArg])) return null
+      if (raw.globalSearchCommand !== undefined) {
+        if (!extension.globalSearch || !Array.isArray(raw.globalSearchCommand)
+            || extension.globalSearchCommand.length === 0
+            || extension.globalSearchCommand.length > 32) return null
+        for (var searchArg = 0; searchArg < extension.globalSearchCommand.length; searchArg++)
+          if (!boundedWorkflowText(extension.globalSearchCommand[searchArg])) return null
+      }
     } else if (mode === "files") {
       extension.root = String(raw.root || "~")
       extension.directoryCommand = stringArray(raw.directoryCommand)
@@ -1144,6 +1152,7 @@ function normalizeExtension(raw) {
       }
     } catch (e) { return null }
   }
+  if (raw.globalSearchCommand !== undefined && mode !== "menu") return null
   extension.available = extension.missingRequires.length === 0
   return extension
 }

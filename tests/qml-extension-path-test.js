@@ -135,6 +135,10 @@ assert(qml.includes('textFormat: Text.PlainText')
   && qml.includes('model: root.activeDocument ? root.activeDocument.sections : []'),
 'detail documents render host-owned structured plain text')
 
+assert(qml.includes('var searchCommand = extension.globalSearchCommand && extension.globalSearchCommand.length > 0')
+  && qml.includes('? extension.globalSearchCommand : extension.command'),
+'global search preload can use a command independent from the visible extension menu')
+
 assert(qml.includes('id: dynamicMenuSearchKillTimer')
   && qml.includes('generation !== dynamicMenuSearchProc.stopGeneration')
   && qml.includes('generation !== dynamicMenuSearchProc.generation')

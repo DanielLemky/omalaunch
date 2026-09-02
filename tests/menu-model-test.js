@@ -269,12 +269,17 @@ const workflowExtensions = menu.parseExtensions(JSON.stringify([{
 }]))
 const dynamicMenuExtensions = menu.parseExtensions(JSON.stringify([{
   schemaVersion: 1, id: 'quicklinks', capability: 'quicklinks', mode: 'menu', label: 'Quicklinks',
-  prefixes: ['links'], command: ['{extensionDir}/bin/menu', '--json'], globalSearch: true
+  prefixes: ['links'], command: ['{extensionDir}/bin/menu', '--json'], globalSearch: true,
+  globalSearchCommand: ['{extensionDir}/bin/menu', '--global-search']
 }, {
   schemaVersion: 1, id: 'private-menu', mode: 'menu', label: 'Private', prefixes: ['private'], command: ['private-menu']
 }]))
 assert(dynamicMenuExtensions.length === 2 && dynamicMenuExtensions[0].command[0] === '{extensionDir}/bin/menu', 'dynamic menu provider extensions are parsed')
 assert(dynamicMenuExtensions[0].globalSearch && !dynamicMenuExtensions[1].globalSearch, 'dynamic menu global search is explicit opt-in')
+assert(dynamicMenuExtensions[0].globalSearchCommand[1] === '--global-search', 'dynamic menus retain a separate global search command')
+assert(menu.normalizeExtension({ schemaVersion: 1, id: 'bad-search-command', mode: 'menu', label: 'Bad', prefixes: ['bad'], command: ['menu'], globalSearch: true, globalSearchCommand: 'search' }) === null, 'global search commands must be argument arrays')
+assert(menu.normalizeExtension({ schemaVersion: 1, id: 'disabled-search-command', mode: 'menu', label: 'Bad', prefixes: ['bad'], command: ['menu'], globalSearchCommand: ['search'] }) === null, 'separate search commands require global search opt-in')
+assert(menu.normalizeExtension({ schemaVersion: 1, id: 'wrong-mode-search-command', mode: 'prefix', label: 'Bad', prefixes: ['bad'], command: ['run'], globalSearchCommand: ['search'] }) === null, 'separate search commands are limited to menu extensions')
 assert(menu.extensionRootActivation(dynamicMenuExtensions[0]) === 'menu', 'dynamic menu roots start their provider')
 const dynamicMenu = menu.normalizeDynamicMenuOutput(JSON.stringify({ items: [
   { id: 'open', label: 'Open docs', description: 'Documentation', aliases: ['manual', 'reference'], starred: true, starAction: 'star', command: ['xdg-open', 'https://example.test'], closeOnSuccess: true, actions: [
