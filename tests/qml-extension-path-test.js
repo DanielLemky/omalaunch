@@ -308,7 +308,7 @@ assert(qml.includes('settingsProc.command = [root.configHelper, "set-font-class"
   && qml.includes('row.action === root.menuItemFontClass ? "✓" : row.icon'),
 'font settings save through the bounded helper and mark the active class')
 assert((qml.match(/font\.pixelSize: root\.menuItemFontSize/g) || []).length === 6
-  && (qml.match(/font\.pixelSize: root\.menuSecondaryFontSize/g) || []).length === 8
+  && (qml.match(/font\.pixelSize: root\.menuSecondaryFontSize/g) || []).length === 9
   && qml.includes('font.pixelSize: root.menuCaptionFontSize')
   && qml.includes('property int headerHeight: Math.max(Style.space(28), Math.round(Style.space(34) * menuItemScale))')
   && qml.includes('property int actionBarHeight: Math.max(Style.space(26), Math.round(Style.space(36) * menuItemScale))'),
@@ -316,6 +316,11 @@ assert((qml.match(/font\.pixelSize: root\.menuItemFontSize/g) || []).length === 
 assert(qml.includes('readonly property real actionBarFontScale: menuItemFontSize / Style.font.title')
   && qml.includes('Math.round(Style.space(560) * Math.max(1, actionBarFontScale))'),
 'action bar compaction accounts for increased footer font sizes')
+assert(qml.includes('readonly property int emptyStateHeight:')
+  && qml.includes('if (displayModel.count === 0) return root.emptyStateHeight')
+  && qml.includes('text: root.filterText ? "No results found" : "Nothing here yet"')
+  && qml.includes('text: root.filterText ? "Try another search, or press Esc to clear"'),
+'empty results use a clear, helpful state with enough vertical space')
 assert(qml.includes('font.pixelSize: row.starred ? root.menuSecondaryFontSize : root.menuItemFontSize'),
 'trailing menu glyphs scale with the configured item font size')
 assert(qml.includes('width: Math.max(height, shortcutText.implicitWidth')
@@ -323,9 +328,9 @@ assert(qml.includes('width: Math.max(height, shortcutText.implicitWidth')
   && qml.includes('height: Math.max(Style.space(14), Math.round(Style.space(22) * root.menuItemScale),')
   && qml.includes('Math.round(Style.space(6) * root.menuItemScale)'),
 'footer keycaps scale their padding and remain at least as wide as they are tall')
-assert(qml.includes('font.pixelSize: Math.max(1, Math.round(Style.font.displayLarge * root.menuItemScale))')
+assert(qml.includes('font.pixelSize: Math.max(1, Math.round(Style.font.heading * root.menuItemScale))')
   && qml.includes('font.pixelSize: Math.max(1, Math.round(Style.font.title * root.menuItemScale))')
-  && qml.includes('spacing: Math.max(Style.space(3), Math.round(Style.space(8) * root.menuItemScale))'),
+  && qml.includes('spacing: Math.max(Style.space(4), Math.round(Style.space(7) * root.menuItemScale))'),
 'empty-result icon, message, and spacing scale with the configured item font size')
 assert(qml.includes('readonly property color dialogBackground: Qt.rgba(background.r, background.g, background.b, 1)')
   && (qml.match(/background: root\.dialogBackground/g) || []).length === 3,
