@@ -172,6 +172,7 @@ Item {
   property string fileIndexPath: ""
   property string fileIndexRoot: ""
   property bool fileIndexReady: false
+  property bool fileBrowserShowHidden: false
   property int fileIndexSerial: 0
   property double fileIndexBuiltAt: 0
   readonly property int fileIndexTtlMs: 30 * 1000
@@ -1029,6 +1030,7 @@ Item {
   }
 
   function enterDirectoryPicker(startPath) {
+    root.fileBrowserShowHidden = false
     root.directoryPickerActive = true
     root.fileBrowserActive = true
     root.fileBrowserExtension = root.activeFilesExtension()
@@ -1146,6 +1148,7 @@ Item {
     root.focusedExtension = null
     root.resetFileIndex()
     root.fileBrowserActive = true
+    root.fileBrowserShowHidden = false
     root.fileBrowserExtension = extension
     var requestedPath = MenuModel.normalizeFavoritePath(startPath)
     root.fileBrowserPath = requestedPath || (extension.root === "~" ? Quickshell.env("HOME") : extension.root)
@@ -1198,6 +1201,19 @@ Item {
     return !!(extension && extension.config && extension.config.includeGitIgnored === true)
   }
 
+  function toggleHiddenFiles() {
+    root.fileBrowserShowHidden = !root.fileBrowserShowHidden
+    root.resetFileIndex()
+    root.fileEntries = []
+    root.selectedIndex = 0
+    root.scheduleFileScan(true)
+  }
+
+  function fileScanOptions() {
+    return (root.includeGitIgnoredFiles() ? ["--include-git-ignored"] : [])
+      .concat(root.fileBrowserShowHidden ? ["--hidden"] : [])
+  }
+
   function startFileIndex(path) {
     // Process command and metadata must stay immutable until onExited. Keep a
     // build for the requested root alive while typing; only a different root
@@ -1219,8 +1235,8 @@ Item {
     fileIndexProc.revision = root.fileIndexSerial
     fileIndexProc.indexRoot = path
     fileIndexProc.indexPath = root.fileIndexPath
-    fileIndexProc.command = ["python", root.fileIndexHelper, root.directoryPickerActive ? "index-dirs" : "index", path, fileIndexProc.indexPath]
-      .concat(root.includeGitIgnoredFiles() ? ["--include-git-ignored"] : [])
+    fileIndexProc.command = ["python", root.fileIndexHelper, root.directoryPickerActive ? "index-dirs" : "index"]
+      .concat(root.fileScanOptions()).concat(["--", path, fileIndexProc.indexPath])
     fileIndexProc.running = true
   }
 
@@ -2479,6 +2495,7 @@ Item {
     root.invalidateDynamicMenu()
     root.routePendingForMenuSources = false
     root.resetFileIndex()
+    root.fileBrowserShowHidden = false
     root.invalidateExtensionQuery("new launcher session")
 
     var reset = MenuModel.openStateReset()
@@ -2705,8 +2722,8 @@ Item {
       fileScanProc.outputOverflow = false
       fileScanProc.command = needle
         ? ["python", root.fileIndexHelper, "query", root.fileIndexPath, needle]
-        : ["python", root.fileIndexHelper, root.directoryPickerActive ? "browse-dirs" : "browse", base]
-          .concat(root.includeGitIgnoredFiles() ? ["--include-git-ignored"] : [])
+        : ["python", root.fileIndexHelper, root.directoryPickerActive ? "browse-dirs" : "browse"]
+          .concat(root.fileScanOptions()).concat(["--", base])
       fileScanProc.running = true
     }
   }
@@ -3629,6 +3646,9 @@ Item {
             event.accepted = true
           } else if (root.workflowActive && !root.fileBrowserActive && event.key === Qt.Key_K && (event.modifiers & Qt.ControlModifier)) {
             root.openWorkflowActions()
+            event.accepted = true
+          } else if (root.fileBrowserActive && !root.directoryPickerActive && !root.actionPanelActive && event.key === Qt.Key_H && (event.modifiers & Qt.ControlModifier)) {
+            root.toggleHiddenFiles()
             event.accepted = true
           } else if (root.fileBrowserActive && !root.directoryPickerActive && !root.actionPanelActive && event.key === Qt.Key_K && (event.modifiers & Qt.ControlModifier)) {
             root.openActionPanel()

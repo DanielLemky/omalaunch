@@ -12,12 +12,13 @@ ROOT = Path(__file__).resolve().parent.parent
 HELPER = ROOT / "extensions" / "files" / "file-index.py"
 
 
-def run(*arguments: str) -> list[dict[str, str]]:
+def run(*arguments: str, cwd: Path | None = None) -> list[dict[str, str]]:
     result = subprocess.run(
         ["python", str(HELPER), *arguments],
         check=True,
         capture_output=True,
         text=True,
+        cwd=cwd,
     )
     return [json.loads(line) for line in result.stdout.splitlines() if line]
 
@@ -33,6 +34,10 @@ with tempfile.TemporaryDirectory() as temporary:
     (alpha / "report final.txt").write_text("report", encoding="utf-8")
     (beta / "notes.txt").write_text("notes", encoding="utf-8")
     (files / ".hidden.txt").write_text("hidden", encoding="utf-8")
+    hidden_directory = files / ".hidden-directory"
+    hidden_directory.mkdir()
+    hidden_child = hidden_directory / "nested.txt"
+    hidden_child.write_text("nested", encoding="utf-8")
     strange = alpha / "strange\nname.txt"
     strange.write_text("newline", encoding="utf-8")
     os.utime(alpha, (100, 100))
@@ -42,6 +47,21 @@ with tempfile.TemporaryDirectory() as temporary:
     assert [row["name"] for row in browsed[:2]] == ["Beta", "Alpha"]
     assert all(row["name"] != ".hidden.txt" for row in browsed)
     print("ok - browsing is modification-sorted and excludes hidden entries")
+
+    hidden_browse = run("browse", "--hidden", "--", str(files))
+    assert any(row["name"] == ".hidden.txt" for row in hidden_browse)
+    assert any(row["path"] == str(hidden_directory) for row in hidden_browse)
+    hidden_index = workspace / "hidden-index.nul"
+    run("index", "--hidden", "--", str(files), str(hidden_index))
+    assert run("query", str(hidden_index), ".hidden.txt")[0]["path"] == str(files / ".hidden.txt")
+    assert run("query", str(hidden_index), "nested.txt")[0]["path"] == str(hidden_child)
+    print("ok - hidden browsing and indexing include hidden directories only with the hidden option")
+
+    option_root = workspace / "--root"
+    option_root.mkdir()
+    (option_root / "option-path.txt").write_text("path", encoding="utf-8")
+    assert run("browse", "--", "--root", cwd=workspace)[0]["name"] == "option-path.txt"
+    print("ok - the helper and fd preserve option-like root paths")
 
     directory_browse = run("browse-dirs", str(files))
     assert [row["name"] for row in directory_browse] == ["Beta", "Alpha"]
@@ -61,19 +81,29 @@ with tempfile.TemporaryDirectory() as temporary:
 
     unusual = run("query", str(index), "strange")
     assert unusual[0]["name"] == "strange\nname.txt"
-    print("ok - indexed queries preserve filenames containing newlines")
+    assert run("query", str(index), "--") == []
+    print("ok - indexed queries preserve filenames containing newlines and option-like text")
 
     subprocess.run(["git", "init", "-q", str(files)], check=True)
+    hidden_git_index = workspace / "hidden-git-index.nul"
+    run("index", "--hidden", "--", str(files), str(hidden_git_index))
+    assert run("query", str(hidden_git_index), "HEAD") == []
+    assert all(row["name"] != ".git" for row in run("browse", "--hidden", "--", str(files)))
+    print("ok - hidden mode excludes Git repository internals")
+
     (files / ".gitignore").write_text("git-ignored.txt\n", encoding="utf-8")
     ignored = files / "git-ignored.txt"
     ignored.write_text("ignored", encoding="utf-8")
     run("index", str(files), str(index))
     assert run("query", str(index), "git-ignored") == []
-    run("index", str(files), str(index), "--include-git-ignored")
+    run("index", "--include-git-ignored", "--", str(files), str(index))
     assert run("query", str(index), "git-ignored")[0]["path"] == str(ignored)
     assert all(row["name"] != "git-ignored.txt" for row in run("browse", str(files)))
-    assert any(row["name"] == "git-ignored.txt" for row in run("browse", str(files), "--include-git-ignored"))
-    print("ok - includeGitIgnored controls Git ignore rules in browsing and recursive search")
+    assert any(row["name"] == "git-ignored.txt" for row in run("browse", "--include-git-ignored", "--", str(files)))
+    combined = run("browse", "--hidden", "--include-git-ignored", "--", str(files))
+    assert any(row["name"] == ".hidden.txt" for row in combined)
+    assert any(row["name"] == "git-ignored.txt" for row in combined)
+    print("ok - includeGitIgnored combines with hidden browsing without changing default rules")
 
     added_later = files / "added-after-index.txt"
     added_later.write_text("new", encoding="utf-8")
