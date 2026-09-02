@@ -1,0 +1,222 @@
+#!/usr/bin/env python3
+"""Set Omalaunch's menu font class without normalizing its JSONC file."""
+
+from __future__ import annotations
+
+import fcntl
+import json
+import os
+from pathlib import Path
+import stat
+import sys
+import tempfile
+
+FONT_CLASSES = ("caption", "bodySmall", "body", "subtitle", "title", "heading", "display", "displayLarge")
+MAX_BYTES = 64 * 1024
+
+
+def tokens(text: str):
+    """Yield (kind, value, start, end, depth) tokens outside JSONC comments."""
+    index = depth = 0
+    while index < len(text):
+        if text.startswith("//", index):
+            end = text.find("\n", index + 2); index = len(text) if end < 0 else end; continue
+        if text.startswith("/*", index):
+            end = text.find("*/", index + 2)
+            if end < 0: raise ValueError("unterminated block comment")
+            index = end + 2; continue
+        char = text[index]
+        if char == '"':
+            start = index; index += 1; escaped = False
+            while index < len(text):
+                char = text[index]; index += 1
+                if escaped: escaped = False
+                elif char == "\\": escaped = True
+                elif char == '"': break
+            else: raise ValueError("unterminated string")
+            raw = text[start:index]
+            yield "string", json.loads(raw), start, index, depth
+            continue
+        if char in "{[":
+            yield char, char, index, index + 1, depth; depth += 1
+        elif char in "}]":
+            depth -= 1; yield char, char, index, index + 1, depth
+        elif char in ":,": yield char, char, index, index + 1, depth
+        elif not char.isspace():
+            start = index
+            while index + 1 < len(text) and not text[index + 1].isspace() and text[index + 1] not in '{}[],:"': index += 1
+            yield "atom", text[start:index + 1], start, index + 1, depth
+        index += 1
+
+
+def members(text: str) -> tuple[dict[str, tuple[int, int, int | None]], int]:
+    items = list(tokens(text))
+    if not items or items[0][0] != "{" or items[-1][0] != "}" or items[-1][4] != 0:
+        raise ValueError("configuration must be one JSON object")
+    result: dict[str, tuple[int, int, int | None]] = {}
+    for position, token in enumerate(items):
+        kind, key, start, _, depth = token
+        if kind != "string" or depth != 1 or position + 1 >= len(items) or items[position + 1][0] != ":": continue
+        next_key = items[-1]
+        for next_position in range(position + 2, len(items) - 1):
+            candidate = items[next_position]
+            if (candidate[0] == "string" and candidate[4] == 1
+                    and items[next_position + 1][0] == ":"):
+                next_key = candidate
+                break
+        comma = None
+        for candidate in items[position + 2:]:
+            if candidate[2] >= next_key[2]: break
+            if candidate[0] == "," and candidate[4] == 1: comma = candidate[2]
+        result[key] = (start, next_key[2], comma)
+    return result, items[-1][2]
+
+
+def remove_member(text: str, name: str) -> str:
+    found, _ = members(text)
+    if name not in found: return text
+    start, end, comma = found[name]
+    line_start = text.rfind("\n", 0, start) + 1
+    if text[line_start:start].strip(): line_start = start
+    if comma is not None:
+        end = comma + 1
+        while end < len(text) and text[end] in " \t": end += 1
+        if end < len(text) and text[end] == "\n": end += 1
+        return text[:line_start] + text[end:]
+    # This is the last member. Remove the preceding top-level comma when needed.
+    previous_comma = max((token[2] for token in tokens(text[:start]) if token[0] == "," and token[4] == 1), default=None)
+    if previous_comma is not None:
+        start = previous_comma
+    return text[:start] + text[end:]
+
+
+def update_text(text: str, font_class: str) -> str:
+    # Parse first. This prevents a write when unrelated JSONC is malformed.
+    from load_extensions_compat import parse_jsonc
+    value = parse_jsonc(text)
+    if not isinstance(value, dict): raise ValueError("configuration must be one JSON object")
+    token_list = list(tokens(text))
+    top_level_keys = [token[1] for position, token in enumerate(token_list[:-1])
+                      if token[0] == "string" and token[4] == 1
+                      and token_list[position + 1][0] == ":"]
+    for setting in ("menuItemFontClass", "menuItemFontSize"):
+        if top_level_keys.count(setting) > 1:
+            raise ValueError(f"duplicate {setting} setting")
+    text = remove_member(text, "menuItemFontSize")
+    text = remove_member(text, "menuItemFontClass")
+    found, closing = members(text)
+    encoded = json.dumps(font_class)
+    line_start = text.rfind("\n", 0, closing) + 1
+    closing_indent = text[line_start:closing] if not text[line_start:closing].strip() else ""
+    indent = "  "
+    if found:
+        first = min(item[0] for item in found.values())
+        first_line = text.rfind("\n", 0, first) + 1
+        if not text[first_line:first].strip(): indent = text[first_line:first]
+    prefix = text[:closing]
+    has_members = bool(found)
+    if has_members and not prefix.rstrip().endswith(","): prefix = prefix.rstrip() + "," + prefix[len(prefix.rstrip()):]
+    if not prefix.endswith("\n"): prefix += "\n"
+    return prefix + f'{indent}"menuItemFontClass": {encoded}\n{closing_indent}' + text[closing:]
+
+
+def parse_jsonc(text: str):
+    # Keep line positions while removing comments, then remove trailing commas.
+    chars = list(text); index = 0; string = escaped = False
+    while index < len(chars):
+        if string:
+            if escaped: escaped = False
+            elif chars[index] == "\\": escaped = True
+            elif chars[index] == '"': string = False
+            index += 1; continue
+        if chars[index] == '"': string = True; index += 1; continue
+        if text.startswith("//", index):
+            end = text.find("\n", index + 2); end = len(text) if end < 0 else end
+            for pos in range(index, end): chars[pos] = " "
+            index = end; continue
+        if text.startswith("/*", index):
+            end = text.find("*/", index + 2)
+            if end < 0: raise ValueError("unterminated block comment")
+            for pos in range(index, end + 2):
+                if chars[pos] != "\n": chars[pos] = " "
+            index = end + 2; continue
+        index += 1
+    cleaned = "".join(chars)
+    punctuation = list(tokens(cleaned))
+    for position, token in enumerate(punctuation[:-1]):
+        if token[0] == "," and punctuation[position + 1][0] in ("}", "]"):
+            chars[token[2]] = " "
+    return json.loads("".join(chars))
+
+
+# Alias used by update_text without depending on a hyphenated module name.
+sys.modules["load_extensions_compat"] = sys.modules[__name__]
+
+
+def file_identity(value: os.stat_result) -> tuple[int, int, int, int]:
+    return value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns
+
+
+def read_existing(path: Path) -> tuple[str, tuple[int, int, int, int] | None]:
+    try:
+        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    except FileNotFoundError:
+        return "{}\n", None
+    with os.fdopen(descriptor, "rb") as source:
+        before = os.fstat(source.fileno())
+        if not stat.S_ISREG(before.st_mode):
+            raise ValueError("configuration must be a regular file")
+        raw = source.read(MAX_BYTES + 1)
+        after = os.fstat(source.fileno())
+    if file_identity(before) != file_identity(after):
+        raise ValueError("configuration changed while it was read")
+    if len(raw) > MAX_BYTES:
+        raise ValueError(f"configuration exceeds {MAX_BYTES} bytes")
+    return raw.decode("utf-8"), file_identity(after)
+
+
+def atomic_write(path: Path, data: str, expected: tuple[int, int, int, int] | None) -> None:
+    encoded = data.encode("utf-8")
+    if len(encoded) > MAX_BYTES: raise ValueError(f"result exceeds {MAX_BYTES} bytes")
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    try:
+        os.fchmod(descriptor, 0o600)
+        with os.fdopen(descriptor, "wb") as output:
+            output.write(encoded); output.flush(); os.fsync(output.fileno())
+        try:
+            current = file_identity(path.lstat())
+        except FileNotFoundError:
+            current = None
+        if current != expected:
+            raise ValueError("configuration changed before it could be saved")
+        os.replace(temporary, path)
+        directory = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        try: os.fsync(directory)
+        finally: os.close(directory)
+    except Exception:
+        try: os.unlink(temporary)
+        except FileNotFoundError: pass
+        raise
+
+
+def main(argv: list[str]) -> int:
+    if len(argv) != 3 or argv[1] != "set-font-class" or argv[2] not in FONT_CLASSES:
+        print(f"usage: {Path(argv[0]).name} set-font-class {{{','.join(FONT_CLASSES)}}}", file=sys.stderr)
+        return 2
+    path = Path(os.environ.get("HOME", str(Path.home()))) / ".config/omarchy/omalaunch/config.jsonc"
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    lock_path = path.with_name(path.name + ".lock")
+    descriptor = os.open(lock_path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    try:
+        os.fchmod(descriptor, 0o600)
+        with os.fdopen(descriptor) as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            text, expected = read_existing(path)
+            atomic_write(path, update_text(text, argv[2]), expected)
+    except (OSError, UnicodeError, ValueError, json.JSONDecodeError) as error:
+        print(f"{Path(argv[0]).name}: {error}", file=sys.stderr); return 1
+    return 0
+
+
+if __name__ == "__main__": raise SystemExit(main(sys.argv))

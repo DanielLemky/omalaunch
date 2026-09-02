@@ -176,6 +176,32 @@ assert(qml.includes('property int baseRowHeight: Math.max(Style.space(28), Math.
 assert(qml.includes('property string menuItemFontClass: "title"')
   && qml.includes('? catalog.omalaunchConfig.menuItemFontClass : "title"'),
 'menu items use the title theme class when no font override is configured')
+assert(qml.includes('event.key === Qt.Key_Comma && (event.modifiers & Qt.ControlModifier)')
+  && qml.includes('root.openRoute("settings")')
+  && qml.includes('label: "Omalaunch Settings"')
+  && qml.includes('label: "Font Size"'),
+'Ctrl+Comma opens the built-in Omalaunch font settings menu')
+assert(qml.includes('function settingsPageActive()')
+  && qml.includes('var settingsSearchScoped = root.settingsPageActive()')
+  && qml.includes('settingsSearchScoped ? entry.parent !== active : !root.isDescendantOf(entry.id, active)')
+  && qml.includes('var activeExtensionCatalog = settingsSearchScoped ? []')
+  && qml.includes('if (!settingsSearchScoped && root.unavailableResultExtension)')
+  && qml.includes('root.invalidateExtensionQuery("settings search is locally scoped")'),
+'settings searches include only direct children and suppress global extension results')
+assert(qml.includes('["compact", "Compact", "bodySmall"]')
+  && qml.includes('["small", "Small", "body"]')
+  && qml.includes('["default", "Default", "title"]')
+  && qml.includes('["large", "Large", "heading"]')
+  && qml.includes('["extra-large", "Extra Large", "display"]'),
+'font settings expose friendly names for theme font classes')
+assert(qml.includes('settingsProc.command = [root.configHelper, "set-font-class", fontClass]')
+  && qml.includes('root.configuredMenuItemFontSize = 0')
+  && qml.includes('root.settingsFeedback = "Saving…"')
+  && qml.includes('root.settingsFeedback = "Could not save font size"')
+  && qml.includes('settingsProc.queuedFontClass = fontClass')
+  && qml.includes('root.configuredMenuItemFontSize === 0')
+  && qml.includes('row.action === root.menuItemFontClass ? "✓" : row.icon'),
+'font settings save through the bounded helper and mark the active class')
 assert((qml.match(/font\.pixelSize: root\.menuItemFontSize/g) || []).length === 6
   && (qml.match(/font\.pixelSize: root\.menuSecondaryFontSize/g) || []).length === 3
   && qml.includes('font.pixelSize: root.menuCaptionFontSize')
