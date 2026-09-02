@@ -181,7 +181,8 @@ Item {
     ? root.dynamicMenuSearchEntry(displayModel.get(root.selectedIndex).itemId) : null
   readonly property var selectedDynamicStarAction: root.selectedDynamicSearchEntry
     ? root.workflowStarAction(root.selectedDynamicSearchEntry.node) : null
-  readonly property int previewPaneWidth: Style.space(280)
+  readonly property int previewPaneWidth: Math.round((root.cardWidth
+    - card.contentLeftInset - card.contentRightInset - root.contentSpacing) / 2)
 
   // Shared application engine (entries, hidden filters, icons, launch,
   // removal), owned by the shell and also used by the standalone launcher.
