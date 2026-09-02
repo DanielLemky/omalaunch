@@ -316,6 +316,51 @@ const scopedSearch = menu.normalizeDynamicMenuOutput([
 ])
 assert(menu.dynamicMenuSearchItems(dynamicMenuExtensions[0], scopedSearch).length === 1, 'dynamic rows can remain in their extension menu without entering global search')
 assert(menu.dynamicMenuSearchItems(dynamicMenuExtensions[0], scopedSearch)[0].trailingIcon === 'globe', 'dynamic rows retain bounded trailing icons')
+const separateGlobalSearchMenu = menu.normalizeDynamicMenuOutput({
+  items: [{ id: 'visible', label: 'Visible only', command: ['open-visible'] }],
+  globalSearchItems: [{ id: 'search', label: 'Search only', aliases: ['dedicated'], command: ['open-search'] }]
+})
+assert(separateGlobalSearchMenu.items.length === 1 && separateGlobalSearchMenu.items[0].id === 'visible',
+  'dedicated global search rows do not change the visible dynamic menu collection')
+const separateGlobalSearchItems = menu.dynamicMenuSearchItems(dynamicMenuExtensions[0], separateGlobalSearchMenu)
+assert(separateGlobalSearchItems.length === 1 && separateGlobalSearchItems[0].label === 'Search only'
+  && separateGlobalSearchItems[0].aliases[0] === 'dedicated',
+  'dedicated global search rows replace visible rows as the dynamic search source')
+const emptyGlobalSearchMenu = menu.normalizeDynamicMenuOutput({
+  items: [{ id: 'visible', label: 'Visible only', command: ['true'] }], globalSearchItems: []
+})
+assert(emptyGlobalSearchMenu && menu.dynamicMenuSearchItems(dynamicMenuExtensions[0], emptyGlobalSearchMenu).length === 0,
+  'an explicit empty global search collection disables dynamic search rows')
+const legacyObjectMenu = menu.normalizeDynamicMenuOutput({ items: [
+  { id: 'legacy-object', label: 'Legacy object', command: ['true'] }
+] })
+assert(menu.dynamicMenuSearchItems(dynamicMenuExtensions[0], legacyObjectMenu)[0].label === 'Legacy object',
+  'object responses without global search rows preserve visible-row search behavior')
+assert(menu.dynamicMenuSearchItems(dynamicMenuExtensions[0], scopedSearch)[0].label === 'Google',
+  'array responses preserve visible-row search behavior')
+assert(menu.normalizeDynamicMenuOutput({
+  items: [{ id: 'visible', label: 'Visible', command: ['true'] }], globalSearchItems: {}
+}) === null, 'malformed dedicated global search collections are rejected')
+assert(menu.normalizeDynamicMenuOutput({
+  items: [{ id: 'visible', label: 'Visible', command: ['true'] }],
+  globalSearchItems: [{ id: 'same', label: 'One', command: ['true'] }, { id: 'same', label: 'Two', command: ['true'] }]
+}) === null, 'dedicated global search row ids must be unique within their collection')
+assert(menu.normalizeDynamicMenuOutput({
+  items: [{ id: 'shared', label: 'Visible', command: ['true'] }],
+  globalSearchItems: [{ id: 'shared', label: 'Search', command: ['true'] }]
+}) !== null, 'visible and dedicated global search collections normalize ids independently')
+assert(menu.normalizeDynamicMenuOutput({
+  items: [{ id: 'visible', label: 'Visible', command: ['true'] }],
+  globalSearchItems: Array.from({ length: 101 }, (_, i) => ({ id: String(i), label: String(i), command: ['true'] }))
+}) === null, 'dedicated global search row counts are independently bounded')
+assert(menu.normalizeDynamicMenuOutput({
+  items: Array.from({ length: 101 }, (_, i) => ({ id: String(i), label: String(i), command: ['true'] })),
+  globalSearchItems: [{ id: 'search', label: 'Search', command: ['true'] }]
+}) === null, 'visible dynamic menu row counts remain independently bounded')
+assert(menu.normalizeDynamicMenuOutput({
+  items: [{ id: 'visible', label: 'Visible', command: ['true'] }],
+  globalSearchItems: [{ id: 'bad', label: 'Bad', command: 'true' }]
+}) === null, 'dedicated global search rows use strict row normalization')
 const capturedMenu = menu.normalizeDynamicMenuOutput([{ id: 'add', label: 'Add', input: {
   prompt: 'Target', capture: 'target', next: { id: 'name', kind: 'input', label: 'Name', command: ['links', 'add', '{target}', '{input}'] }
 } }])

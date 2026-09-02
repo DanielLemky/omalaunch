@@ -969,9 +969,12 @@ function workflowClosesOnDispatch(node, command) {
 
 function dynamicMenuSearchItems(extension, workflow) {
   if (!extension || !workflow || !Array.isArray(workflow.items)) return []
+  var source = Object.prototype.hasOwnProperty.call(workflow, "globalSearchItems")
+    ? workflow.globalSearchItems : workflow.items
+  if (!Array.isArray(source)) return []
   var result = []
-  for (var i = 0; i < workflow.items.length; i++) {
-    var node = workflow.items[i]
+  for (var i = 0; i < source.length; i++) {
+    var node = source[i]
     if (!node || ["action", "confirm", "input"].indexOf(node.kind) < 0 || node.globalSearch === false) continue
     result.push(normalizeItem(dynamicMenuItemId(extension.capability, node.id), {
       parent: "extensions",
@@ -1015,11 +1018,8 @@ function dynamicMenuUsageItemId(extension, node) {
   return dynamicMenuItemId(extension.id, node.usageItemId)
 }
 
-function normalizeDynamicMenuOutput(raw) {
-  var parsed
-  try { parsed = typeof raw === "string" ? JSON.parse(raw) : raw } catch (e) { return null }
-  var rows = Array.isArray(parsed) ? parsed : (parsed && Array.isArray(parsed.items) ? parsed.items : null)
-  if (!rows || rows.length > MAX_DYNAMIC_MENU_ROWS) return null
+function normalizeDynamicMenuRows(rows, allowEmpty) {
+  if (!Array.isArray(rows) || rows.length > MAX_DYNAMIC_MENU_ROWS) return null
   var prepared = []
   for (var i = 0; i < rows.length; i++) {
     var row = rows[i]
@@ -1029,6 +1029,7 @@ function normalizeDynamicMenuOutput(raw) {
     if (copy.input) copy = Object.assign({}, copy, copy.input, { kind: "input", command: copy.input.command || copy.command })
     prepared.push(copy)
   }
+  if (allowEmpty && prepared.length === 0) return []
   var workflow = normalizeWorkflow({ items: prepared })
   if (!workflow) return null
   for (var itemIndex = 0; itemIndex < workflow.items.length; itemIndex++) {
@@ -1036,6 +1037,21 @@ function normalizeDynamicMenuOutput(raw) {
     if (item.closeOnSuccess) item.usageItemId = item.id
     for (var actionIndex = 0; actionIndex < item.actions.length; actionIndex++)
       if (item.actions[actionIndex].id === "open") item.actions[actionIndex].usageItemId = item.id
+  }
+  return workflow.items
+}
+
+function normalizeDynamicMenuOutput(raw) {
+  var parsed
+  try { parsed = typeof raw === "string" ? JSON.parse(raw) : raw } catch (e) { return null }
+  var rows = Array.isArray(parsed) ? parsed : (parsed && Array.isArray(parsed.items) ? parsed.items : null)
+  var items = normalizeDynamicMenuRows(rows, false)
+  if (!items) return null
+  var workflow = { items: items }
+  if (!Array.isArray(parsed) && Object.prototype.hasOwnProperty.call(parsed, "globalSearchItems")) {
+    var globalSearchItems = normalizeDynamicMenuRows(parsed.globalSearchItems, true)
+    if (!globalSearchItems) return null
+    workflow.globalSearchItems = globalSearchItems
   }
   return workflow
 }

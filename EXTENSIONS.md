@@ -299,7 +299,22 @@ A row can include up to 16 `actions`. Press Ctrl+K on that row to open its conte
 
 Menu and action commands use the workflow action lifecycle. A non-terminal direct child runs for at most 30 seconds. Cancellation sends SIGTERM and then sends SIGKILL to the same direct child after one second. Stale generation checks prevent old exits from changing a new session. A successful menu mutation reloads the provider so the visible rows show current state. `refreshExtensions: true` also reloads the extension catalog after success. Failed commands leave the current menu open and do not refresh it.
 
-Set the extension field `globalSearch: true` to include its current top-level actionable rows in Omalaunch general search. The default is `false`, so omitted and false values keep the current shortcut-only behavior. An opted-in provider can set `globalSearch: false` on an individual row to keep that row in its extension menu but omit it from general search. Omalaunch preloads opted-in, available providers and searches each row by `label`, `description`, and optional string or string-array `aliases`. A row with `starred: true` also appears on the launcher's top-level starting view; non-starred rows remain search-only. The extension root remains visible as a separate search result. Activating a cached row runs the same primary command, including confirmation or input handling, and honors `closeOnSuccess`. Ctrl+K opens the row's cached contextual actions.
+Set the extension field `globalSearch: true` to include provider rows in Omalaunch general search. The default is `false`, so omitted and false values keep the current shortcut-only behavior. By default, Omalaunch uses the provider's top-level `items` for both its visible menu and global search. A provider can separate these surfaces with an explicit `globalSearchItems` collection:
+
+```json
+{
+  "items": [
+    { "id": "repositories", "label": "Repositories", "submenu": { "command": ["provider", "repositories"] } }
+  ],
+  "globalSearchItems": [
+    { "id": "repo:example/project", "label": "example/project", "submenu": { "command": ["provider", "repository", "example/project"] } }
+  ]
+}
+```
+
+When `globalSearchItems` is present, only that collection supplies global search rows; its rows do not appear in the opened extension menu. An explicit empty collection disables result contribution while the extension root remains searchable. Each collection has its own 100-row limit and uses the same row schema and validation. Array responses and objects without `globalSearchItems` retain the original shared-collection behavior.
+
+An opted-in provider can set `globalSearch: false` on an individual row to omit it from general search. Omalaunch preloads opted-in, available providers and searches each row by `label`, `description`, and optional string or string-array `aliases`. A row with `starred: true` also appears on the launcher's top-level starting view; non-starred rows remain search-only. The extension root remains visible as a separate search result. Activating a cached row runs the same primary command, including confirmation or input handling, and honors `closeOnSuccess`. Ctrl+K opens the row's cached contextual actions.
 
 The preload is one atomic cached snapshot. Omalaunch keeps the last complete snapshot if one provider fails, times out, returns invalid or excessive output, or exceeds an aggregate safeguard. At most 16 opted-in providers, 1,000 searchable rows, 1 MiB of output, and ten seconds of aggregate preload time are accepted; the existing five-second, 256 KiB, and 100-row limits still apply to each provider. Catalog changes and successful menu mutations invalidate and reload the snapshot. Generation checks reject stale provider exits. Providers must return all searchable state in the normal bounded menu response; Omalaunch does not run providers for each keystroke.
 
