@@ -72,6 +72,14 @@ assert(qml.includes('root.invalidateExtensionQuery("launcher closed")')
 'close/open and catalog/query context changes invalidate live-query generations')
 assert(qml.includes('if (root.directoryPickerActive) root.workflowBack()'),
 'directory picker Backspace at filesystem root returns through workflow history')
+assert(qml.includes('event.key === Qt.Key_H && (event.modifiers & Qt.ControlModifier)')
+  && qml.includes('root.toggleHiddenFiles()')
+  && qml.includes('root.fileBrowserShowHidden ? ["--hidden"] : []'),
+'Files Ctrl+H rebuilds browsing and search with hidden entries toggled')
+const directoryPickerBody = qml.slice(qml.indexOf('function enterDirectoryPicker('), qml.indexOf('function selectWorkflowDirectory('))
+assert(directoryPickerBody.includes('root.fileBrowserShowHidden = false')
+  && resetBody.includes('root.fileBrowserShowHidden = false'),
+'new launcher and directory-picker sessions cannot inherit hidden-file mode')
 
 const dynamicProviderBody = qml.slice(qml.indexOf('id: dynamicMenuProc'), qml.indexOf('id: workflowActionTimeout'))
 assert(qml.includes('else if (activation === "menu") root.enterDynamicMenu(extension)')
