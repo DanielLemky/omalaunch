@@ -1907,6 +1907,7 @@ Item {
         icon: option.icon,
         iconFont: "",
         trailingIcon: "",
+        badge: "",
         appIcon: "",
         appId: "",
         label: option.label,
@@ -1954,6 +1955,7 @@ Item {
             icon: workflowChild.icon,
             iconFont: workflowChild.iconFont,
             trailingIcon: workflowChild.trailingIcon,
+            badge: workflowChild.badge,
             label: root.workflowText(workflowChild.label),
             description: root.workflowText(workflowChild.description),
             aliases: workflowChild.aliases,
@@ -4226,6 +4228,7 @@ Item {
               required property string icon
               required property string iconFont
               required property string trailingIcon
+              required property string badge
               required property string appIcon
               required property string appId
               required property string label
@@ -4351,11 +4354,32 @@ Item {
 
               Row {
                 id: trail
-                width: row.trailingIcon.length > 0 ? Style.space(34) : Style.space(14)
+                width: (row.badge.length > 0 ? Math.max(Style.space(24), badgeText.implicitWidth + Style.space(12)) + Style.space(6) : 0)
+                  + (row.trailingIcon.length > 0 ? Style.space(34) : Style.space(14))
                 anchors.right: parent.right
                 anchors.rightMargin: root.rowReservedBorderRight + Style.space(8)
                 y: contentColumn.y + labelText.y + (labelText.height - height) / 2
                 spacing: Style.space(6)
+
+                Rectangle {
+                  visible: row.badge.length > 0
+                  width: Math.max(Style.space(24), badgeText.implicitWidth + Style.space(12))
+                  height: Math.max(Style.space(24), badgeText.implicitHeight + Style.space(6))
+                  radius: height / 2
+                  color: row.hasCursor ? Util.alpha(root.selectedText, 0.16) : Util.alpha(root.foreground, 0.09)
+                  anchors.verticalCenter: parent.verticalCenter
+
+                  Text {
+                    id: badgeText
+                    anchors.centerIn: parent
+                    text: row.badge
+                    color: row.hasCursor ? root.selectedText : root.foreground
+                    opacity: 0.82
+                    font.family: root.fontFamily
+                    font.pixelSize: root.menuSecondaryFontSize
+                    font.weight: Font.Medium
+                  }
+                }
 
                 Text {
                   visible: row.trailingIcon.length > 0

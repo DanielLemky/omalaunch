@@ -316,11 +316,13 @@ assert(dynamicMenu.items[0].actions[2].refreshExtensions, 'mutation actions can 
 assert(dynamicMenu.items[1].kind === 'input' && dynamicMenu.items[1].prompt === 'URL', 'rows can open bounded host input forms')
 assert(menu.workflowCommand(dynamicMenu.items[1], 'https://literal.test/?q=$(bad)', {}).slice(-1)[0] === 'https://literal.test/?q=$(bad)', 'dynamic input is substituted as one literal argument')
 const scopedSearch = menu.normalizeDynamicMenuOutput([
-  { id: 'global', label: 'Google', globalSearch: true, trailingIcon: 'globe', command: ['search', 'google'] },
+  { id: 'global', label: 'Google', globalSearch: true, trailingIcon: 'globe', badge: '12', command: ['search', 'google'] },
   { id: 'menu-only', label: 'Bing', globalSearch: false, command: ['search', 'bing'] }
 ])
 assert(menu.dynamicMenuSearchItems(dynamicMenuExtensions[0], scopedSearch).length === 1, 'dynamic rows can remain in their extension menu without entering global search')
 assert(menu.dynamicMenuSearchItems(dynamicMenuExtensions[0], scopedSearch)[0].trailingIcon === 'globe', 'dynamic rows retain bounded trailing icons')
+assert(menu.dynamicMenuSearchItems(dynamicMenuExtensions[0], scopedSearch)[0].badge === '12', 'dynamic rows retain bounded badges')
+assert(menu.normalizeDynamicMenuOutput([{ id: 'badge', label: 'Badge', badge: 'x'.repeat(17), command: ['true'] }]).items[0].badge === '', 'oversized dynamic row badges are omitted')
 const separateGlobalSearchMenu = menu.normalizeDynamicMenuOutput({
   items: [{ id: 'visible', label: 'Visible only', command: ['open-visible'] }],
   globalSearchItems: [{ id: 'search', label: 'Search only', aliases: ['dedicated'], command: ['open-search'] }]

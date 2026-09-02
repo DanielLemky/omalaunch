@@ -132,6 +132,10 @@ assert(qml.includes('id: documentKillTimer')
 'detail cancellation escalates only for the same direct child and Back invalidates the request')
 assert(qml.includes('readonly property bool emptyRoot: !root.dmenuActive && !root.workflowActive'),
 'detail documents do not collapse into the empty root-menu layout')
+assert(qml.includes('required property string badge')
+  && qml.includes('id: badgeText')
+  && qml.includes('radius: height / 2'),
+'dynamic row badges use a host-rendered trailing pill')
 assert(qml.includes('textFormat: Text.PlainText')
   && qml.includes('model: root.activeDocument ? root.activeDocument.fields : []')
   && qml.includes('model: root.activeDocument ? root.activeDocument.sections : []'),
@@ -257,7 +261,7 @@ assert(qml.includes('settingsProc.command = [root.configHelper, "set-font-class"
   && qml.includes('row.action === root.menuItemFontClass ? "✓" : row.icon'),
 'font settings save through the bounded helper and mark the active class')
 assert((qml.match(/font\.pixelSize: root\.menuItemFontSize/g) || []).length === 6
-  && (qml.match(/font\.pixelSize: root\.menuSecondaryFontSize/g) || []).length === 3
+  && (qml.match(/font\.pixelSize: root\.menuSecondaryFontSize/g) || []).length === 4
   && qml.includes('font.pixelSize: root.menuCaptionFontSize')
   && qml.includes('property int headerHeight: Math.max(Style.space(28), Math.round(Style.space(34) * menuItemScale))')
   && qml.includes('property int actionBarHeight: Math.max(Style.space(26), Math.round(Style.space(36) * menuItemScale))'),
