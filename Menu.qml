@@ -1955,7 +1955,7 @@ Item {
           action: root.extensionAction(focusedPrefix.extension, focusedPrefix.prompt)
         })
         var focusedPrefixRow = root.displayRow(focusedPrefixItem, focusedPrefixItem.description, -1)
-        focusedPrefixRow.matchPriority = 110
+        focusedPrefixRow.matchPriority = MenuModel.extensionResultPriority()
         rows.push(focusedPrefixRow)
       }
       // Focused extension inputs already establish which provider owns the
@@ -2026,13 +2026,13 @@ Item {
           action: root.shellCommand(root.resultExtension.resultCommand, { result: liveResult, query: query })
         })
         var resultRow = root.displayRow(resultItem, root.resultExtension.description, -1)
-        resultRow.matchPriority = 110
+        resultRow.matchPriority = MenuModel.extensionResultPriority()
         rows.push(resultRow)
       }
 
       // Rank normal item and extension rows together. Diagnostic rows reserve
       // space at the bottom so dependency/setup guidance survives the cap.
-      rows = MenuModel.rankSearchRows(rows, diagnosticRows, query.length >= 3, root.maxDisplayedResults)
+      rows = MenuModel.rankSearchRows(rows, diagnosticRows, root.maxDisplayedResults)
     } else if (root.focusedExtension) {
       // A focused query extension is an input surface, not the Extensions
       // directory with an invisible focus change. Keep its initial result list

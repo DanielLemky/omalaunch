@@ -74,8 +74,8 @@ assert(filesExtension.length === 1 && filesExtension[0].mode === 'files', 'file 
 const partialFilesSuggestion = menu.suggestExtensions(filesExtension, 'fil')[0]
 const exactFilesSuggestion = menu.suggestExtensions(filesExtension, 'files')[0]
 assert(partialFilesSuggestion.extension.id === 'files', 'file browser extensions appear in prefix suggestions')
-assert(menu.extensionSuggestionPriority(partialFilesSuggestion, 'fil') === 20, 'partial extension suggestions receive low priority')
-assert(menu.extensionSuggestionPriority(exactFilesSuggestion, ' FILES ') === 95, 'exact extension prefixes outrank exact app titles')
+assert(menu.extensionSuggestionPriority(partialFilesSuggestion, 'fil') === 20, 'partial extension suggestions receive alias-prefix priority')
+assert(menu.extensionSuggestionPriority(exactFilesSuggestion, ' FILES ') === 30, 'exact extension prefixes receive exact-alias priority')
 assert(menu.extensionSuggestionPriority({ extension: { available: false }, prefix: 'files' }, 'files') === 0, 'unavailable extension suggestions receive no priority boost')
 assert(menu.extensionMatchPriority(filesExtension[0]) === 100, 'explicit available extension invocations receive top priority')
 assert(menu.extensionMatchPriority({ available: false }) === 0, 'unavailable extension invocations receive no priority boost')
@@ -113,7 +113,10 @@ const favoriteSearchItem = menu.fileFavoriteItem('file.favorite.directory:/home/
 assert(favoriteSearchItem.id === menu.fileFavoriteId('/home/quantumfire/Downloads', 'directory', 'files'), 'favorite search items canonicalize legacy ids')
 assert(favoriteSearchItem.label === 'Downloads' && favoriteSearchItem.action === '/home/quantumfire/Downloads', 'favorite search items retain their label and path action')
 assert(menu.matchesFileFavoriteQuery(favoriteSearchItem, menu.prepareSearchQuery('downloads')), 'favorite search items match their visible labels')
-assert(menu.matchesFileFavoriteQuery(favoriteSearchItem, menu.prepareSearchQuery('home quantumfire')), 'favorite search items match path components')
+assert(menu.matchesFileFavoriteQuery(favoriteSearchItem, menu.prepareSearchQuery('home quantumfire')), 'favorite search items match path-component prefixes')
+assert(menu.matchesFileFavoriteQuery(favoriteSearchItem, menu.prepareSearchQuery('home downloads')), 'favorite search terms can match both path components and the visible label')
+assert(!menu.matchesFileFavoriteQuery(favoriteSearchItem, menu.prepareSearchQuery('fi')), 'short queries do not match inside shared path components')
+assert(!menu.matchesFileFavoriteQuery(favoriteSearchItem, menu.prepareSearchQuery('fire')), 'path matching does not start in the middle of a component')
 assert(!menu.matchesFileFavoriteQuery(favoriteSearchItem, menu.prepareSearchQuery('documents')), 'nonmatching file favorites remain hidden from search')
 assert(!menu.matchesFileFavoriteQuery(favoriteSearchItem, menu.prepareSearchQuery('files')), 'favorite search ignores the hidden extension capability in canonical ids')
 assert(!menu.matchesFileFavoriteQuery(favoriteSearchItem, menu.prepareSearchQuery('directory')), 'favorite search ignores the hidden path type in canonical ids')
@@ -598,17 +601,28 @@ assert(specialParentMetadata.constructor.childCount === 1, 'derived child maps a
 assert(specialParentMetadata['constructor.child'].ancestorSet.$constructor, 'derived ancestry accepts inherited object-property names')
 assert(specialParentMetadata['toString.child'].visible && specialParentMetadata['__proto__.child'].visible, 'special parent ids do not prevent metadata construction')
 
-assert(menu.searchMatchPriority({ kind: 'app', label: 'Apps', aliases: ['app', 'applications'] }, 'apps') === 90, 'exact app titles have highest item priority')
-assert(menu.searchMatchPriority({ kind: 'app', label: 'Apple Music', aliases: [] }, 'app') === 70, 'app title prefixes outrank menu shortcuts')
-assert(menu.searchMatchPriority({ kind: 'action', parent: 'apps', label: 'Work Browser', aliases: [] }, 'browser') === 60, 'whole-word titles in the Apps menu outrank exact menu shortcuts')
-assert(menu.searchMatchPriority({ kind: 'app', parent: 'apps', label: 'Chromium', aliases: ['Web Browser'] }, 'browser') === 55, 'apps matched through metadata outrank management shortcuts')
-assert(menu.searchMatchPriority({ kind: 'app', parent: 'tools', label: 'Chromium', aliases: ['Web Browser'] }, 'browser') === 55, 'desktop apps retain app ranking outside the Apps menu')
-assert(menu.searchMatchPriority({ kind: 'app', parent: 'apps', label: 'Chromium', aliases: ['Web Browser'] }, 'calculator') === 0, 'unmatched apps receive no metadata fallback priority')
-assert(menu.searchMatchPriority({ kind: 'menu', parent: 'apps', label: 'Other', aliases: ['Browser'] }, 'browser') === 40, 'submenus under Apps do not receive app ranking')
-assert(menu.searchMatchPriority({ kind: 'menu', label: 'Browser', aliases: [] }, 'browser') === 50, 'exact menu titles rank below matching apps')
-assert(menu.searchMatchPriority({ label: 'Utilities', aliases: ['app', 'applications'] }, 'app') === 40, 'exact aliases outrank menu title prefixes')
-assert(menu.searchMatchPriority({ label: 'Apps', aliases: ['app', 'applications'] }, 'ap') === 30, 'menu title prefixes outrank alias prefixes')
-assert(menu.searchMatchPriority({ label: 'Utilities', aliases: ['applications'] }, 'ap') === 10, 'alias prefixes are recognized')
+assert(menu.searchMatchPriority({ kind: 'app', label: 'Apps', aliases: ['app', 'applications'] }, 'apps') === 60, 'exact titles receive exact-title priority')
+assert(menu.searchMatchPriority({ kind: 'app', label: 'Apple Music', aliases: [] }, 'app') === 50, 'title prefixes receive title-prefix priority')
+assert(menu.searchMatchPriority({ kind: 'action', parent: 'apps', label: 'Work Browser', aliases: [] }, 'browser') === 40, 'whole title words receive title-contains priority')
+assert(menu.searchMatchPriority({ kind: 'app', label: 'Delfin', aliases: [] }, 'fi') === 40, 'title substrings share one title-contains tier below prefixes')
+assert(menu.searchMatchPriority({ kind: 'app', label: 'LibreOffice Calc', aliases: [] }, 'calc') === menu.searchMatchPriority({ kind: 'app', label: 'Omacalc', aliases: [] }, 'calc'), 'title words and in-word substrings have equal match tiers')
+assert(menu.searchMatchPriority({ kind: 'app', parent: 'apps', label: 'Chromium', aliases: ['Web Browser'] }, 'browser') === 10, 'app metadata uses the same metadata tier as other result types')
+assert(menu.searchMatchPriority({ kind: 'app', parent: 'apps', label: 'Chromium', aliases: ['Web Browser'] }, 'calculator') === 0, 'unmatched items receive no priority')
+assert(menu.searchMatchPriority({ kind: 'menu', parent: 'apps', label: 'Other', aliases: ['Browser'] }, 'browser') === 30, 'exact aliases receive exact-alias priority')
+assert(menu.searchMatchPriority({ kind: 'menu', label: 'Browser', aliases: [] }, 'browser') === 60, 'item type does not change exact-title priority')
+assert(menu.searchMatchPriority({ label: 'Apps', aliases: ['app', 'applications'] }, 'ap') === 50, 'title prefixes outrank aliases')
+assert(menu.searchMatchPriority({ label: 'Utilities', aliases: ['applications'] }, 'ap') === 20, 'alias prefixes are recognized')
+assert(menu.searchMatchPriority({ id: 'install.browser', kind: 'menu', label: 'Browser', aliases: [] }, 'browser') === 5, 'install routes receive explicit management priority')
+assert(menu.searchMatchPriority({ id: 'remove.browser', kind: 'menu', label: 'Browser', aliases: [] }, 'browser') === 5, 'remove routes receive explicit management priority')
+
+const filesApp = { id: 'apps.files', kind: 'app', parent: 'apps', label: 'Files', aliases: [] }
+const filesRoot = menu.extensionRootItem(filesExtension[0])
+for (const filesQuery of ['f', 'fi', 'fil', 'file', 'files']) {
+  assert(
+    menu.searchMatchPriority(filesApp, filesQuery) === menu.searchMatchPriority(filesRoot, filesQuery),
+    `Files app and extension have equal match tiers for ${filesQuery}`
+  )
+}
 
 assert(menu.compareSearchRows(
   { matchPriority: 0, starred: false, usageCount: 2, lastUsedAt: 100, score: 20, path: 'A' },
@@ -617,31 +631,36 @@ assert(menu.compareSearchRows(
 ) < 0, 'frequency ranks before recency and text relevance')
 
 assert(menu.compareSearchRows(
+  { matchPriority: 40, starred: false, usageCount: 1, lastUsedAt: 100, score: 0, path: 'LibreOffice Calc' },
+  { matchPriority: 40, starred: false, usageCount: 3, lastUsedAt: 200, score: 10, path: 'Omacalc' }
+) > 0, 'usage ranks Omacalc above LibreOffice Calc within the shared title-contains tier')
+
+assert(menu.compareSearchRows(
   { matchPriority: 0, starred: false, usageCount: 2, lastUsedAt: 200, score: 20, path: 'A' },
   { matchPriority: 0, starred: false, usageCount: 2, lastUsedAt: 100, score: 0, path: 'B' },
   true
 ) < 0, 'recency breaks equal frequency ties')
 
 assert(menu.compareSearchRows(
-  { matchPriority: 70, starred: false, usageCount: 0, lastUsedAt: 0, score: 20, path: 'Apple Music' },
-  { matchPriority: 40, starred: true, usageCount: 10, lastUsedAt: 200, score: 0, path: 'Apps' },
+  { matchPriority: 50, starred: false, usageCount: 0, lastUsedAt: 0, score: 20, path: 'Apple Music' },
+  { matchPriority: 30, starred: true, usageCount: 10, lastUsedAt: 200, score: 0, path: 'Apps' },
   true
 ) > 0, 'starred aliases outrank unstarred title prefixes')
 
 assert(menu.compareSearchRows(
-  { matchPriority: 95, starred: false, usageCount: 0, lastUsedAt: 0, score: -3, path: 'Exact extension' },
-  { matchPriority: 90, starred: true, usageCount: 10, lastUsedAt: 200, score: 0, path: 'Exact app' },
+  { matchPriority: 60, starred: false, usageCount: 0, lastUsedAt: 0, score: -3, path: 'Exact extension' },
+  { matchPriority: 60, starred: true, usageCount: 10, lastUsedAt: 200, score: 0, path: 'Exact app' },
   true
 ) > 0, 'starred exact apps outrank exact extension activations')
 
 assert(menu.compareSearchRows(
-  { matchPriority: 95, starred: false, usageCount: 0, lastUsedAt: 0, score: -3, path: 'Exact extension' },
-  { matchPriority: 70, starred: true, usageCount: 10, lastUsedAt: 200, score: 0, path: 'App prefix' },
+  { matchPriority: 60, starred: false, usageCount: 0, lastUsedAt: 0, score: -3, path: 'Exact extension' },
+  { matchPriority: 50, starred: true, usageCount: 10, lastUsedAt: 200, score: 0, path: 'App prefix' },
   true
 ) > 0, 'starred app title prefixes outrank exact extension activations')
 
 assert(menu.compareSearchRows(
-  { matchPriority: 60, starred: false, usageCount: 0, lastUsedAt: 0, score: 0, path: 'App word' },
+  { matchPriority: 40, starred: false, usageCount: 0, lastUsedAt: 0, score: 0, path: 'App word' },
   { matchPriority: 20, starred: true, usageCount: 10, lastUsedAt: 200, score: -3, path: 'Partial extension' },
   true
 ) > 0, 'starred weak matches outrank unstarred app title words')
@@ -667,7 +686,7 @@ const diagnosticRow = {
   score: -3,
   path: 'Unavailable extension'
 }
-const cappedRows = menu.rankSearchRows(crowdedRows, [diagnosticRow], true, 100)
+const cappedRows = menu.rankSearchRows(crowdedRows, [diagnosticRow], 100)
 assert(cappedRows.length === 100, 'ranked search rows respect the result cap')
 assert(cappedRows[0].itemId === 'row-0', 'highest ordinary result remains first after capping')
 assert(cappedRows[98].itemId === 'row-98', 'diagnostics reserve space inside the result cap')
@@ -688,7 +707,7 @@ for (let diagnosticIndex = 0; diagnosticIndex < 4; diagnosticIndex++) {
 const saturatedRows = menu.rankSearchRows([
   { itemId: 'live-result', matchPriority: 110, starred: false, usageCount: 0, lastUsedAt: 0, score: -1, path: 'Live result' },
   { itemId: 'ordinary-result', matchPriority: 0, starred: false, usageCount: 0, lastUsedAt: 0, score: 0, path: 'Ordinary result' }
-], saturatedDiagnostics, true, 3)
+], saturatedDiagnostics, 3)
 assert(saturatedRows.length === 3, 'saturated diagnostics still respect the result cap')
 assert(saturatedRows[0].itemId === 'live-result', 'saturated diagnostics preserve the highest-ranked actionable result')
 assert(saturatedRows.slice(1).every(row => row.itemId.indexOf('diagnostic-') === 0), 'remaining saturated slots are reserved for diagnostics')
@@ -696,17 +715,17 @@ assert(saturatedRows.slice(1).every(row => row.itemId.indexOf('diagnostic-') ===
 const assembledRanking = menu.rankSearchRows([
   { itemId: 'starred-favorite', matchPriority: 30, starred: true, usageCount: 0, lastUsedAt: 0, score: 10, path: 'Starred favorite' },
   { itemId: 'partial-extension', matchPriority: 20, starred: false, usageCount: 0, lastUsedAt: 0, score: -3, path: 'Partial extension' },
-  { itemId: 'exact-app', matchPriority: 90, starred: false, usageCount: 0, lastUsedAt: 0, score: 0, path: 'Exact app' },
-  { itemId: 'exact-extension', matchPriority: 95, starred: false, usageCount: 0, lastUsedAt: 0, score: -3, path: 'Exact extension' },
+  { itemId: 'exact-app', matchPriority: 60, starred: false, usageCount: 1, lastUsedAt: 100, score: 0, path: 'Exact app' },
+  { itemId: 'exact-extension', matchPriority: 60, starred: false, usageCount: 2, lastUsedAt: 200, score: -3, path: 'Exact extension' },
   { itemId: 'live-result', matchPriority: 110, starred: false, usageCount: 0, lastUsedAt: 0, score: -1, path: 'Live result' }
-], [], true, 100)
+], [], 100)
 assert(assembledRanking.map(row => row.itemId).join(',') === 'starred-favorite,live-result,exact-extension,exact-app,partial-extension', 'assembled rows rank starred matches before extension and app priority tiers')
 
 assert(menu.compareSearchRows(
   { matchPriority: 0, starred: false, usageCount: 10, lastUsedAt: 200, score: 20, path: 'A' },
   { matchPriority: 0, starred: false, usageCount: 0, lastUsedAt: 0, score: 0, path: 'B' },
   false
-) > 0, 'queries shorter than three characters ignore usage history')
+) < 0, 'usage breaks match-tier ties even for short queries')
 
 const marker = path.join(os.tmpdir(), `omalaunch-guard-${process.pid}`)
 const hostileId = `row; touch ${marker}; #`
