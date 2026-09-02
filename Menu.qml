@@ -53,6 +53,20 @@ Item {
   function ping() { return "ok" }
 
   property string fontFamily: Style.font.menuFamily
+
+  function styleFontSize(fontClass) {
+    switch (fontClass) {
+    case "caption": return Style.font.caption
+    case "bodySmall": return Style.font.bodySmall
+    case "subtitle": return Style.font.subtitle
+    case "title": return Style.font.title
+    case "heading": return Style.font.heading
+    case "display": return Style.font.display
+    case "displayLarge": return Style.font.displayLarge
+    default: return Style.font.body
+    }
+  }
+
   // JSONC menu definitions. The shell parses both at startup and merges
   // the user file on top of the defaults, so the keybind → IPC → visible
   // path doesn't have to shell out to bash + jq on every open.
@@ -254,16 +268,25 @@ Item {
   readonly property real rowReservedBorderRight: Border.right(selectedBorderSpec)
   readonly property int cornerRadius: Style.cornerRadius
   property int contentMargin: Style.spacing.panelPadding
-  property int headerHeight: Math.max(Style.space(34), Style.font.title + Style.spacing.controlPaddingY * 2)
-  property int actionBarHeight: Math.max(Style.space(36), Style.font.bodySmall + Style.spacing.controlPaddingY * 2)
+  property int headerHeight: Math.max(Style.space(28), Math.round(Style.space(34) * menuItemScale))
+  property int actionBarHeight: Math.max(Style.space(26), Math.round(Style.space(36) * menuItemScale))
   property int actionBarBottomPadding: Style.space(6)
   property int contentSpacing: Style.spacing.md
-  property int baseRowHeight: Math.max(Style.space(50), Style.font.body + Style.spacing.rowPaddingX * 2)
-  property int detailRowHeight: Math.max(Style.space(58), Style.font.body + Style.font.caption + Style.spacing.rowPaddingX * 2)
+  property string menuItemFontClass: "title"
+  property int configuredMenuItemFontSize: 0
+  readonly property int menuItemFontSize: configuredMenuItemFontSize > 0
+    ? configuredMenuItemFontSize : styleFontSize(menuItemFontClass)
+  readonly property real menuItemScale: menuItemFontSize / Style.font.body
+  readonly property int menuSecondaryFontSize: Math.max(1, Math.round(Style.font.bodySmall * menuItemScale))
+  readonly property int menuCaptionFontSize: Math.max(1, Math.round(Style.font.caption * menuItemScale))
+  readonly property int menuItemIconSize: Math.max(Style.space(10), Math.min(Style.space(32),
+    Math.round(menuItemFontSize * 1.25)))
+  property int baseRowHeight: Math.max(Style.space(28), Math.round(Style.space(44) * menuItemScale))
+  property int detailRowHeight: Math.max(Style.space(36), Math.round(Style.space(52) * menuItemScale))
   // How much of the first hidden row stays visible at the fold — enough to
   // read as a cut-off row rather than a bottom border.
   property int rowPeek: Math.round(baseRowHeight * 0.55)
-  property int rowSpacing: Style.spacing.xs
+  property int rowSpacing: Math.max(Style.space(1), Math.round(Style.spacing.xs * menuItemScale))
   property int dividerHeight: Style.space(17)
   property bool searchDivider: false
   property int layoutSerial: 0
@@ -273,7 +296,8 @@ Item {
   readonly property bool emptyRoot: !root.dmenuActive && root.activeMenu === "root" && !root.filterText && displayModel.count === 0
   property int visibleRowsHeight: root.emptyRoot || root.workflowInputActive ? 0 : (root.dmenuActive ? dmenuRowListHeight(layoutSerial, displayModel.count, filterText) : rowListHeight(layoutSerial, displayModel.count, filterText, searchDivider))
   readonly property bool workflowFilterMenuActive: root.workflowActive && root.workflowNode && root.workflowNode.kind === "menu"
-  property int workflowHintHeight: (root.workflowInputActive || root.workflowFilterMenuActive) ? Style.space(18) : 0
+  property int workflowHintHeight: (root.workflowInputActive || root.workflowFilterMenuActive)
+    ? Math.max(Style.space(12), Math.round(Style.space(18) * menuItemScale)) : 0
   property int cardHeight: Math.min(contentMargin + actionBarBottomPadding + headerHeight + actionBarHeight + contentSpacing
     + (visibleRowsHeight > 0 ? contentSpacing + visibleRowsHeight : 0)
     + (workflowHintHeight > 0 ? contentSpacing + workflowHintHeight : 0), panel.height - Style.gapsOut * 2)
@@ -300,7 +324,9 @@ Item {
     starred: displayModel.count > 0 && root.cursorActive && root.selectedIndex >= 0
       && root.selectedIndex < displayModel.count && displayModel.get(root.selectedIndex).starred
   })
-  readonly property var displayedActionBarHints: root.cardWidth < Style.space(560)
+  readonly property real actionBarFontScale: menuItemFontSize / Style.font.title
+  readonly property var displayedActionBarHints: root.cardWidth
+    < Math.round(Style.space(560) * Math.max(1, actionBarFontScale))
     ? MenuModel.compactActionBarHints(root.actionBarHints) : root.actionBarHints
 
   function finishRequest(selection) {
@@ -2788,6 +2814,10 @@ Item {
         var oldWorkflowNode = root.workflowNode
         var oldWorkflowStack = root.workflowStack
         root.extensions = catalog.extensions
+        root.menuItemFontClass = catalog.omalaunchConfig && catalog.omalaunchConfig.menuItemFontClass
+          ? catalog.omalaunchConfig.menuItemFontClass : "title"
+        root.configuredMenuItemFontSize = catalog.omalaunchConfig && catalog.omalaunchConfig.menuItemFontSize !== undefined
+          ? catalog.omalaunchConfig.menuItemFontSize : 0
         favorites.configure(catalog.providerConfig, catalog.migrationComplete)
         root.preloadDynamicMenuSearch()
 
@@ -3685,7 +3715,7 @@ Item {
             color: root.foreground
             opacity: root.filterText ? 1 : 0.58
             font.family: root.fontFamily
-            font.pixelSize: Style.font.heading
+            font.pixelSize: root.menuItemFontSize
             elide: Text.ElideRight
           }
 
@@ -3698,7 +3728,7 @@ Item {
             color: root.foreground
             opacity: root.filterText ? 1 : 0.58
             font.family: root.fontFamily
-            font.pixelSize: Style.font.heading
+            font.pixelSize: root.menuItemFontSize
             elide: Text.ElideRight
           }
 
@@ -3714,7 +3744,7 @@ Item {
           color: root.foreground
           opacity: 0.58
           font.family: root.fontFamily
-          font.pixelSize: Style.font.body
+          font.pixelSize: root.menuItemFontSize
           elide: Text.ElideRight
           verticalAlignment: Text.AlignVCenter
         }
@@ -3798,7 +3828,7 @@ Item {
                 text: row.icon
                 color: row.hasCursor ? root.selectedText : root.foreground
                 font.family: row.iconFont.length > 0 ? row.iconFont : root.fontFamily
-                font.pixelSize: Style.font.iconLarge
+                font.pixelSize: root.menuItemIconSize
                 width: Style.space(36)
                 horizontalAlignment: Text.AlignHCenter
                 verticalAlignment: Text.AlignVCenter
@@ -3810,8 +3840,8 @@ Item {
               Rectangle {
                 id: imagePreview
                 visible: row.isImageFile
-                width: Style.space(36)
-                height: Style.space(36)
+                width: root.menuItemIconSize
+                height: root.menuItemIconSize
                 radius: Math.min(root.cornerRadius, Style.space(5))
                 color: Util.alpha(root.foreground, 0.08)
                 clip: true
@@ -3833,8 +3863,8 @@ Item {
               Image {
                 id: appIconImage
                 visible: row.isApp
-                width: Style.font.iconLarge
-                height: Style.font.iconLarge
+                width: root.menuItemIconSize
+                height: root.menuItemIconSize
                 fillMode: Image.PreserveAspectFit
                 // Decode at physical pixels — a logical-size decode leaves
                 // PNG icons upscaled and blurry on HiDPI displays.
@@ -3849,12 +3879,12 @@ Item {
 
               Column {
                 id: contentColumn
-                anchors.left: row.isImageFile ? imagePreview.right : (row.hasIcon ? iconText.right : parent.left)
+                anchors.left: row.hasIcon ? iconText.right : parent.left
                 anchors.leftMargin: row.hasIcon ? Style.space(6) : root.rowReservedBorderLeft + Style.space(18)
                 anchors.right: trail.left
                 anchors.rightMargin: Style.space(6)
                 anchors.verticalCenter: parent.verticalCenter
-                spacing: Style.space(3)
+                spacing: Math.max(Style.space(1), Math.round(Style.space(3) * root.menuItemScale))
 
                 Text {
                   id: labelText
@@ -3862,7 +3892,7 @@ Item {
                   text: row.label
                   color: row.hasCursor ? root.selectedText : root.foreground
                   font.family: root.fontFamily
-                  font.pixelSize: Style.font.heading
+                  font.pixelSize: root.menuItemFontSize
                   font.weight: Font.Medium
                   elide: Text.ElideRight
                 }
@@ -3874,7 +3904,7 @@ Item {
                   color: root.foreground
                   opacity: 0.52
                   font.family: root.fontFamily
-                  font.pixelSize: Style.font.bodySmall
+                  font.pixelSize: root.menuSecondaryFontSize
                   elide: Text.ElideRight
                 }
               }
@@ -3893,7 +3923,7 @@ Item {
                   color: row.hasCursor ? root.selectedText : root.foreground
                   opacity: 0.7
                   font.family: root.fontFamily
-                  font.pixelSize: Style.font.body
+                  font.pixelSize: root.menuItemFontSize
                   anchors.verticalCenter: parent.verticalCenter
                 }
 
@@ -3903,7 +3933,7 @@ Item {
                   color: root.foreground
                   opacity: 0.45
                   font.family: root.fontFamily
-                  font.pixelSize: Style.font.body
+                  font.pixelSize: root.menuItemFontSize
                   anchors.verticalCenter: parent.verticalCenter
                 }
 
@@ -3912,7 +3942,7 @@ Item {
                   color: row.hasCursor ? root.selectedText : root.foreground
                   opacity: row.starred ? 0.7 : (row.kind === "menu" || row.kind === "link" ? 0.36 : 0)
                   font.family: root.fontFamily
-                  font.pixelSize: row.starred ? Style.font.bodySmall : Style.font.heading
+                  font.pixelSize: row.starred ? root.menuSecondaryFontSize : root.menuItemFontSize
                   font.weight: Font.Normal
                   anchors.verticalCenter: parent.verticalCenter
                 }
@@ -3976,7 +4006,7 @@ Item {
               color: root.foreground
               opacity: 0.72
               font.family: root.fontFamily
-              font.pixelSize: Style.font.bodySmall
+              font.pixelSize: root.menuSecondaryFontSize
               horizontalAlignment: Text.AlignHCenter
               elide: Text.ElideMiddle
             }
@@ -4022,7 +4052,7 @@ Item {
 
           Column {
             anchors.centerIn: parent
-            spacing: Style.space(8)
+            spacing: Math.max(Style.space(3), Math.round(Style.space(8) * root.menuItemScale))
             visible: !root.focusedExtension && displayModel.count === 0 && root.mode !== "input" && !root.workflowInputActive && (root.filterText || root.activeMenu !== "root") && !root.isPotentialExtensionQuery(root.filterText)
 
             Text {
@@ -4031,7 +4061,7 @@ Item {
               color: root.selectedText
               opacity: 0.8
               font.family: root.fontFamily
-              font.pixelSize: Style.font.displayLarge
+              font.pixelSize: Math.max(1, Math.round(Style.font.displayLarge * root.menuItemScale))
               horizontalAlignment: Text.AlignHCenter
               width: Style.space(320)
             }
@@ -4043,7 +4073,7 @@ Item {
               color: root.foreground
               opacity: 0.7
               font.family: root.fontFamily
-              font.pixelSize: Style.font.title
+              font.pixelSize: Math.max(1, Math.round(Style.font.title * root.menuItemScale))
               horizontalAlignment: Text.AlignHCenter
               width: Style.space(320)
             }
@@ -4090,7 +4120,7 @@ Item {
                   color: root.foreground
                   opacity: 0.68
                   font.family: root.fontFamily
-                  font.pixelSize: Style.font.bodySmall
+                  font.pixelSize: root.menuSecondaryFontSize
                   anchors.verticalCenter: parent.verticalCenter
                 }
 
@@ -4103,12 +4133,16 @@ Item {
 
                     Item {
                       required property string modelData
-                      width: Math.max(height, shortcutText.implicitWidth + Style.space(10))
-                      height: Math.max(Style.space(22), shortcutText.implicitHeight + Style.space(6))
+                      width: Math.max(height, shortcutText.implicitWidth
+                        + Math.max(Style.space(4), Math.round(Style.space(10) * root.menuItemScale)))
+                      height: Math.max(Style.space(14), Math.round(Style.space(22) * root.menuItemScale),
+                        shortcutText.implicitHeight
+                          + Math.max(Style.space(2), Math.round(Style.space(6) * root.menuItemScale)))
 
                       Rectangle {
                         anchors.fill: parent
-                        radius: Math.min(root.cornerRadius, Style.space(5))
+                        radius: Math.min(root.cornerRadius,
+                          Math.max(Style.space(2), Math.round(Style.space(5) * root.menuItemScale)))
                         color: "transparent"
                         border.width: Style.spacing.hairline
                         border.color: Util.alpha(root.foreground, 0.13)
@@ -4120,7 +4154,7 @@ Item {
                           color: root.foreground
                           opacity: 0.82
                           font.family: root.fontFamily
-                          font.pixelSize: Style.font.caption
+                          font.pixelSize: root.menuCaptionFontSize
                           font.weight: Font.Medium
                         }
                       }

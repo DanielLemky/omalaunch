@@ -1118,6 +1118,8 @@ function parseExtensionCatalog(text) {
 
   var providerPreferences = parsed && typeof parsed.providerPreferences === "object" && !Array.isArray(parsed.providerPreferences)
     ? parsed.providerPreferences : ({})
+  var omalaunchConfig = parsed && typeof parsed.omalaunchConfig === "object" && !Array.isArray(parsed.omalaunchConfig)
+    ? parsed.omalaunchConfig : ({})
   var providerConfig = parsed && typeof parsed.providerConfig === "object" && !Array.isArray(parsed.providerConfig)
     ? parsed.providerConfig : ({})
   var extensions = []
@@ -1159,7 +1161,8 @@ function parseExtensionCatalog(text) {
     }
   }
   return { extensions: resolved, diagnostics: diagnostics, valid: true, complete: complete,
-    providerConfig: providerConfig, migrationComplete: parsed && parsed.migrationComplete === true }
+    omalaunchConfig: omalaunchConfig, providerConfig: providerConfig,
+    migrationComplete: parsed && parsed.migrationComplete === true }
 }
 
 function parseExtensions(text) {

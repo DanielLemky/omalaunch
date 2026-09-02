@@ -470,12 +470,36 @@ def load_user_configuration(home: Path, builder: CatalogBuilder, limits: Limits)
                 if not isinstance(provider, str) or not provider:
                     builder.diagnostic(f"Ignored invalid provider for capability {capability!r} in {main_path}")
                     continue
-                builder.provider_preferences[capability] = provider
                 normalized_capabilities[capability] = {"provider": provider}
+            menu_item_font_class = value.get("menuItemFontClass")
+            valid_font_classes = {
+                "caption", "bodySmall", "body", "subtitle", "title",
+                "heading", "display", "displayLarge",
+            }
+            if menu_item_font_class is not None and (
+                not isinstance(menu_item_font_class, str)
+                or menu_item_font_class not in valid_font_classes
+            ):
+                raise ValueError("menuItemFontClass must be a supported Style.font class")
+            menu_item_font_size = value.get("menuItemFontSize")
+            if menu_item_font_size is not None and (
+                not isinstance(menu_item_font_size, int)
+                or isinstance(menu_item_font_size, bool)
+                or not 8 <= menu_item_font_size <= 24
+            ):
+                raise ValueError("menuItemFontSize must be an integer from 8 to 24")
+            builder.provider_preferences = {
+                capability: setting["provider"]
+                for capability, setting in normalized_capabilities.items()
+            }
             builder.omalaunch_config = {
                 "version": 1,
                 "capabilities": normalized_capabilities,
             }
+            if menu_item_font_class is not None:
+                builder.omalaunch_config["menuItemFontClass"] = menu_item_font_class
+            if menu_item_font_size is not None:
+                builder.omalaunch_config["menuItemFontSize"] = menu_item_font_size
         except (OSError, UnicodeDecodeError, ValueError) as error:
             builder.diagnostic(f"Could not load configuration {main_path}: {error}")
 
