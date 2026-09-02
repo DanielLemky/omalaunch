@@ -1217,14 +1217,31 @@ function extensionQueryRunIsCurrent(revision, currentRevision, query, effectiveQ
     && !!resultExtension && extensionId === resultExtension.id
 }
 
+var SEARCH_MATCH_TIER = {
+  NONE: 0,
+  MANAGEMENT: 5,
+  METADATA: 10,
+  ALIAS_PREFIX: 20,
+  EXACT_ALIAS: 30,
+  TITLE_CONTAINS: 40,
+  TITLE_PREFIX: 50,
+  EXACT_TITLE: 60,
+  EXPLICIT_EXTENSION: 100,
+  LIVE_RESULT: 110
+}
+
 function extensionSuggestionPriority(suggestion, query) {
-  if (!suggestion || !suggestion.extension || !suggestion.extension.available) return 0
+  if (!suggestion || !suggestion.extension || !suggestion.extension.available) return SEARCH_MATCH_TIER.NONE
   var input = String(query || "").toLowerCase().trim()
-  return suggestion.prefix === input ? 95 : 20
+  return suggestion.prefix === input ? SEARCH_MATCH_TIER.EXACT_ALIAS : SEARCH_MATCH_TIER.ALIAS_PREFIX
 }
 
 function extensionMatchPriority(extension) {
-  return extension && extension.available ? 100 : 0
+  return extension && extension.available ? SEARCH_MATCH_TIER.EXPLICIT_EXTENSION : SEARCH_MATCH_TIER.NONE
+}
+
+function extensionResultPriority() {
+  return SEARCH_MATCH_TIER.LIVE_RESULT
 }
 
 function suggestExtensions(extensions, query) {
@@ -1287,15 +1304,13 @@ function matchesQuery(entry, query, visible, metadata) {
 function searchMatchPriority(entry, query, metadata) {
   var prepared = query && typeof query === "object" ? query : prepareSearchQuery(query)
   var needle = prepared.needle
-  if (!entry || !needle) return 0
+  if (!entry || !needle) return SEARCH_MATCH_TIER.NONE
   var label = metadata ? metadata.labelLower : String(entry.label || "").toLowerCase()
-  var isApp = entry.kind === "app" || (entry.kind === "action" && entry.parent === "apps")
-  if (label === needle) return isApp ? 90 : 50
-  if (isApp && label.indexOf(needle) === 0) return 70
-  if (isApp && (metadata ? hasWord(metadata.labelWords, needle) : label.split(/\s+/).indexOf(needle) >= 0)) return 60
-  // Any remaining launchable-app match came from searchable metadata such as
-  // GenericName, Keywords, the generated id, or description text.
-  if (isApp && matchesQuery(entry, prepared, true, metadata)) return 55
+  var priority = SEARCH_MATCH_TIER.NONE
+
+  if (label === needle) priority = SEARCH_MATCH_TIER.EXACT_TITLE
+  else if (label.indexOf(needle) === 0) priority = SEARCH_MATCH_TIER.TITLE_PREFIX
+  else if (label.indexOf(needle) >= 0) priority = SEARCH_MATCH_TIER.TITLE_CONTAINS
 
   var aliases = metadata ? metadata.aliasesLower : []
   if (!metadata) {
@@ -1304,13 +1319,18 @@ function searchMatchPriority(entry, query, metadata) {
       aliases.push(String(sourceAliases[sourceIndex] || "").toLowerCase().trim())
   }
   for (var i = 0; i < aliases.length; i++) {
-    if (aliases[i] === needle) return 40
+    if (aliases[i] === needle) priority = Math.max(priority, SEARCH_MATCH_TIER.EXACT_ALIAS)
+    else if (aliases[i].indexOf(needle) === 0) priority = Math.max(priority, SEARCH_MATCH_TIER.ALIAS_PREFIX)
+    else if (aliases[i].indexOf(needle) >= 0) priority = Math.max(priority, SEARCH_MATCH_TIER.METADATA)
   }
-  if (label.indexOf(needle) === 0) return 30
-  for (var j = 0; j < aliases.length; j++) {
-    if (aliases[j].indexOf(needle) === 0) return 10
-  }
-  return 0
+  if (priority === SEARCH_MATCH_TIER.NONE && matchesQuery(entry, prepared, true, metadata))
+    priority = SEARCH_MATCH_TIER.METADATA
+
+  var id = String(entry.id || "")
+  if (priority > SEARCH_MATCH_TIER.NONE
+      && (id.indexOf("install.") === 0 || id.indexOf("remove.") === 0))
+    return SEARCH_MATCH_TIER.MANAGEMENT
+  return priority
 }
 
 function searchScore(items, entry, query, metadata) {
@@ -1340,30 +1360,28 @@ function searchScore(items, entry, query, metadata) {
   return score * 1000 + (metadata ? metadata.depth : depthFor(items, entry.id)) * 25 + entry.order
 }
 
-function compareSearchRows(a, b, useHistory) {
+function compareSearchRows(a, b) {
   if (a.starred !== b.starred) return a.starred ? -1 : 1
   var aPriority = Math.max(0, Number(a.matchPriority) || 0)
   var bPriority = Math.max(0, Number(b.matchPriority) || 0)
   if (aPriority !== bPriority) return bPriority - aPriority
 
-  if (useHistory) {
-    var aCount = Math.max(0, Number(a.usageCount) || 0)
-    var bCount = Math.max(0, Number(b.usageCount) || 0)
-    if (aCount !== bCount) return bCount - aCount
-    var aLast = Math.max(0, Number(a.lastUsedAt) || 0)
-    var bLast = Math.max(0, Number(b.lastUsedAt) || 0)
-    if (aCount > 0 && aLast !== bLast) return bLast - aLast
-  }
+  var aCount = Math.max(0, Number(a.usageCount) || 0)
+  var bCount = Math.max(0, Number(b.usageCount) || 0)
+  if (aCount !== bCount) return bCount - aCount
+  var aLast = Math.max(0, Number(a.lastUsedAt) || 0)
+  var bLast = Math.max(0, Number(b.lastUsedAt) || 0)
+  if (aCount > 0 && aLast !== bLast) return bLast - aLast
 
   if (a.score !== b.score) return a.score - b.score
   return String(a.path || "").localeCompare(String(b.path || ""))
 }
 
-function rankSearchRows(rows, diagnosticRows, useHistory, maxRows) {
+function rankSearchRows(rows, diagnosticRows, maxRows) {
   var ranked = Array.isArray(rows) ? rows.slice() : []
   var diagnostics = Array.isArray(diagnosticRows) ? diagnosticRows.slice() : []
-  ranked.sort(function(a, b) { return compareSearchRows(a, b, useHistory) })
-  diagnostics.sort(function(a, b) { return compareSearchRows(a, b, false) })
+  ranked.sort(compareSearchRows)
+  diagnostics.sort(compareSearchRows)
 
   var limit = Math.max(0, Number(maxRows) || 0)
   if (!limit) return []
@@ -1747,6 +1765,7 @@ if (typeof module !== "undefined") {
     extensionQueryRunIsCurrent: extensionQueryRunIsCurrent,
     extensionSuggestionPriority: extensionSuggestionPriority,
     extensionMatchPriority: extensionMatchPriority,
+    extensionResultPriority: extensionResultPriority,
     suggestExtensions: suggestExtensions,
     matchExtensions: matchExtensions,
     matchesQuery: matchesQuery,
