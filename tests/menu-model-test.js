@@ -210,6 +210,7 @@ const bundledExtensions = menu.parseExtensions(JSON.stringify([
 ]))
 assert(menu.queryExtension(bundledExtensions, '2 + 2').capability === 'calculator', 'bundled calculator matches arithmetic')
 assert(menu.queryExtension(bundledExtensions, '(2 + 2) * 3').capability === 'calculator', 'bundled calculator matches expressions beginning with parentheses')
+assert(menu.queryExtension(bundledExtensions, '(-1 + 1) * 2').capability === 'calculator', 'bundled calculator matches unary signs inside opening parentheses')
 assert(menu.queryExtension(bundledExtensions, '10 USD to CAD').capability === 'currency', 'bundled currency extension outranks general conversions')
 assert(menu.queryExtension(bundledExtensions, 'hello') === null, 'bundled extensions ignore ordinary searches')
 const calculatorResult = bundledExtensions.find(extension => extension.capability === 'calculator')
