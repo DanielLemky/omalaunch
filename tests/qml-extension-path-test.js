@@ -133,7 +133,9 @@ assert(qml.includes('id: documentKillTimer')
 assert(qml.includes('readonly property bool emptyRoot: !root.dmenuActive && !root.workflowActive'),
 'detail documents do not collapse into the empty root-menu layout')
 assert(qml.includes('required property string badge')
+  && qml.includes('required property string badgeTone')
   && qml.includes('id: badgeText')
+  && qml.includes('root.badgeToneColor(row.badgeTone)')
   && qml.includes('radius: height / 2'),
 'dynamic row badges use a host-rendered trailing pill')
 assert(qml.includes('required property string trailingText')

@@ -421,6 +421,14 @@ Item {
     root.appLibrary.refreshIcons()
   }
 
+  function badgeToneColor(tone) {
+    if (tone === "success") return "#3fb950"
+    if (tone === "danger") return "#f85149"
+    if (tone === "warning") return "#d29922"
+    if (tone === "info") return "#58a6ff"
+    return root.foreground
+  }
+
   // Menu rows only surface their detail while a search is narrowing them;
   // dmenu rows carry caller-supplied subtext that must always be visible.
   function rowHeightForDetail(detail) {
@@ -1920,6 +1928,7 @@ Item {
         trailingIcon: "",
         trailingText: "",
         badge: "",
+        badgeTone: "neutral",
         appIcon: "",
         appId: "",
         label: option.label,
@@ -1969,6 +1978,7 @@ Item {
             trailingIcon: workflowChild.trailingIcon,
             trailingText: workflowChild.trailingText,
             badge: workflowChild.badge,
+            badgeTone: workflowChild.badgeTone,
             label: root.workflowText(workflowChild.label),
             description: root.workflowText(workflowChild.description),
             aliases: workflowChild.aliases,
@@ -4256,6 +4266,7 @@ Item {
               required property string trailingIcon
               required property string trailingText
               required property string badge
+              required property string badgeTone
               required property string appIcon
               required property string appId
               required property string label
@@ -4405,15 +4416,15 @@ Item {
                   width: Math.max(Style.space(24), badgeText.implicitWidth + Style.space(12))
                   height: Math.max(Style.space(24), badgeText.implicitHeight + Style.space(6))
                   radius: height / 2
-                  color: row.hasCursor ? Util.alpha(root.selectedText, 0.16) : Util.alpha(root.foreground, 0.09)
+                  color: Util.alpha(root.badgeToneColor(row.badgeTone), row.hasCursor ? 0.28 : 0.18)
                   anchors.verticalCenter: parent.verticalCenter
 
                   Text {
                     id: badgeText
                     anchors.centerIn: parent
                     text: row.badge
-                    color: row.hasCursor ? root.selectedText : root.foreground
-                    opacity: 0.82
+                    color: root.badgeToneColor(row.badgeTone)
+                    opacity: 0.92
                     font.family: root.fontFamily
                     font.pixelSize: root.menuSecondaryFontSize
                     font.weight: Font.Medium

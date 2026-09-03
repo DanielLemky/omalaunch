@@ -316,7 +316,7 @@ assert(dynamicMenu.items[0].actions[2].refreshExtensions, 'mutation actions can 
 assert(dynamicMenu.items[1].kind === 'input' && dynamicMenu.items[1].prompt === 'URL', 'rows can open bounded host input forms')
 assert(menu.workflowCommand(dynamicMenu.items[1], 'https://literal.test/?q=$(bad)', {}).slice(-1)[0] === 'https://literal.test/?q=$(bad)', 'dynamic input is substituted as one literal argument')
 const scopedSearch = menu.normalizeDynamicMenuOutput([
-  { id: 'global', label: 'Google', globalSearch: true, trailingIcon: 'globe', trailingText: '⌘ G', badge: '12', command: ['search', 'google'] },
+  { id: 'global', label: 'Google', globalSearch: true, trailingIcon: 'globe', trailingText: '⌘ G', badge: '12', badgeTone: 'success', command: ['search', 'google'] },
   { id: 'menu-only', label: 'Bing', globalSearch: false, command: ['search', 'bing'] }
 ])
 assert(menu.dynamicMenuSearchItems(dynamicMenuExtensions[0], scopedSearch).length === 1, 'dynamic rows can remain in their extension menu without entering global search')
@@ -326,6 +326,7 @@ assert(menu.displayRow({}, [], {}, scopedSearch.items[0], '', 0, '').trailingTex
 assert(menu.normalizeDynamicMenuOutput([{ id: 'long-trailing', label: 'Long', trailingText: 'x'.repeat(65), command: ['true'] }]).items[0].trailingText === '', 'oversized dynamic row trailing text is omitted')
 assert(menu.normalizeItem('bounded', { trailingText: 'x'.repeat(65) }).trailingText.length === 64, 'normalized row trailing text is bounded to 64 characters')
 assert(menu.dynamicMenuSearchItems(dynamicMenuExtensions[0], scopedSearch)[0].badge === '12', 'dynamic rows retain bounded badges')
+assert(menu.dynamicMenuSearchItems(dynamicMenuExtensions[0], scopedSearch)[0].badgeTone === 'success', 'dynamic rows retain semantic badge tones')
 assert(menu.normalizeDynamicMenuOutput([{ id: 'badge', label: 'Badge', badge: 'x'.repeat(17), command: ['true'] }]).items[0].badge === '', 'oversized dynamic row badges are omitted')
 const separateGlobalSearchMenu = menu.normalizeDynamicMenuOutput({
   items: [{ id: 'visible', label: 'Visible only', command: ['open-visible'] }],

@@ -10,6 +10,11 @@ function normalizeAliases(value) {
   return []
 }
 
+function normalizeBadgeTone(value) {
+  var tone = String(value || "neutral")
+  return ["neutral", "success", "danger", "warning", "info"].indexOf(tone) >= 0 ? tone : "neutral"
+}
+
 function normalizeItem(id, raw) {
   var value = raw || {}
   var aliases = normalizeAliases(value.aliases)
@@ -29,6 +34,7 @@ function normalizeItem(id, raw) {
     trailingIcon: value.trailingIcon || "",
     trailingText: typeof value.trailingText === "string" ? value.trailingText.substring(0, 64) : "",
     badge: value.badge || "",
+    badgeTone: normalizeBadgeTone(value.badgeTone),
     label: value.label || id,
     title: value.title || "",
     target: value.target || "",
@@ -621,6 +627,7 @@ function normalizeWorkflowNode(raw, state, depth) {
     trailingIcon: boundedWorkflowText(raw.trailingIcon, 32),
     trailingText: boundedWorkflowText(raw.trailingText, 64),
     badge: boundedWorkflowText(raw.badge, 16),
+    badgeTone: normalizeBadgeTone(raw.badgeTone),
     context: workflowContext(raw.context),
     items: [],
     next: null,
@@ -1014,6 +1021,7 @@ function dynamicMenuSearchItems(extension, workflow) {
       trailingIcon: node.trailingIcon,
       trailingText: node.trailingText,
       badge: node.badge,
+      badgeTone: node.badgeTone,
       label: node.label,
       description: node.description,
       aliases: node.aliases,
@@ -1677,6 +1685,7 @@ function displayRow(items, itemOrder, checkedResults, entry, detail, score, sect
     trailingIcon: entry.trailingIcon || "",
     trailingText: typeof entry.trailingText === "string" ? entry.trailingText.substring(0, 64) : "",
     badge: entry.badge || "",
+    badgeTone: normalizeBadgeTone(entry.badgeTone),
     appIcon: entry.appIcon || "",
     appId: entry.appId || "",
     label: labelFor(entry, checkedResults),
