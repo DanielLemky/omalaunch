@@ -399,7 +399,7 @@ Item {
   function collectBounded(proc, data) {
     if (proc.outputOverflow) return
     var next = proc.collected + data + "\n"
-    if (next.length > root.maxProcessOutputBytes) {
+    if (root.utf8ByteLength(next) > root.maxProcessOutputBytes) {
       proc.outputOverflow = true
       proc.collected = ""
       proc.running = false
@@ -625,7 +625,7 @@ Item {
   function collectExtensionQuery(data) {
     if (extensionQueryProc.outputOverflow || extensionQueryProc.stopping) return
     var next = extensionQueryProc.collected + data + "\n"
-    if (next.length > root.maxProcessOutputBytes) {
+    if (root.utf8ByteLength(next) > root.maxProcessOutputBytes) {
       extensionQueryProc.outputOverflow = true
       extensionQueryProc.collected = ""
       root.stopExtensionQuery("query output exceeded limit")
@@ -1161,6 +1161,10 @@ Item {
     root.filterText = ""
     root.selectedIndex = 0
     root.rebuildDisplay()
+  }
+
+  function utf8ByteLength(value) {
+    return MenuModel.utf8ByteLength(value)
   }
 
   function boundedBackgroundDiagnostic(value) {
@@ -3226,9 +3230,10 @@ Item {
     stdout: SplitParser {
       onRead: function(data) {
         if (dynamicMenuSearchProc.outputOverflow) return
-        var nextBytes = root.dynamicMenuSearchOutputBytes + data.length + 1
+        var dataBytes = root.utf8ByteLength(data) + 1
+        var nextBytes = root.dynamicMenuSearchOutputBytes + dataBytes
         var next = dynamicMenuSearchProc.collected + data + "\n"
-        if (next.length > root.dynamicMenuOutputBytes || nextBytes > root.dynamicMenuSearchMaxOutputBytes) {
+        if (root.utf8ByteLength(next) > root.dynamicMenuOutputBytes || nextBytes > root.dynamicMenuSearchMaxOutputBytes) {
           dynamicMenuSearchProc.outputOverflow = true
           root.rejectDynamicMenuSearch("global menu search provider exceeded an output limit")
         } else {
@@ -3240,8 +3245,9 @@ Item {
     stderr: SplitParser {
       onRead: function(data) {
         if (dynamicMenuSearchProc.outputOverflow) return
-        dynamicMenuSearchProc.stderrBytes += data.length + 1
-        root.dynamicMenuSearchOutputBytes += data.length + 1
+        var dataBytes = root.utf8ByteLength(data) + 1
+        dynamicMenuSearchProc.stderrBytes += dataBytes
+        root.dynamicMenuSearchOutputBytes += dataBytes
         if (dynamicMenuSearchProc.stderrBytes > root.dynamicMenuOutputBytes
             || root.dynamicMenuSearchOutputBytes > root.dynamicMenuSearchMaxOutputBytes) {
           dynamicMenuSearchProc.outputOverflow = true
@@ -3340,7 +3346,7 @@ Item {
       onRead: function(data) {
         if (submenuProc.outputOverflow) return
         var next = submenuProc.collected + data + "\n"
-        if (next.length > root.submenuOutputBytes) {
+        if (root.utf8ByteLength(next) > root.submenuOutputBytes) {
           submenuProc.outputOverflow = true
           submenuProc.collected = ""
           root.invalidateSubmenu("submenu output exceeded limit")
@@ -3353,7 +3359,7 @@ Item {
     stderr: SplitParser {
       onRead: function(data) {
         if (submenuProc.outputOverflow) return
-        submenuProc.stderrBytes += data.length + 1
+        submenuProc.stderrBytes += root.utf8ByteLength(data) + 1
         if (submenuProc.stderrBytes > root.submenuOutputBytes) {
           submenuProc.outputOverflow = true
           root.invalidateSubmenu("submenu error output exceeded limit")
@@ -3426,7 +3432,7 @@ Item {
       onRead: function(data) {
         if (documentProc.outputOverflow) return
         var next = documentProc.collected + data + "\n"
-        if (next.length > root.documentOutputBytes) {
+        if (root.utf8ByteLength(next) > root.documentOutputBytes) {
           documentProc.outputOverflow = true
           documentProc.collected = ""
           root.documentError = "Detail provider output was too large"
@@ -3438,7 +3444,7 @@ Item {
     stderr: SplitParser {
       onRead: function(data) {
         if (documentProc.outputOverflow) return
-        documentProc.stderrBytes += data.length + 1
+        documentProc.stderrBytes += root.utf8ByteLength(data) + 1
         if (documentProc.stderrBytes > root.documentOutputBytes) {
           documentProc.outputOverflow = true
           root.documentError = "Detail provider error output was too large"
@@ -3507,7 +3513,7 @@ Item {
       onRead: function(data) {
         if (dynamicMenuProc.outputOverflow) return
         var next = dynamicMenuProc.collected + data + "\n"
-        if (next.length > root.dynamicMenuOutputBytes) {
+        if (root.utf8ByteLength(next) > root.dynamicMenuOutputBytes) {
           dynamicMenuProc.outputOverflow = true
           dynamicMenuProc.collected = ""
           root.invalidateDynamicMenu()
@@ -3517,7 +3523,7 @@ Item {
     stderr: SplitParser {
       onRead: function(data) {
         if (dynamicMenuProc.outputOverflow) return
-        dynamicMenuProc.stderrBytes += data.length + 1
+        dynamicMenuProc.stderrBytes += root.utf8ByteLength(data) + 1
         if (dynamicMenuProc.stderrBytes > root.dynamicMenuOutputBytes) {
           dynamicMenuProc.outputOverflow = true
           root.invalidateDynamicMenu()

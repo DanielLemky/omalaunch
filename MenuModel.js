@@ -511,6 +511,24 @@ var MAX_DYNAMIC_MENU_ROWS = 100
 var MAX_DETAIL_DOCUMENT_TEXT = 64 * 1024
 var MAX_SAFE_JSON_INTEGER = 9007199254740991
 
+function utf8ByteLength(value) {
+  var text = String(value || "")
+  var bytes = 0
+  for (var i = 0; i < text.length; i++) {
+    var code = text.charCodeAt(i)
+    if (code <= 0x7f) bytes += 1
+    else if (code <= 0x7ff) bytes += 2
+    else if (code >= 0xd800 && code <= 0xdbff
+             && i + 1 < text.length
+             && text.charCodeAt(i + 1) >= 0xdc00
+             && text.charCodeAt(i + 1) <= 0xdfff) {
+      bytes += 4
+      i += 1
+    } else bytes += 3
+  }
+  return bytes
+}
+
 function finiteExtensionNumber(value, fallback) {
   if (value === undefined || value === null || value === "") return fallback
   var number = Number(value)
@@ -1915,6 +1933,7 @@ if (typeof module !== "undefined") {
     firstSetupExtension: firstSetupExtension,
     safeExtensionPattern: safeExtensionPattern,
     openStateReset: openStateReset,
+    utf8ByteLength: utf8ByteLength,
     normalizeWorkflow: normalizeWorkflow,
     normalizeDetailDocument: normalizeDetailDocument,
     normalizeDynamicMenuOutput: normalizeDynamicMenuOutput,

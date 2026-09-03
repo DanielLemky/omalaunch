@@ -14,6 +14,11 @@ const context = { module: { exports: {} } }
 vm.runInNewContext(source, context)
 const menu = context.module.exports
 
+assert(menu.utf8ByteLength('GitHub') === 6, 'UTF-8 limits count ASCII bytes')
+assert(menu.utf8ByteLength('é') === 2, 'UTF-8 limits count multibyte characters')
+assert(menu.utf8ByteLength('󰊤') === 4, 'UTF-8 limits count surrogate pairs once')
+assert(menu.utf8ByteLength('\ud800') === 3, 'UTF-8 limits count an unpaired surrogate as replacement bytes')
+
 const validMenuSnapshot = menu.parseMenuJsoncSnapshot('{"items":{"root":{"label":"Root"}}}')
 assert(validMenuSnapshot.valid && validMenuSnapshot.items.length === 1, 'valid menu snapshots are identified')
 assert(menu.parseMenuJsoncSnapshot('{}').valid, 'empty menu objects remain valid snapshots')
