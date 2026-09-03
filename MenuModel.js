@@ -702,15 +702,37 @@ function normalizeDetailDocument(raw) {
   var parsed
   try { parsed = typeof raw === "string" ? JSON.parse(raw) : raw } catch (e) { return null }
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null
-  var allowed = { title: true, subtitle: true, status: true, fields: true, sections: true, actions: true }
+  var allowed = { title: true, subtitle: true, status: true, icon: true, iconFont: true,
+    stats: true, fields: true, sections: true, actions: true }
   var keys = Object.keys(parsed)
   for (var keyIndex = 0; keyIndex < keys.length; keyIndex++) if (!allowed[keys[keyIndex]]) return null
 
   var title = detailDocumentText(parsed.title, 256, true)
   var subtitle = detailDocumentText(parsed.subtitle, 512, false)
   var status = detailDocumentText(parsed.status, 256, false)
-  if (title === null || subtitle === null || status === null) return null
-  var textSize = title.length + subtitle.length + status.length
+  var icon = detailDocumentText(parsed.icon, 32, false)
+  var iconFont = detailDocumentText(parsed.iconFont, 128, false)
+  if (title === null || subtitle === null || status === null || icon === null || iconFont === null) return null
+  var textSize = title.length + subtitle.length + status.length + icon.length + iconFont.length
+
+  var rawStats = parsed.stats === undefined ? [] : parsed.stats
+  if (!Array.isArray(rawStats) || rawStats.length > 6) return null
+  var stats = []
+  for (var statIndex = 0; statIndex < rawStats.length; statIndex++) {
+    var stat = rawStats[statIndex]
+    if (!stat || typeof stat !== "object" || Array.isArray(stat)) return null
+    var statAllowed = { label: true, value: true, icon: true, iconFont: true }
+    var statKeys = Object.keys(stat)
+    for (var statKeyIndex = 0; statKeyIndex < statKeys.length; statKeyIndex++)
+      if (!statAllowed[statKeys[statKeyIndex]]) return null
+    var statLabel = detailDocumentText(stat.label, 128, true)
+    var statValue = detailDocumentText(stat.value, 256, true)
+    var statIcon = detailDocumentText(stat.icon, 32, false)
+    var statIconFont = detailDocumentText(stat.iconFont, 128, false)
+    if (statLabel === null || statValue === null || statIcon === null || statIconFont === null) return null
+    textSize += statLabel.length + statValue.length + statIcon.length + statIconFont.length
+    stats.push({ label: statLabel, value: statValue, icon: statIcon, iconFont: statIconFont })
+  }
 
   var rawFields = parsed.fields === undefined ? [] : parsed.fields
   if (!Array.isArray(rawFields) || rawFields.length > 32) return null
@@ -757,7 +779,8 @@ function normalizeDetailDocument(raw) {
     return copy
   }), actionState, 0)
   if (!actions) return null
-  return { title: title, subtitle: subtitle, status: status, fields: fields, sections: sections, actions: actions }
+  return { title: title, subtitle: subtitle, status: status, icon: icon, iconFont: iconFont,
+    stats: stats, fields: fields, sections: sections, actions: actions }
 }
 
 function normalizeWorkflow(raw) {

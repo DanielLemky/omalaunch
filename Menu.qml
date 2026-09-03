@@ -4136,8 +4136,21 @@ Item {
           color: "transparent"
 
           Text {
-            visible: !root.focusedExtension
+            id: documentHeaderIcon
+            visible: root.documentActive && root.activeDocument && root.activeDocument.icon.length > 0
             anchors.left: parent.left
+            anchors.verticalCenter: parent.verticalCenter
+            text: root.activeDocument ? root.activeDocument.icon : ""
+            color: root.foreground
+            font.family: root.activeDocument && root.activeDocument.iconFont
+              ? root.activeDocument.iconFont : root.fontFamily
+            font.pixelSize: root.menuItemIconSize
+          }
+
+          Text {
+            visible: !root.focusedExtension
+            anchors.left: documentHeaderIcon.visible ? documentHeaderIcon.right : parent.left
+            anchors.leftMargin: documentHeaderIcon.visible ? Style.space(10) : 0
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
             text: root.actionPanelActive
@@ -4150,7 +4163,7 @@ Item {
                 ? root.filterText
               : (root.filterText || (root.dmenuActive ? (root.dmenuPrompt + "…") : ((root.item(root.activeMenu) ? (root.item(root.activeMenu).title || root.item(root.activeMenu).label) : "Go") + "…")))
             color: root.foreground
-            opacity: root.filterText ? 1 : 0.58
+            opacity: root.documentActive || root.filterText ? 1 : 0.58
             font.family: root.fontFamily
             font.pixelSize: root.menuItemFontSize
             elide: Text.ElideRight
@@ -4484,6 +4497,70 @@ Item {
                   font.family: root.fontFamily
                   font.pixelSize: Style.font.bodySmall
                   font.weight: Font.Medium
+                }
+              }
+
+              Grid {
+                id: documentStats
+                width: parent.width
+                visible: root.activeDocument && root.activeDocument.stats.length > 0
+                columns: width >= Style.space(560) ? 3 : 2
+                columnSpacing: Style.space(10)
+                rowSpacing: Style.space(10)
+                height: visible ? childrenRect.height : 0
+
+                Repeater {
+                  model: root.activeDocument ? root.activeDocument.stats : []
+
+                  Rectangle {
+                    required property var modelData
+                    width: (documentStats.width - documentStats.columnSpacing * (documentStats.columns - 1))
+                      / documentStats.columns
+                    height: Style.space(68)
+                    radius: root.cornerRadius
+                    color: Util.alpha(root.foreground, 0.055)
+
+                    Text {
+                      id: statIcon
+                      visible: modelData.icon.length > 0
+                      anchors.left: parent.left
+                      anchors.leftMargin: Style.space(12)
+                      anchors.verticalCenter: parent.verticalCenter
+                      text: modelData.icon
+                      color: root.foreground
+                      opacity: 0.68
+                      font.family: modelData.iconFont || root.fontFamily
+                      font.pixelSize: root.menuItemIconSize
+                    }
+
+                    Column {
+                      anchors.left: statIcon.visible ? statIcon.right : parent.left
+                      anchors.leftMargin: Style.space(12)
+                      anchors.right: parent.right
+                      anchors.rightMargin: Style.space(10)
+                      anchors.verticalCenter: parent.verticalCenter
+                      spacing: Style.space(2)
+
+                      Text {
+                        width: parent.width
+                        text: modelData.value
+                        color: root.foreground
+                        font.family: root.fontFamily
+                        font.pixelSize: root.menuItemFontSize
+                        font.weight: Font.DemiBold
+                        elide: Text.ElideRight
+                      }
+                      Text {
+                        width: parent.width
+                        text: modelData.label
+                        color: root.foreground
+                        opacity: 0.55
+                        font.family: root.fontFamily
+                        font.pixelSize: root.menuSecondaryFontSize
+                        elide: Text.ElideRight
+                      }
+                    }
+                  }
                 }
               }
 

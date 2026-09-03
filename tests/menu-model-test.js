@@ -418,7 +418,8 @@ assert(menu.normalizeDynamicMenuOutput([{
 }]) === null, 'dynamic rows cannot declare both a document and a submenu')
 
 const detailDocument = menu.normalizeDetailDocument({
-  title: 'Build report', subtitle: 'main', status: 'Ready',
+  title: 'Build report', subtitle: 'main', status: 'Ready', icon: 'repo', iconFont: 'icons',
+  stats: [{ label: 'Stars', value: '12', icon: 'star' }],
   fields: [{ label: 'Commit', value: '<b>literal</b>' }],
   sections: [{ heading: 'Summary', text: 'No rich text is evaluated.' }],
   actions: [
@@ -428,10 +429,15 @@ const detailDocument = menu.normalizeDetailDocument({
   ]
 })
 assert(detailDocument && detailDocument.title === 'Build report'
+  && detailDocument.icon === 'repo' && detailDocument.stats[0].value === '12'
   && detailDocument.fields[0].value === '<b>literal</b>'
   && detailDocument.actions.map(action => action.kind).join(',') === 'action,confirm,input',
 'structured detail documents retain bounded plain text and host-normalized actions')
 assert(menu.normalizeDetailDocument({ subtitle: 'Missing title' }) === null, 'detail documents require a title')
+assert(menu.normalizeDetailDocument({ title: 'Report', stats: Array.from({ length: 7 }, (_, i) => ({ label: String(i), value: '1' })) }) === null,
+'detail document statistic counts are bounded')
+assert(menu.normalizeDetailDocument({ title: 'Report', stats: [{ label: 'Stars', value: '1', html: '<b>1</b>' }] }) === null,
+'detail document statistics reject unsupported fields')
 assert(menu.normalizeDetailDocument({ title: 'Report', fields: Array.from({ length: 33 }, (_, i) => ({ label: String(i), value: 'x' })) }) === null,
 'detail document field counts are bounded')
 assert(menu.normalizeDetailDocument({ title: 'Report', sections: Array.from({ length: 17 }, (_, i) => ({ heading: String(i), text: 'x' })) }) === null,

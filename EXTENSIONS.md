@@ -263,7 +263,7 @@ The detail command uses the row context and writes one structured JSON object:
 }
 ```
 
-`title` is required. `subtitle` and `status` are optional. A document accepts at most 32 label/value fields, 16 plain-text sections, and 16 host-rendered actions. The complete normalized document text is limited to 64 KiB. HTML, Markdown, images, and extension QML are not accepted or interpreted. Ctrl+K opens the document actions. Escape returns to the source list.
+`title` is required. `subtitle`, `status`, `icon`, and `iconFont` are optional. A document can include up to six statistic cards through `stats`; each card requires `label` and `value` and can include `icon` and `iconFont`. A document also accepts at most 32 label/value fields, 16 plain-text sections, and 16 host-rendered actions. The complete normalized document text is limited to 64 KiB. HTML, Markdown, images, and extension QML are not accepted or interpreted. Ctrl+K opens the document actions. Escape returns to the source list.
 
 Omalaunch runs the detail provider only after activation. It receives no stdin, has a five-second timeout, and has a 256 KiB limit on each output stream. Leaving the document, closing the launcher, replacing its session, or changing its provider invalidates the request. Cancellation sends SIGTERM and then sends SIGKILL to the same direct child after a 500 ms grace period. Detail commands run directly as argument arrays and support the row context plus `{extensionDir}` placeholders.
 
