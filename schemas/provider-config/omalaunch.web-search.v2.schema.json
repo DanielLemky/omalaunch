@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Omalaunch Web Search configuration v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "engines"],
+  "properties": {
+    "version": { "const": 2 },
+    "rankByUsage": { "type": "boolean", "default": true },
+    "engines": {
+      "type": "object",
+      "maxProperties": 27,
+      "propertyNames": { "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$" },
+      "properties": {
+        "google": { "$ref": "#/$defs/bundledOverride" },
+        "duckduckgo": { "$ref": "#/$defs/bundledOverride" },
+        "bing": { "$ref": "#/$defs/bundledOverride" },
+        "brave": { "$ref": "#/$defs/bundledOverride" },
+        "ecosia": { "$ref": "#/$defs/bundledOverride" }
+      },
+      "additionalProperties": { "$ref": "#/$defs/newEngine" }
+    }
+  },
+  "$defs": {
+    "fields": {
+      "type": "object",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "url": { "type": "string", "minLength": 10, "maxLength": 2048 },
+        "enabled": { "type": "boolean", "default": true }
+      }
+    },
+    "bundledOverride": {
+      "allOf": [
+        { "$ref": "#/$defs/fields" },
+        {
+          "if": {
+            "properties": { "enabled": { "const": false } },
+            "required": ["enabled"]
+          },
+          "then": {
+            "properties": { "enabled": { "const": false } },
+            "required": ["enabled"],
+            "maxProperties": 1
+          }
+        }
+      ]
+    },
+    "newEngine": {
+      "allOf": [
+        { "$ref": "#/$defs/fields" },
+        {
+          "required": ["name", "url"],
+          "properties": { "enabled": { "const": true } }
+        }
+      ]
+    }
+  }
+}

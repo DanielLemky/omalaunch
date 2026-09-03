@@ -1,6 +1,6 @@
 # Bundled provider storage
 
-This document defines the version-1 storage contract for `omalaunch.apps`, `omalaunch.files`, `omalaunch.quicklinks`, `omalaunch.web-search`, and `omalaunch.extensions`.
+This document defines the provider storage contract for `omalaunch.apps`, `omalaunch.files`, `omalaunch.quicklinks`, `omalaunch.web-search`, and `omalaunch.extensions`. Provider state and most user configuration use version 1. Web Search user configuration also supports version 2.
 
 ## Ownership and locations
 
@@ -13,7 +13,7 @@ Provider selection does not copy or merge these files. A replacement has a diffe
 
 Configuration is read-only at runtime. It accepts UTF-8 JSONC comments and trailing commas. UI actions never create, normalize, or rewrite it. State is strict UTF-8 JSON and is normalized after a successful mutation. State writes use a lock for that provider ID, a private temporary file, `fsync`, and atomic replacement. Thus, concurrent mutations do not lose updates.
 
-Both file types have a 64 KiB limit and a maximum depth of eight. The root is an object, `version` is `1`, and unknown fields are errors. An invalid file is ignored with a bounded diagnostic and is not overwritten. A missing file supplies defaults. Files for providers with no setting are not created.
+Both file types have a 64 KiB limit and a maximum depth of eight. The root is an object. State and most configuration require `version` to be `1`; Web Search configuration accepts `1` or `2`. Unknown fields are errors. An invalid file is ignored with a bounded diagnostic and is not overwritten. A missing file supplies defaults. Files for providers with no setting are not created.
 
 The schemas in [`schemas/provider-config`](schemas/provider-config) describe user configuration. The schemas in [`schemas/provider-state`](schemas/provider-state) describe state. JSON Schema applies after JSONC parsing and does not specify byte or depth limits.
 
@@ -69,13 +69,32 @@ The array defaults to `[]` and has at most 256 unique values. A replacement prov
 
 ## Web Search
 
-The optional `omalaunch.web-search.jsonc` configuration defines 1 to 32 search engines. A missing file supplies Google, DuckDuckGo, Bing, Brave Search, and Ecosia. Each engine has a stable `id`, display `name`, and absolute HTTP(S) `url` template with exactly one `{query}` placeholder:
+The optional `omalaunch.web-search.jsonc` configuration customizes 1 to 32 search engines. A missing file supplies Google, DuckDuckGo, Bing, Brave Search, and Ecosia. Each engine has a stable ID, display name, and absolute HTTP(S) URL template with exactly one `{query}` placeholder.
+
+Version 2 starts with the bundled engines and applies at most 27 entries from its `engines` object. A new ID with `name` and `url` adds an engine. An existing bundled ID can override its name or URL. Set `enabled` to `false` to disable a bundled engine. This example adds Kagi and disables Bing:
+
+```jsonc
+{
+  "version": 2,
+  // Rank engines from successful searches.
+  "rankByUsage": true,
+  "engines": {
+    "kagi": {
+      "name": "Kagi",
+      "url": "https://kagi.com/search?q={query}",
+    },
+    "bing": {
+      "enabled": false,
+    },
+  },
+}
+```
+
+Version 1 remains supported for existing configurations. Its `engines` array replaces the complete bundled list:
 
 ```jsonc
 {
   "version": 1,
-  // Rank engines from successful searches.
-  "rankByUsage": true,
   "engines": [
     { "id": "google", "name": "Google", "url": "https://www.google.com/search?q={query}" },
   ],
