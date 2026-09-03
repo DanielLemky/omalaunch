@@ -654,6 +654,7 @@ function normalizeWorkflowNode(raw, state, depth) {
     submenuCommand: submenuCommands ? submenuCommands.command : null,
     submenuRefreshCommand: submenuCommands ? submenuCommands.refreshCommand : null,
     refreshExtensions: raw.refreshExtensions === true,
+    closeOnDispatch: raw.closeOnDispatch === true,
     closeOnSuccess: raw.closeOnSuccess === true,
     nextBackSteps: 0,
     confirm: boundedWorkflowText(raw.confirm, 512),
@@ -668,7 +669,8 @@ function normalizeWorkflowNode(raw, state, depth) {
       || (raw.document !== undefined && raw.submenu !== undefined)
       || (raw.capture !== undefined && !node.capture)
       || (raw.starred !== undefined && typeof raw.starred !== "boolean")
-      || (raw.globalSearch !== undefined && typeof raw.globalSearch !== "boolean")) return null
+      || (raw.globalSearch !== undefined && typeof raw.globalSearch !== "boolean")
+      || (raw.closeOnDispatch !== undefined && typeof raw.closeOnDispatch !== "boolean")) return null
   node.maxLength = Math.max(1, Math.min(MAX_WORKFLOW_TEXT, maxLength))
   node.nextBackSteps = Math.max(0, Math.min(MAX_WORKFLOW_DEPTH, nextBackSteps))
   node.defaultValue = boundedWorkflowText(raw.default, MAX_WORKFLOW_TEXT).substring(0, node.maxLength)
@@ -1014,6 +1016,7 @@ function focusedPrefixMatch(extension, input) {
 
 function workflowClosesOnDispatch(node, command) {
   if (!node || ["input", "action", "confirm"].indexOf(node.kind) < 0 || node.next || !Array.isArray(command) || command.length === 0) return false
+  if (node.closeOnDispatch === true) return true
   var executable = String(command[0] || "").split("/").pop()
   return executable === "xdg-terminal-exec" || executable === "omarchy-launch-terminal"
 }

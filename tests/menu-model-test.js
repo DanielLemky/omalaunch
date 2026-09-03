@@ -492,6 +492,7 @@ assert(menu.workflowClosesOnDispatch(sessionNode, promptedCommand), 'terminal wo
 assert(menu.workflowClosesOnDispatch(sessionNode, ['/usr/bin/omarchy-launch-terminal', 'codex']), 'terminal workflow detection accepts absolute launcher paths')
 assert(!menu.workflowClosesOnDispatch({ ...sessionNode, next: { id: 'next', kind: 'menu', label: 'Next', items: [] } }, promptedCommand), 'workflow commands with a next stage stay open')
 assert(!menu.workflowClosesOnDispatch(sessionNode, ['helper', 'save']), 'non-terminal workflow commands wait for successful completion')
+assert(menu.workflowClosesOnDispatch({ ...sessionNode, closeOnDispatch: true }, ['helper', 'launch']), 'explicit detached launch commands close immediately after dispatch')
 assert(!menu.workflowClosesOnDispatch({ ...sessionNode, allowEmpty: false }, []), 'pre-dispatch validation failures do not request closure')
 const backgroundStar = dynamicMenu.items[0].actions[0]
 assert(menu.workflowBackgroundEligible(backgroundStar, menu.workflowCommand(backgroundStar, '', {})), 'non-interactive action leaves are eligible for the background runner')
