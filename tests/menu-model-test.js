@@ -387,10 +387,13 @@ assert(menu.normalizeDynamicMenuOutput('{bad') === null, 'malformed dynamic menu
 assert(menu.normalizeDynamicMenuOutput({ items: Array.from({ length: 101 }, (_, i) => ({ id: String(i), label: String(i), command: ['true'] })) }) === null, 'dynamic menu row counts are bounded')
 assert(menu.normalizeDynamicMenuOutput([{ id: 'bad', label: 'Bad', command: 'true' }]) === null, 'dynamic menu commands must be argument arrays')
 assert(menu.normalizeDynamicMenuOutput([{ id: 'same', label: 'One', command: ['true'] }, { id: 'same', label: 'Two', command: ['true'] }]) === null, 'dynamic menu row ids are unique')
-const documentMenu = menu.normalizeDynamicMenuOutput([{ id: 'inspect', label: 'Inspect', document: { command: ['helper', 'detail', '{extensionDir}'] } }])
+const documentMenu = menu.normalizeDynamicMenuOutput([{ id: 'inspect', label: 'Inspect', document: {
+  command: ['helper', 'detail', '--cached'], refreshCommand: ['helper', 'detail', '--refresh']
+} }])
 assert(documentMenu && documentMenu.items[0].kind === 'action'
   && documentMenu.items[0].command.length === 0
-  && documentMenu.items[0].documentCommand.join(',') === 'helper,detail,{extensionDir}',
+  && documentMenu.items[0].documentCommand.join(',') === 'helper,detail,--cached'
+  && documentMenu.items[0].documentRefreshCommand.join(',') === 'helper,detail,--refresh',
 'dynamic action rows can request a document without a primary command')
 assert(menu.normalizeDynamicMenuOutput([{ id: 'bad-document', label: 'Bad', document: { command: 'helper detail' } }]) === null,
 'dynamic document commands must be argument arrays')
@@ -399,11 +402,14 @@ assert(menu.normalizeDynamicMenuOutput([{ id: 'bad-document-extra', label: 'Bad'
 assert(menu.normalizeDynamicMenuOutput([{ id: 'bad-document-command', label: 'Bad', document: { command: Array(33).fill('x') } }]) === null,
 'dynamic document commands have a bounded argument count')
 const submenuMenu = menu.normalizeDynamicMenuOutput([{
-  id: 'projects', label: 'Projects', submenu: { command: ['helper', 'projects', '{extensionDir}'] }
+  id: 'projects', label: 'Projects', submenu: {
+    command: ['helper', 'projects', '--cached'], refreshCommand: ['helper', 'projects', '--refresh']
+  }
 }])
 assert(submenuMenu && submenuMenu.items[0].kind === 'action'
   && submenuMenu.items[0].command.length === 0
-  && submenuMenu.items[0].submenuCommand.join(',') === 'helper,projects,{extensionDir}',
+  && submenuMenu.items[0].submenuCommand.join(',') === 'helper,projects,--cached'
+  && submenuMenu.items[0].submenuRefreshCommand.join(',') === 'helper,projects,--refresh',
 'dynamic action rows can request an on-demand submenu without a primary command')
 const nestedSubmenu = menu.normalizeDynamicMenuOutput(JSON.stringify({ items: [
   { id: 'open', label: 'Open project', command: ['xdg-open', '/tmp/project'] },

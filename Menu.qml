@@ -893,7 +893,12 @@ Item {
     if (root.workflowNode)
       root.workflowStack = root.workflowStack.concat([{ node: root.workflowNode, context: root.workflowContext }])
     root.workflowContext = root.workflowNodeContext(node, root.workflowContext)
-    var reloadCommand = node.submenuCommand.map(function(argument) {
+    var initialCommand = node.submenuCommand.map(function(argument) {
+      return MenuModel.workflowInterpolate(argument, root.workflowValues())
+    })
+    var reloadSource = node.submenuRefreshCommand && node.submenuRefreshCommand.length > 0
+      ? node.submenuRefreshCommand : node.submenuCommand
+    var reloadCommand = reloadSource.map(function(argument) {
       return MenuModel.workflowInterpolate(argument, root.workflowValues())
     })
     root.workflowNode = { id: node.id + ".submenu", kind: "menu", label: node.label,
@@ -909,7 +914,7 @@ Item {
     submenuProc.collected = ""
     submenuProc.stderrBytes = 0
     submenuProc.outputOverflow = false
-    submenuProc.command = reloadCommand
+    submenuProc.command = initialCommand
     submenuProc.running = true
     submenuTimeout.restart()
     root.rebuildDisplay()
@@ -937,7 +942,12 @@ Item {
     if (root.workflowNode)
       root.workflowStack = root.workflowStack.concat([{ node: root.workflowNode, context: root.workflowContext }])
     root.workflowContext = root.workflowNodeContext(node, root.workflowContext)
-    var reloadCommand = node.documentCommand.map(function(argument) {
+    var initialCommand = node.documentCommand.map(function(argument) {
+      return MenuModel.workflowInterpolate(argument, root.workflowValues())
+    })
+    var reloadSource = node.documentRefreshCommand && node.documentRefreshCommand.length > 0
+      ? node.documentRefreshCommand : node.documentCommand
+    var reloadCommand = reloadSource.map(function(argument) {
       return MenuModel.workflowInterpolate(argument, root.workflowValues())
     })
     root.workflowNode = { id: node.id + ".document", kind: "document", label: node.label,
@@ -954,7 +964,7 @@ Item {
     documentProc.collected = ""
     documentProc.stderrBytes = 0
     documentProc.outputOverflow = false
-    documentProc.command = reloadCommand
+    documentProc.command = initialCommand
     documentProc.running = true
     documentTimeout.restart()
     root.rebuildDisplay()

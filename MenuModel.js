@@ -588,19 +588,27 @@ function normalizeWorkflowAliases(value) {
   return result
 }
 
+function normalizeProviderCommandArray(raw) {
+  if (!Array.isArray(raw) || raw.length === 0 || raw.length > 32) return null
+  var command = []
+  for (var i = 0; i < raw.length; i++) {
+    if (typeof raw[i] !== "string" || !boundedWorkflowText(raw[i])) return null
+    command.push(raw[i])
+  }
+  return command[0] ? command : null
+}
+
 function normalizeDocumentCommand(raw) {
-  if (raw === undefined) return []
+  if (raw === undefined) return { command: [], refreshCommand: [] }
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null
   var keys = Object.keys(raw)
-  if (keys.length !== 1 || keys[0] !== "command" || !Array.isArray(raw.command)
-      || raw.command.length === 0 || raw.command.length > 32) return null
-  var command = []
-  for (var i = 0; i < raw.command.length; i++) {
-    if (typeof raw.command[i] !== "string" || !boundedWorkflowText(raw.command[i])) return null
-    command.push(raw.command[i])
-  }
-  if (!command[0]) return null
-  return command
+  for (var keyIndex = 0; keyIndex < keys.length; keyIndex++)
+    if (["command", "refreshCommand"].indexOf(keys[keyIndex]) < 0) return null
+  if (keys.length < 1 || keys.length > 2) return null
+  var command = normalizeProviderCommandArray(raw.command)
+  var refreshCommand = raw.refreshCommand === undefined ? [] : normalizeProviderCommandArray(raw.refreshCommand)
+  if (!command || refreshCommand === null) return null
+  return { command: command, refreshCommand: refreshCommand }
 }
 
 function normalizeWorkflowNode(raw, state, depth) {
@@ -614,6 +622,8 @@ function normalizeWorkflowNode(raw, state, depth) {
   var aliases = normalizeWorkflowAliases(raw.aliases)
   if (!aliases) return null
   state.count += 1
+  var documentCommands = normalizeDocumentCommand(raw.document)
+  var submenuCommands = normalizeDocumentCommand(raw.submenu)
   var node = {
     id: id,
     kind: kind,
@@ -639,8 +649,10 @@ function normalizeWorkflowNode(raw, state, depth) {
     maxLength: MAX_WORKFLOW_TEXT,
     command: stringArray(raw.command),
     emptyCommand: stringArray(raw.emptyCommand),
-    documentCommand: normalizeDocumentCommand(raw.document),
-    submenuCommand: normalizeDocumentCommand(raw.submenu),
+    documentCommand: documentCommands ? documentCommands.command : null,
+    documentRefreshCommand: documentCommands ? documentCommands.refreshCommand : null,
+    submenuCommand: submenuCommands ? submenuCommands.command : null,
+    submenuRefreshCommand: submenuCommands ? submenuCommands.refreshCommand : null,
     refreshExtensions: raw.refreshExtensions === true,
     closeOnSuccess: raw.closeOnSuccess === true,
     nextBackSteps: 0,
