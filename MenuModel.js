@@ -10,6 +10,11 @@ function normalizeAliases(value) {
   return []
 }
 
+function normalizeBadgeTone(value) {
+  var tone = String(value || "neutral")
+  return ["neutral", "success", "danger", "warning", "info"].indexOf(tone) >= 0 ? tone : "neutral"
+}
+
 function normalizeItem(id, raw) {
   var value = raw || {}
   var aliases = normalizeAliases(value.aliases)
@@ -27,6 +32,9 @@ function normalizeItem(id, raw) {
     icon: value.icon || "",
     iconFont: value.iconFont || "",
     trailingIcon: value.trailingIcon || "",
+    trailingText: typeof value.trailingText === "string" ? value.trailingText.substring(0, 64) : "",
+    badge: value.badge || "",
+    badgeTone: normalizeBadgeTone(value.badgeTone),
     label: value.label || id,
     title: value.title || "",
     target: value.target || "",
@@ -500,7 +508,26 @@ var MAX_WORKFLOW_NODES = 256
 var MAX_WORKFLOW_DEPTH = 8
 var MAX_WORKFLOW_TEXT = 4096
 var MAX_DYNAMIC_MENU_ROWS = 100
+var MAX_DETAIL_DOCUMENT_TEXT = 64 * 1024
 var MAX_SAFE_JSON_INTEGER = 9007199254740991
+
+function utf8ByteLength(value) {
+  var text = String(value || "")
+  var bytes = 0
+  for (var i = 0; i < text.length; i++) {
+    var code = text.charCodeAt(i)
+    if (code <= 0x7f) bytes += 1
+    else if (code <= 0x7ff) bytes += 2
+    else if (code >= 0xd800 && code <= 0xdbff
+             && i + 1 < text.length
+             && text.charCodeAt(i + 1) >= 0xdc00
+             && text.charCodeAt(i + 1) <= 0xdfff) {
+      bytes += 4
+      i += 1
+    } else bytes += 3
+  }
+  return bytes
+}
 
 function finiteExtensionNumber(value, fallback) {
   if (value === undefined || value === null || value === "") return fallback
@@ -579,6 +606,29 @@ function normalizeWorkflowAliases(value) {
   return result
 }
 
+function normalizeProviderCommandArray(raw) {
+  if (!Array.isArray(raw) || raw.length === 0 || raw.length > 32) return null
+  var command = []
+  for (var i = 0; i < raw.length; i++) {
+    if (typeof raw[i] !== "string" || !boundedWorkflowText(raw[i])) return null
+    command.push(raw[i])
+  }
+  return command[0] ? command : null
+}
+
+function normalizeDocumentCommand(raw) {
+  if (raw === undefined) return { command: [], refreshCommand: [] }
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null
+  var keys = Object.keys(raw)
+  for (var keyIndex = 0; keyIndex < keys.length; keyIndex++)
+    if (["command", "refreshCommand"].indexOf(keys[keyIndex]) < 0) return null
+  if (keys.length < 1 || keys.length > 2) return null
+  var command = normalizeProviderCommandArray(raw.command)
+  var refreshCommand = raw.refreshCommand === undefined ? [] : normalizeProviderCommandArray(raw.refreshCommand)
+  if (!command || refreshCommand === null) return null
+  return { command: command, refreshCommand: refreshCommand }
+}
+
 function normalizeWorkflowNode(raw, state, depth) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)
       || depth >= MAX_WORKFLOW_DEPTH || state.count >= MAX_WORKFLOW_NODES) return null
@@ -590,10 +640,13 @@ function normalizeWorkflowNode(raw, state, depth) {
   var aliases = normalizeWorkflowAliases(raw.aliases)
   if (!aliases) return null
   state.count += 1
+  var documentCommands = normalizeDocumentCommand(raw.document)
+  var submenuCommands = normalizeDocumentCommand(raw.submenu)
   var node = {
     id: id,
     kind: kind,
     label: label,
+    starredLabel: boundedWorkflowText(raw.starredLabel, 256),
     description: boundedWorkflowText(raw.description, 512),
     aliases: aliases,
     starred: raw.starred === true,
@@ -601,6 +654,9 @@ function normalizeWorkflowNode(raw, state, depth) {
     icon: boundedWorkflowText(raw.icon, 32),
     iconFont: boundedWorkflowText(raw.iconFont, 128),
     trailingIcon: boundedWorkflowText(raw.trailingIcon, 32),
+    trailingText: boundedWorkflowText(raw.trailingText, 64),
+    badge: boundedWorkflowText(raw.badge, 16),
+    badgeTone: normalizeBadgeTone(raw.badgeTone),
     context: workflowContext(raw.context),
     items: [],
     next: null,
@@ -611,7 +667,12 @@ function normalizeWorkflowNode(raw, state, depth) {
     maxLength: MAX_WORKFLOW_TEXT,
     command: stringArray(raw.command),
     emptyCommand: stringArray(raw.emptyCommand),
+    documentCommand: documentCommands ? documentCommands.command : null,
+    documentRefreshCommand: documentCommands ? documentCommands.refreshCommand : null,
+    submenuCommand: submenuCommands ? submenuCommands.command : null,
+    submenuRefreshCommand: submenuCommands ? submenuCommands.refreshCommand : null,
     refreshExtensions: raw.refreshExtensions === true,
+    closeOnDispatch: raw.closeOnDispatch === true,
     closeOnSuccess: raw.closeOnSuccess === true,
     nextBackSteps: 0,
     confirm: boundedWorkflowText(raw.confirm, 512),
@@ -621,9 +682,13 @@ function normalizeWorkflowNode(raw, state, depth) {
   }
   var maxLength = finiteExtensionNumber(raw.maxLength, MAX_WORKFLOW_TEXT)
   var nextBackSteps = finiteExtensionNumber(raw.nextBackSteps, 0)
-  if (maxLength === null || nextBackSteps === null || (raw.capture !== undefined && !node.capture)
+  if (maxLength === null || nextBackSteps === null || node.documentCommand === null
+      || node.submenuCommand === null
+      || (raw.document !== undefined && raw.submenu !== undefined)
+      || (raw.capture !== undefined && !node.capture)
       || (raw.starred !== undefined && typeof raw.starred !== "boolean")
-      || (raw.globalSearch !== undefined && typeof raw.globalSearch !== "boolean")) return null
+      || (raw.globalSearch !== undefined && typeof raw.globalSearch !== "boolean")
+      || (raw.closeOnDispatch !== undefined && typeof raw.closeOnDispatch !== "boolean")) return null
   node.maxLength = Math.max(1, Math.min(MAX_WORKFLOW_TEXT, maxLength))
   node.nextBackSteps = Math.max(0, Math.min(MAX_WORKFLOW_DEPTH, nextBackSteps))
   node.defaultValue = boundedWorkflowText(raw.default, MAX_WORKFLOW_TEXT).substring(0, node.maxLength)
@@ -642,7 +707,9 @@ function normalizeWorkflowNode(raw, state, depth) {
   }
   if (kind === "directoryPicker" && !node.next) return null
   if (kind === "input" && node.command.length === 0 && !node.next) return null
-  if ((kind === "action" || kind === "confirm") && node.command.length === 0) return null
+  if (kind === "action" && node.command.length === 0 && node.documentCommand.length === 0
+      && node.submenuCommand.length === 0) return null
+  if (kind === "confirm" && node.command.length === 0) return null
   if (Array.isArray(raw.actions) && kind !== "menu") {
     if (raw.actions.length > 16) return null
     node.actions = normalizeWorkflowChildren(raw.actions.map(function(action) {
@@ -662,6 +729,106 @@ function normalizeWorkflowNode(raw, state, depth) {
     if (!hasStarAction) return null
   }
   return node
+}
+
+function detailDocumentText(value, limit, required) {
+  if (value === undefined && !required) return ""
+  if (typeof value !== "string") return null
+  if ((required && !value.trim()) || value.length > limit) return null
+  return value
+}
+
+// Provider document output is plain structured text. The host renders these
+// strings without rich-text interpretation and owns all action interaction.
+function normalizeDetailDocument(raw) {
+  var parsed
+  try { parsed = typeof raw === "string" ? JSON.parse(raw) : raw } catch (e) { return null }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null
+  var allowed = { title: true, subtitle: true, status: true, icon: true, iconFont: true,
+    stats: true, fields: true, sections: true, actions: true }
+  var keys = Object.keys(parsed)
+  for (var keyIndex = 0; keyIndex < keys.length; keyIndex++) if (!allowed[keys[keyIndex]]) return null
+
+  var title = detailDocumentText(parsed.title, 256, true)
+  var subtitle = detailDocumentText(parsed.subtitle, 512, false)
+  var status = detailDocumentText(parsed.status, 256, false)
+  var icon = detailDocumentText(parsed.icon, 32, false)
+  var iconFont = detailDocumentText(parsed.iconFont, 128, false)
+  if (title === null || subtitle === null || status === null || icon === null || iconFont === null) return null
+  var textSize = utf8ByteLength(title) + utf8ByteLength(subtitle) + utf8ByteLength(status)
+    + utf8ByteLength(icon) + utf8ByteLength(iconFont)
+
+  var rawStats = parsed.stats === undefined ? [] : parsed.stats
+  if (!Array.isArray(rawStats) || rawStats.length > 6) return null
+  var stats = []
+  for (var statIndex = 0; statIndex < rawStats.length; statIndex++) {
+    var stat = rawStats[statIndex]
+    if (!stat || typeof stat !== "object" || Array.isArray(stat)) return null
+    var statAllowed = { label: true, value: true, icon: true, iconFont: true }
+    var statKeys = Object.keys(stat)
+    for (var statKeyIndex = 0; statKeyIndex < statKeys.length; statKeyIndex++)
+      if (!statAllowed[statKeys[statKeyIndex]]) return null
+    var statLabel = detailDocumentText(stat.label, 128, true)
+    var statValue = detailDocumentText(stat.value, 256, true)
+    var statIcon = detailDocumentText(stat.icon, 32, false)
+    var statIconFont = detailDocumentText(stat.iconFont, 128, false)
+    if (statLabel === null || statValue === null || statIcon === null || statIconFont === null) return null
+    textSize += utf8ByteLength(statLabel) + utf8ByteLength(statValue)
+      + utf8ByteLength(statIcon) + utf8ByteLength(statIconFont)
+    stats.push({ label: statLabel, value: statValue, icon: statIcon, iconFont: statIconFont })
+  }
+
+  var rawFields = parsed.fields === undefined ? [] : parsed.fields
+  if (!Array.isArray(rawFields) || rawFields.length > 32) return null
+  var fields = []
+  for (var fieldIndex = 0; fieldIndex < rawFields.length; fieldIndex++) {
+    var field = rawFields[fieldIndex]
+    if (!field || typeof field !== "object" || Array.isArray(field)) return null
+    var fieldKeys = Object.keys(field)
+    if (fieldKeys.length !== 2 || fieldKeys.indexOf("label") < 0 || fieldKeys.indexOf("value") < 0) return null
+    var label = detailDocumentText(field.label, 256, true)
+    var value = detailDocumentText(field.value, 4096, false)
+    if (label === null || value === null) return null
+    textSize += utf8ByteLength(label) + utf8ByteLength(value)
+    fields.push({ label: label, value: value })
+  }
+
+  var rawSections = parsed.sections === undefined ? [] : parsed.sections
+  if (!Array.isArray(rawSections) || rawSections.length > 16) return null
+  var sections = []
+  for (var sectionIndex = 0; sectionIndex < rawSections.length; sectionIndex++) {
+    var section = rawSections[sectionIndex]
+    if (!section || typeof section !== "object" || Array.isArray(section)) return null
+    var sectionKeys = Object.keys(section)
+    if (sectionKeys.length < 2 || sectionKeys.length > 3 || sectionKeys.indexOf("heading") < 0
+        || sectionKeys.indexOf("text") < 0) return null
+    for (var sectionKeyIndex = 0; sectionKeyIndex < sectionKeys.length; sectionKeyIndex++)
+      if (["heading", "text", "format"].indexOf(sectionKeys[sectionKeyIndex]) < 0) return null
+    var heading = detailDocumentText(section.heading, 256, true)
+    var text = detailDocumentText(section.text, 32768, false)
+    var format = section.format === undefined ? "plain" : section.format
+    if (heading === null || text === null || ["plain", "markdown"].indexOf(format) < 0) return null
+    textSize += utf8ByteLength(heading) + utf8ByteLength(text)
+    sections.push({ heading: heading, text: text, format: format })
+  }
+  if (textSize > MAX_DETAIL_DOCUMENT_TEXT) return null
+
+  var rawActions = parsed.actions === undefined ? [] : parsed.actions
+  if (!Array.isArray(rawActions) || rawActions.length > 16) return null
+  var actionState = { count: 0 }
+  var actions = normalizeWorkflowChildren(rawActions.map(function(action) {
+    if (!action || typeof action !== "object" || Array.isArray(action)) return null
+    var copy = Object.assign({}, action)
+    copy.kind = copy.confirm ? "confirm" : (copy.input ? "input" : "action")
+    if (copy.input) copy = Object.assign({}, copy, copy.input,
+      { kind: "input", command: copy.input.command || copy.command })
+    delete copy.actions
+    delete copy.document
+    return copy
+  }), actionState, 0)
+  if (!actions) return null
+  return { title: title, subtitle: subtitle, status: status, icon: icon, iconFont: iconFont,
+    stats: stats, fields: fields, sections: sections, actions: actions }
 }
 
 function normalizeWorkflow(raw) {
@@ -869,22 +1036,34 @@ function focusedPrefixMatch(extension, input) {
 
 function workflowClosesOnDispatch(node, command) {
   if (!node || ["input", "action", "confirm"].indexOf(node.kind) < 0 || node.next || !Array.isArray(command) || command.length === 0) return false
+  if (node.closeOnDispatch === true) return true
   var executable = String(command[0] || "").split("/").pop()
   return executable === "xdg-terminal-exec" || executable === "omarchy-launch-terminal"
 }
 
+function dynamicMenuSearchNodes(workflow) {
+  if (!workflow || !Array.isArray(workflow.items)) return []
+  return Object.prototype.hasOwnProperty.call(workflow, "globalSearchItems")
+    ? workflow.globalSearchItems : workflow.items
+}
+
 function dynamicMenuSearchItems(extension, workflow) {
   if (!extension || !workflow || !Array.isArray(workflow.items)) return []
+  var source = dynamicMenuSearchNodes(workflow)
+  if (!Array.isArray(source)) return []
   var result = []
-  for (var i = 0; i < workflow.items.length; i++) {
-    var node = workflow.items[i]
+  for (var i = 0; i < source.length; i++) {
+    var node = source[i]
     if (!node || ["action", "confirm", "input"].indexOf(node.kind) < 0 || node.globalSearch === false) continue
     result.push(normalizeItem(dynamicMenuItemId(extension.capability, node.id), {
       parent: "extensions",
       icon: node.icon || extension.icon,
       iconFont: node.iconFont || extension.iconFont,
       trailingIcon: node.trailingIcon,
-      label: node.label,
+      trailingText: node.trailingText,
+      badge: node.badge,
+      badgeTone: node.badgeTone,
+      label: node.starred && node.starredLabel ? node.starredLabel : node.label,
       description: node.description,
       aliases: node.aliases,
       starred: node.starred,
@@ -921,11 +1100,8 @@ function dynamicMenuUsageItemId(extension, node) {
   return dynamicMenuItemId(extension.id, node.usageItemId)
 }
 
-function normalizeDynamicMenuOutput(raw) {
-  var parsed
-  try { parsed = typeof raw === "string" ? JSON.parse(raw) : raw } catch (e) { return null }
-  var rows = Array.isArray(parsed) ? parsed : (parsed && Array.isArray(parsed.items) ? parsed.items : null)
-  if (!rows || rows.length > MAX_DYNAMIC_MENU_ROWS) return null
+function normalizeDynamicMenuRows(rows, allowEmpty) {
+  if (!Array.isArray(rows) || rows.length > MAX_DYNAMIC_MENU_ROWS) return null
   var prepared = []
   for (var i = 0; i < rows.length; i++) {
     var row = rows[i]
@@ -935,6 +1111,7 @@ function normalizeDynamicMenuOutput(raw) {
     if (copy.input) copy = Object.assign({}, copy, copy.input, { kind: "input", command: copy.input.command || copy.command })
     prepared.push(copy)
   }
+  if (allowEmpty && prepared.length === 0) return []
   var workflow = normalizeWorkflow({ items: prepared })
   if (!workflow) return null
   for (var itemIndex = 0; itemIndex < workflow.items.length; itemIndex++) {
@@ -942,6 +1119,21 @@ function normalizeDynamicMenuOutput(raw) {
     if (item.closeOnSuccess) item.usageItemId = item.id
     for (var actionIndex = 0; actionIndex < item.actions.length; actionIndex++)
       if (item.actions[actionIndex].id === "open") item.actions[actionIndex].usageItemId = item.id
+  }
+  return workflow.items
+}
+
+function normalizeDynamicMenuOutput(raw) {
+  var parsed
+  try { parsed = typeof raw === "string" ? JSON.parse(raw) : raw } catch (e) { return null }
+  var rows = Array.isArray(parsed) ? parsed : (parsed && Array.isArray(parsed.items) ? parsed.items : null)
+  var items = normalizeDynamicMenuRows(rows, false)
+  if (!items) return null
+  var workflow = { items: items }
+  if (!Array.isArray(parsed) && Object.prototype.hasOwnProperty.call(parsed, "globalSearchItems")) {
+    var globalSearchItems = normalizeDynamicMenuRows(parsed.globalSearchItems, true)
+    if (!globalSearchItems) return null
+    workflow.globalSearchItems = globalSearchItems
   }
   return workflow
 }
@@ -974,6 +1166,7 @@ function normalizeExtension(raw) {
     sourceDir: String(raw._sourceDir || ""),
     source: String(raw._source || ""),
     globalSearch: mode === "menu" && raw.globalSearch === true,
+    globalSearchCommand: stringArray(raw.globalSearchCommand),
     requires: stringArray(raw.requires),
     missingRequires: stringArray(raw._missingRequires)
   }
@@ -993,6 +1186,13 @@ function normalizeExtension(raw) {
       if (command.length > 32) return null
       for (var menuArg = 0; menuArg < command.length; menuArg++)
         if (!boundedWorkflowText(command[menuArg])) return null
+      if (raw.globalSearchCommand !== undefined) {
+        if (!extension.globalSearch || !Array.isArray(raw.globalSearchCommand)
+            || extension.globalSearchCommand.length === 0
+            || extension.globalSearchCommand.length > 32) return null
+        for (var searchArg = 0; searchArg < extension.globalSearchCommand.length; searchArg++)
+          if (!boundedWorkflowText(extension.globalSearchCommand[searchArg])) return null
+      }
     } else if (mode === "files") {
       extension.root = String(raw.root || "~")
       extension.directoryCommand = stringArray(raw.directoryCommand)
@@ -1034,6 +1234,7 @@ function normalizeExtension(raw) {
       }
     } catch (e) { return null }
   }
+  if (raw.globalSearchCommand !== undefined && mode !== "menu") return null
   extension.available = extension.missingRequires.length === 0
   return extension
 }
@@ -1523,6 +1724,9 @@ function displayRow(items, itemOrder, checkedResults, entry, detail, score, sect
     icon: entry.icon,
     iconFont: entry.iconFont || "",
     trailingIcon: entry.trailingIcon || "",
+    trailingText: typeof entry.trailingText === "string" ? entry.trailingText.substring(0, 64) : "",
+    badge: entry.badge || "",
+    badgeTone: normalizeBadgeTone(entry.badgeTone),
     appIcon: entry.appIcon || "",
     appId: entry.appId || "",
     label: labelFor(entry, checkedResults),
@@ -1671,6 +1875,8 @@ function actionBarHints(state) {
 
   if (value.canContextActions)
     hints.push({ label: "Actions", shortcut: "Ctrl K" })
+  if (value.canRefresh)
+    hints.push({ label: "Refresh", shortcut: "Ctrl R" })
   if (value.fileBrowserActive && value.hasSelection && !value.directoryPickerActive && !value.actionPanelActive) {
     if (!value.canContextActions) hints.push({ label: "Actions", shortcut: "Ctrl K" })
     hints.push({ label: "Copy Path", shortcut: "Ctrl C" })
@@ -1687,12 +1893,15 @@ function compactActionBarHints(hints) {
   var values = Array.isArray(hints) ? hints : []
   if (values.length <= 2) return values.slice()
   var compact = values.length > 0 ? [values[0]] : []
+  var fallback = null
   for (var i = 1; i < values.length; i++) {
     if (values[i].label === "Actions") {
       compact.push(values[i])
-      break
+      return compact
     }
+    if (!fallback && values[i].label === "Refresh") fallback = values[i]
   }
+  if (fallback) compact.push(fallback)
   return compact
 }
 
@@ -1731,8 +1940,11 @@ if (typeof module !== "undefined") {
     firstSetupExtension: firstSetupExtension,
     safeExtensionPattern: safeExtensionPattern,
     openStateReset: openStateReset,
+    utf8ByteLength: utf8ByteLength,
     normalizeWorkflow: normalizeWorkflow,
+    normalizeDetailDocument: normalizeDetailDocument,
     normalizeDynamicMenuOutput: normalizeDynamicMenuOutput,
+    dynamicMenuSearchNodes: dynamicMenuSearchNodes,
     dynamicMenuSearchItems: dynamicMenuSearchItems,
     dynamicMenuItemId: dynamicMenuItemId,
     dynamicMenuSearchIdentity: dynamicMenuSearchIdentity,

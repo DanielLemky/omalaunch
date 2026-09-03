@@ -5,6 +5,7 @@ import QtQuick
 import qs.Commons
 import qs.Ui
 import "MenuModel.js" as MenuModel
+import "MenuMarkdown.js" as MenuMarkdown
 import "extensions/currency" as CurrencyExtension
 
 Item {
@@ -135,11 +136,26 @@ Item {
   property string fileBrowserPath: ""
   property var fileEntries: []
   property bool workflowActive: false
+  readonly property int workflowMaxDepth: 8
   property var workflowExtension: null
   property var workflowNode: null
   property var workflowContext: ({})
   property var workflowStack: []
   property bool dynamicMenuLoading: false
+  property bool submenuLoading: false
+  property int submenuGeneration: 0
+  readonly property int submenuTimeoutMs: 5000
+  readonly property int submenuTerminationGraceMs: 500
+  readonly property int submenuOutputBytes: 256 * 1024
+  property bool documentLoading: false
+  property string documentError: ""
+  property int documentGeneration: 0
+  readonly property int documentTimeoutMs: 5000
+  readonly property int documentTerminationGraceMs: 500
+  readonly property int documentOutputBytes: 256 * 1024
+  readonly property bool documentActive: root.workflowActive && root.workflowNode
+    && root.workflowNode.kind === "document"
+  readonly property var activeDocument: root.documentActive ? root.workflowNode.document : null
   property var workflowConfirmNode: null
   property bool workflowConfirmOpen: false
   property int dynamicMenuGeneration: 0
@@ -229,6 +245,8 @@ Item {
   onOpenedChanged: if (!opened) {
     root.invalidateWorkflowAction("launcher closed")
     root.invalidateBackgroundAction("launcher closed")
+    root.invalidateSubmenu("launcher closed")
+    root.invalidateDocument("launcher closed")
     root.invalidateDynamicMenu()
     root.invalidateExtensionQuery("launcher closed")
     deleteConfirmOpen = false
@@ -295,9 +313,15 @@ Item {
   property int layoutSerial: 0
   property int cardWidth: Math.min(root.dmenuActive
     ? Style.space(root.dmenuWidth)
-    : Style.space(root.imagePreviewActive ? 900 : 600), panel.width - Style.gapsOut * 2)
-  readonly property bool emptyRoot: !root.dmenuActive && root.activeMenu === "root" && !root.filterText && displayModel.count === 0
-  property int visibleRowsHeight: root.emptyRoot || root.workflowInputActive ? 0 : (root.dmenuActive ? dmenuRowListHeight(layoutSerial, displayModel.count, filterText) : rowListHeight(layoutSerial, displayModel.count, filterText, searchDivider))
+    : Style.space(root.imagePreviewActive ? 900 : (root.documentActive ? 760 : 600)), panel.width - Style.gapsOut * 2)
+  readonly property bool emptyRoot: !root.dmenuActive && !root.workflowActive
+    && root.activeMenu === "root" && !root.filterText && displayModel.count === 0
+  property int visibleRowsHeight: root.emptyRoot || root.workflowInputActive ? 0
+    : (root.documentActive ? Math.min(Style.space(520), Math.max(Style.space(260), panel.height - panel.pinnedTop
+      - Style.gapsOut - root.contentMargin - root.actionBarBottomPadding - root.headerHeight
+      - root.actionBarHeight - root.contentSpacing * 2))
+    : (root.dmenuActive ? dmenuRowListHeight(layoutSerial, displayModel.count, filterText)
+      : rowListHeight(layoutSerial, displayModel.count, filterText, searchDivider)))
   readonly property bool workflowFilterMenuActive: root.workflowActive && root.workflowNode && root.workflowNode.kind === "menu"
   property int workflowHintHeight: (root.workflowInputActive || root.workflowFilterMenuActive)
     ? Math.max(Style.space(12), Math.round(Style.space(18) * menuItemScale)) : 0
@@ -313,8 +337,11 @@ Item {
     fileBrowserActive: root.fileBrowserActive,
     directoryPickerActive: root.directoryPickerActive,
     actionPanelActive: root.actionPanelActive,
-    canContextActions: root.selectedWorkflowHasActions || (root.selectedDynamicSearchEntry
-      && root.selectedDynamicSearchEntry.node.actions.length > 0),
+    canRefresh: root.workflowActive && root.workflowExtension && root.workflowExtension.mode === "menu"
+      && root.workflowNode && (root.workflowNode.id === "root" || root.workflowNode.reloadCommand),
+    canContextActions: root.selectedWorkflowHasActions
+      || (root.documentActive && root.activeDocument && root.activeDocument.actions.length > 0)
+      || (root.selectedDynamicSearchEntry && root.selectedDynamicSearchEntry.node.actions.length > 0),
     focusedExtension: !!root.focusedExtension,
     hasSelection: displayModel.count > 0 && root.cursorActive,
     canStar: (!root.dmenuActive && !root.workflowActive && !root.actionPanelActive) || !!root.selectedWorkflowStarAction || !!root.selectedDynamicStarAction
@@ -372,7 +399,7 @@ Item {
   function collectBounded(proc, data) {
     if (proc.outputOverflow) return
     var next = proc.collected + data + "\n"
-    if (next.length > root.maxProcessOutputBytes) {
+    if (root.utf8ByteLength(next) > root.maxProcessOutputBytes) {
       proc.outputOverflow = true
       proc.collected = ""
       proc.running = false
@@ -394,6 +421,14 @@ Item {
         && Date.now() - root.appIconIndexUpdatedAt < root.appIconRefreshTtlMs) return
     root.appIconRefreshPending = true
     root.appLibrary.refreshIcons()
+  }
+
+  function badgeToneColor(tone) {
+    if (tone === "success") return "#3fb950"
+    if (tone === "danger") return "#f85149"
+    if (tone === "warning") return "#d29922"
+    if (tone === "info") return "#58a6ff"
+    return root.foreground
   }
 
   // Menu rows only surface their detail while a search is narrowing them;
@@ -590,7 +625,7 @@ Item {
   function collectExtensionQuery(data) {
     if (extensionQueryProc.outputOverflow || extensionQueryProc.stopping) return
     var next = extensionQueryProc.collected + data + "\n"
-    if (next.length > root.maxProcessOutputBytes) {
+    if (root.utf8ByteLength(next) > root.maxProcessOutputBytes) {
       extensionQueryProc.outputOverflow = true
       extensionQueryProc.collected = ""
       root.stopExtensionQuery("query output exceeded limit")
@@ -701,6 +736,16 @@ Item {
     return MenuModel.workflowInterpolate(value, root.workflowValues(extra))
   }
 
+  function openDocumentLink(url) {
+    var target = String(url || "")
+    if (!/^https?:\/\/[^\s<>]+$/i.test(target)) return
+    Quickshell.execDetached(["xdg-open", target])
+  }
+
+  function copyDocumentCode(value) {
+    Quickshell.execDetached(["wl-copy", "--", String(value || "")])
+  }
+
   function workflowNodeContext(node, base) {
     var result = Object.assign({}, base || ({}))
     var values = node && node.context ? node.context : ({})
@@ -769,7 +814,9 @@ Item {
     dynamicMenuSearchProc.collected = ""
     dynamicMenuSearchProc.stderrBytes = 0
     dynamicMenuSearchProc.outputOverflow = false
-    dynamicMenuSearchProc.command = extension.command.map(function(argument) {
+    var searchCommand = extension.globalSearchCommand && extension.globalSearchCommand.length > 0
+      ? extension.globalSearchCommand : extension.command
+    dynamicMenuSearchProc.command = searchCommand.map(function(argument) {
       return MenuModel.workflowInterpolate(argument, { extensionDir: extension.sourceDir })
     })
     dynamicMenuSearchProc.running = true
@@ -794,6 +841,7 @@ Item {
     var retainCurrentRows = retainRows === true && root.workflowActive && root.workflowNode
     root.invalidateExtensionQuery("entered dynamic menu")
     root.invalidateWorkflowAction("entered dynamic menu")
+    root.invalidateDocument("entered dynamic menu")
     root.focusedExtension = null
     root.leaveFileBrowser(false)
     root.workflowActive = true
@@ -822,6 +870,145 @@ Item {
     if (!retainCurrentRows) root.rebuildDisplay()
   }
 
+  function invalidateSubmenu(reason) {
+    if (submenuProc.stopping) return
+    submenuTimeout.stop()
+    root.submenuGeneration += 1
+    if (submenuProc.running) {
+      submenuProc.stopping = true
+      submenuProc.stopGeneration = submenuProc.generation
+      submenuKillTimer.generation = submenuProc.stopGeneration
+      submenuProc.running = false
+      submenuKillTimer.restart()
+    }
+    root.submenuLoading = false
+  }
+
+  function enterSubmenu(node) {
+    if (!node || !node.submenuCommand || node.submenuCommand.length === 0
+        || !root.workflowExtension || root.workflowStack.length >= root.workflowMaxDepth
+        || submenuProc.running || submenuProc.stopping) return
+    root.invalidateWorkflowAction("entered submenu")
+    root.invalidateDocument("entered submenu")
+    if (root.workflowNode)
+      root.workflowStack = root.workflowStack.concat([{ node: root.workflowNode, context: root.workflowContext }])
+    root.workflowContext = root.workflowNodeContext(node, root.workflowContext)
+    var initialCommand = node.submenuCommand.map(function(argument) {
+      return MenuModel.workflowInterpolate(argument, root.workflowValues())
+    })
+    var reloadSource = node.submenuRefreshCommand && node.submenuRefreshCommand.length > 0
+      ? node.submenuRefreshCommand : node.submenuCommand
+    var reloadCommand = reloadSource.map(function(argument) {
+      return MenuModel.workflowInterpolate(argument, root.workflowValues())
+    })
+    root.workflowNode = { id: node.id + ".submenu", kind: "menu", label: node.label,
+      description: "Loading…", items: [], reloadCommand: reloadCommand }
+    root.filterText = ""
+    root.selectedIndex = 0
+    root.cursorActive = false
+    root.submenuLoading = true
+    root.submenuGeneration += 1
+    submenuProc.generation = root.submenuGeneration
+    submenuProc.extensionCapability = root.workflowExtension.capability
+    submenuProc.submenuNodeId = root.workflowNode.id
+    submenuProc.collected = ""
+    submenuProc.stderrBytes = 0
+    submenuProc.outputOverflow = false
+    submenuProc.command = initialCommand
+    submenuProc.running = true
+    submenuTimeout.restart()
+    root.rebuildDisplay()
+  }
+
+  function invalidateDocument(reason) {
+    if (documentProc.stopping) return
+    documentTimeout.stop()
+    root.documentGeneration += 1
+    if (documentProc.running) {
+      documentProc.stopping = true
+      documentProc.stopGeneration = documentProc.generation
+      documentKillTimer.generation = documentProc.stopGeneration
+      documentProc.running = false
+      documentKillTimer.restart()
+    }
+    root.documentLoading = false
+  }
+
+  function enterDocument(node) {
+    if (!node || !node.documentCommand || node.documentCommand.length === 0
+        || !root.workflowExtension || root.workflowStack.length >= root.workflowMaxDepth
+        || documentProc.running || documentProc.stopping) return
+    root.invalidateWorkflowAction("entered document")
+    if (root.workflowNode)
+      root.workflowStack = root.workflowStack.concat([{ node: root.workflowNode, context: root.workflowContext }])
+    root.workflowContext = root.workflowNodeContext(node, root.workflowContext)
+    var initialCommand = node.documentCommand.map(function(argument) {
+      return MenuModel.workflowInterpolate(argument, root.workflowValues())
+    })
+    var reloadSource = node.documentRefreshCommand && node.documentRefreshCommand.length > 0
+      ? node.documentRefreshCommand : node.documentCommand
+    var reloadCommand = reloadSource.map(function(argument) {
+      return MenuModel.workflowInterpolate(argument, root.workflowValues())
+    })
+    root.workflowNode = { id: node.id + ".document", kind: "document", label: node.label,
+      document: null, reloadCommand: reloadCommand }
+    root.filterText = ""
+    root.selectedIndex = 0
+    root.cursorActive = false
+    root.documentError = ""
+    root.documentLoading = true
+    root.documentGeneration += 1
+    documentProc.generation = root.documentGeneration
+    documentProc.extensionCapability = root.workflowExtension.capability
+    documentProc.documentNodeId = root.workflowNode.id
+    documentProc.collected = ""
+    documentProc.stderrBytes = 0
+    documentProc.outputOverflow = false
+    documentProc.command = initialCommand
+    documentProc.running = true
+    documentTimeout.restart()
+    root.rebuildDisplay()
+  }
+
+  function refreshWorkflowSurface() {
+    if (!root.workflowActive || !root.workflowExtension || root.workflowExtension.mode !== "menu"
+        || !root.workflowNode) return
+    if (root.workflowNode.id === "root") {
+      root.enterDynamicMenu(root.workflowExtension, true)
+      return
+    }
+    var command = root.workflowNode.reloadCommand
+    if (!command || command.length === 0) return
+    if (root.documentActive) {
+      if (documentProc.running || documentProc.stopping) return
+      root.documentError = ""
+      root.documentLoading = true
+      root.documentGeneration += 1
+      documentProc.generation = root.documentGeneration
+      documentProc.extensionCapability = root.workflowExtension.capability
+      documentProc.documentNodeId = root.workflowNode.id
+      documentProc.collected = ""
+      documentProc.stderrBytes = 0
+      documentProc.outputOverflow = false
+      documentProc.command = command.slice()
+      documentProc.running = true
+      documentTimeout.restart()
+      return
+    }
+    if (root.workflowNode.kind !== "menu" || submenuProc.running || submenuProc.stopping) return
+    root.submenuLoading = true
+    root.submenuGeneration += 1
+    submenuProc.generation = root.submenuGeneration
+    submenuProc.extensionCapability = root.workflowExtension.capability
+    submenuProc.submenuNodeId = root.workflowNode.id
+    submenuProc.collected = ""
+    submenuProc.stderrBytes = 0
+    submenuProc.outputOverflow = false
+    submenuProc.command = command.slice()
+    submenuProc.running = true
+    submenuTimeout.restart()
+  }
+
   function enterWorkflow(extension) {
     if (!extension || !extension.available || extension.mode !== "workflow") return
     root.invalidateExtensionQuery("entered workflow")
@@ -847,6 +1034,8 @@ Item {
 
   function leaveWorkflow() {
     root.invalidateWorkflowAction("left workflow")
+    root.invalidateSubmenu("left workflow")
+    root.invalidateDocument("left workflow")
     root.invalidateDynamicMenu()
     root.workflowConfirmOpen = false
     root.workflowConfirmNode = null
@@ -859,6 +1048,9 @@ Item {
     root.workflowNode = null
     root.workflowContext = ({})
     root.workflowStack = []
+    root.submenuLoading = false
+    root.documentLoading = false
+    root.documentError = ""
     root.dynamicMenuLoading = false
     root.workflowConfirmOpen = false
     root.workflowConfirmNode = null
@@ -887,6 +1079,8 @@ Item {
   function workflowBack() {
     if (!root.workflowActive) return false
     root.invalidateWorkflowAction("workflow navigation changed")
+    root.invalidateSubmenu("workflow navigation changed")
+    root.invalidateDocument("workflow navigation changed")
     root.resetFileIndex()
     root.fileBrowserActive = false
     root.directoryPickerActive = false
@@ -905,7 +1099,9 @@ Item {
     if (!root.workflowNode || root.workflowNode.kind !== "menu") return
     var child = root.workflowNode.items[index]
     if (!child) return
-    if (child.kind === "action") root.dispatchWorkflowNode(child, "")
+    if (child.submenuCommand && child.submenuCommand.length > 0) root.enterSubmenu(child)
+    else if (child.documentCommand && child.documentCommand.length > 0) root.enterDocument(child)
+    else if (child.kind === "action") root.dispatchWorkflowNode(child, "")
     else if (child.kind === "confirm") {
       root.workflowConfirmNode = child
       root.workflowConfirmOpen = true
@@ -925,8 +1121,17 @@ Item {
   }
 
   function openWorkflowActions() {
-    if (!root.workflowActive || root.fileBrowserActive || !root.workflowNode || root.workflowNode.kind !== "menu"
-        || !root.cursorActive || root.selectedIndex < 0 || root.selectedIndex >= root.workflowNode.items.length) return
+    if (!root.workflowActive || root.fileBrowserActive || !root.workflowNode) return
+    if (root.documentActive) {
+      var documentActions = root.activeDocument && root.activeDocument.actions ? root.activeDocument.actions : []
+      if (documentActions.length === 0) return
+      root.showWorkflowNode({ id: root.workflowNode.id + ".actions", kind: "menu",
+        label: root.activeDocument.title, description: "Actions", items: documentActions },
+        root.workflowContext, true)
+      return
+    }
+    if (root.workflowNode.kind !== "menu" || !root.cursorActive || root.selectedIndex < 0
+        || root.selectedIndex >= root.workflowNode.items.length) return
     var child = root.selectedWorkflowNode
     if (!child || !child.actions || child.actions.length === 0) return
     root.showWorkflowNode({ id: child.id + ".actions", kind: "menu", label: child.label,
@@ -956,6 +1161,10 @@ Item {
     root.filterText = ""
     root.selectedIndex = 0
     root.rebuildDisplay()
+  }
+
+  function utf8ByteLength(value) {
+    return MenuModel.utf8ByteLength(value)
   }
 
   function boundedBackgroundDiagnostic(value) {
@@ -1774,6 +1983,9 @@ Item {
         icon: option.icon,
         iconFont: "",
         trailingIcon: "",
+        trailingText: "",
+        badge: "",
+        badgeTone: "neutral",
         appIcon: "",
         appId: "",
         label: option.label,
@@ -1821,6 +2033,9 @@ Item {
             icon: workflowChild.icon,
             iconFont: workflowChild.iconFont,
             trailingIcon: workflowChild.trailingIcon,
+            trailingText: workflowChild.trailingText,
+            badge: workflowChild.badge,
+            badgeTone: workflowChild.badgeTone,
             label: root.workflowText(workflowChild.label),
             description: root.workflowText(workflowChild.description),
             aliases: workflowChild.aliases,
@@ -2301,7 +2516,11 @@ Item {
       root.workflowStack = []
       root.workflowNode = { id: "root", kind: "menu", label: dynamicSearchExtension.label,
         description: dynamicSearchExtension.description, items: dynamicSearchEntry.items }
-      if (dynamicSearchEntry.node.kind === "action") root.dispatchWorkflowNode(dynamicSearchEntry.node, "")
+      if (dynamicSearchEntry.node.submenuCommand && dynamicSearchEntry.node.submenuCommand.length > 0)
+        root.enterSubmenu(dynamicSearchEntry.node)
+      else if (dynamicSearchEntry.node.documentCommand && dynamicSearchEntry.node.documentCommand.length > 0)
+        root.enterDocument(dynamicSearchEntry.node)
+      else if (dynamicSearchEntry.node.kind === "action") root.dispatchWorkflowNode(dynamicSearchEntry.node, "")
       else if (dynamicSearchEntry.node.kind === "confirm") {
         root.workflowConfirmNode = dynamicSearchEntry.node
         root.workflowConfirmOpen = true
@@ -2492,6 +2711,8 @@ Item {
   function resetForOpen() {
     if (root.dmenuActive && root.requestActive) root.finishRequest(null)
     root.invalidateWorkflowAction("new launcher session")
+    root.invalidateSubmenu("new launcher session")
+    root.invalidateDocument("new launcher session")
     root.invalidateDynamicMenu()
     root.routePendingForMenuSources = false
     root.resetFileIndex()
@@ -2514,6 +2735,8 @@ Item {
 
   function cancel() {
     root.invalidateWorkflowAction("launcher canceled")
+    root.invalidateSubmenu("launcher canceled")
+    root.invalidateDocument("launcher canceled")
     root.invalidateDynamicMenu()
     root.workflowConfirmOpen = false
     root.workflowConfirmNode = null
@@ -3007,9 +3230,10 @@ Item {
     stdout: SplitParser {
       onRead: function(data) {
         if (dynamicMenuSearchProc.outputOverflow) return
-        var nextBytes = root.dynamicMenuSearchOutputBytes + data.length + 1
+        var dataBytes = root.utf8ByteLength(data) + 1
+        var nextBytes = root.dynamicMenuSearchOutputBytes + dataBytes
         var next = dynamicMenuSearchProc.collected + data + "\n"
-        if (next.length > root.dynamicMenuOutputBytes || nextBytes > root.dynamicMenuSearchMaxOutputBytes) {
+        if (root.utf8ByteLength(next) > root.dynamicMenuOutputBytes || nextBytes > root.dynamicMenuSearchMaxOutputBytes) {
           dynamicMenuSearchProc.outputOverflow = true
           root.rejectDynamicMenuSearch("global menu search provider exceeded an output limit")
         } else {
@@ -3021,8 +3245,9 @@ Item {
     stderr: SplitParser {
       onRead: function(data) {
         if (dynamicMenuSearchProc.outputOverflow) return
-        dynamicMenuSearchProc.stderrBytes += data.length + 1
-        root.dynamicMenuSearchOutputBytes += data.length + 1
+        var dataBytes = root.utf8ByteLength(data) + 1
+        dynamicMenuSearchProc.stderrBytes += dataBytes
+        root.dynamicMenuSearchOutputBytes += dataBytes
         if (dynamicMenuSearchProc.stderrBytes > root.dynamicMenuOutputBytes
             || root.dynamicMenuSearchOutputBytes > root.dynamicMenuSearchMaxOutputBytes) {
           dynamicMenuSearchProc.outputOverflow = true
@@ -3050,6 +3275,7 @@ Item {
         root.rejectDynamicMenuSearch("global menu search provider returned an invalid snapshot")
         return
       }
+      var searchNodes = MenuModel.dynamicMenuSearchNodes(workflow)
       var searchItems = MenuModel.dynamicMenuSearchItems(dynamicMenuSearchProc.extension, workflow)
       if (root.dynamicMenuSearchCandidate.length + searchItems.length > root.dynamicMenuSearchMaxRows) {
         root.rejectDynamicMenuSearch("global menu search preload exceeds the aggregate row limit")
@@ -3058,8 +3284,8 @@ Item {
       var candidate = root.dynamicMenuSearchCandidate.slice()
       for (var i = 0; i < searchItems.length; i++) {
         var searchNode = null
-        for (var nodeIndex = 0; nodeIndex < workflow.items.length; nodeIndex++)
-          if (workflow.items[nodeIndex].id === searchItems[i].action) { searchNode = workflow.items[nodeIndex]; break }
+        for (var nodeIndex = 0; nodeIndex < searchNodes.length; nodeIndex++)
+          if (searchNodes[nodeIndex].id === searchItems[i].action) { searchNode = searchNodes[nodeIndex]; break }
         if (!searchNode) {
           root.rejectDynamicMenuSearch("global menu search row lost its normalized provider identity")
           return
@@ -3077,6 +3303,177 @@ Item {
         root.dynamicMenuSearchCandidate = []
         root.rebuildDisplay()
       }
+    }
+  }
+
+  Timer {
+    id: submenuTimeout
+    interval: root.submenuTimeoutMs
+    repeat: false
+    onTriggered: {
+      if (!submenuProc.running) return
+      console.warn("Omalaunch: submenu provider timed out after " + interval + "ms")
+      root.invalidateSubmenu("submenu provider timed out")
+      if (root.workflowNode) root.workflowNode = Object.assign({}, root.workflowNode,
+        { description: "Provider timed out", items: [] })
+      root.rebuildDisplay()
+    }
+  }
+
+  Timer {
+    id: submenuKillTimer
+    interval: root.submenuTerminationGraceMs
+    repeat: false
+    property int generation: 0
+    onTriggered: {
+      if (!submenuProc.stopping || generation !== submenuProc.stopGeneration
+          || generation !== submenuProc.generation) return
+      console.warn("Omalaunch: submenu provider ignored SIGTERM; sending SIGKILL to direct child")
+      submenuProc.signal(9)
+    }
+  }
+
+  Process {
+    id: submenuProc
+    property int generation: 0
+    property int stopGeneration: 0
+    property bool stopping: false
+    property string extensionCapability: ""
+    property string submenuNodeId: ""
+    property string collected: ""
+    property int stderrBytes: 0
+    property bool outputOverflow: false
+    stdout: SplitParser {
+      onRead: function(data) {
+        if (submenuProc.outputOverflow) return
+        var next = submenuProc.collected + data + "\n"
+        if (root.utf8ByteLength(next) > root.submenuOutputBytes) {
+          submenuProc.outputOverflow = true
+          submenuProc.collected = ""
+          root.invalidateSubmenu("submenu output exceeded limit")
+          if (root.workflowNode) root.workflowNode = Object.assign({}, root.workflowNode,
+            { description: "Provider output was too large", items: [] })
+          root.rebuildDisplay()
+        } else submenuProc.collected = next
+      }
+    }
+    stderr: SplitParser {
+      onRead: function(data) {
+        if (submenuProc.outputOverflow) return
+        submenuProc.stderrBytes += root.utf8ByteLength(data) + 1
+        if (submenuProc.stderrBytes > root.submenuOutputBytes) {
+          submenuProc.outputOverflow = true
+          root.invalidateSubmenu("submenu error output exceeded limit")
+          if (root.workflowNode) root.workflowNode = Object.assign({}, root.workflowNode,
+            { description: "Provider error output was too large", items: [] })
+          root.rebuildDisplay()
+        }
+      }
+    }
+    onExited: function(exitCode) {
+      submenuTimeout.stop()
+      submenuKillTimer.stop()
+      submenuProc.stopGeneration = 0
+      submenuProc.stopping = false
+      if (submenuProc.generation !== root.submenuGeneration || !root.workflowActive
+          || !root.workflowExtension
+          || root.workflowExtension.capability !== submenuProc.extensionCapability
+          || !root.workflowNode || root.workflowNode.id !== submenuProc.submenuNodeId) return
+      root.submenuLoading = false
+      var workflow = exitCode === 0 && !submenuProc.outputOverflow
+        ? MenuModel.normalizeDynamicMenuOutput(submenuProc.collected) : null
+      if (!workflow) {
+        console.warn("Omalaunch: submenu provider returned invalid or failed output")
+        root.workflowNode = Object.assign({}, root.workflowNode,
+          { description: "Provider failed", items: [] })
+      } else root.workflowNode = Object.assign({}, root.workflowNode,
+        { description: "", items: workflow.items })
+      root.selectedIndex = 0
+      root.cursorActive = workflow && workflow.items.length > 0
+      root.rebuildDisplay()
+    }
+  }
+
+  Timer {
+    id: documentTimeout
+    interval: root.documentTimeoutMs
+    repeat: false
+    onTriggered: {
+      if (!documentProc.running) return
+      root.documentError = "Detail provider timed out"
+      root.invalidateDocument("detail provider timed out")
+      root.rebuildDisplay()
+    }
+  }
+
+  Timer {
+    id: documentKillTimer
+    interval: root.documentTerminationGraceMs
+    repeat: false
+    property int generation: 0
+    onTriggered: {
+      if (!documentProc.stopping || generation !== documentProc.stopGeneration
+          || generation !== documentProc.generation) return
+      console.warn("Omalaunch: detail provider ignored SIGTERM; sending SIGKILL to direct child")
+      documentProc.signal(9)
+    }
+  }
+
+  Process {
+    id: documentProc
+    property int generation: 0
+    property int stopGeneration: 0
+    property bool stopping: false
+    property string extensionCapability: ""
+    property string documentNodeId: ""
+    property string collected: ""
+    property int stderrBytes: 0
+    property bool outputOverflow: false
+    stdout: SplitParser {
+      onRead: function(data) {
+        if (documentProc.outputOverflow) return
+        var next = documentProc.collected + data + "\n"
+        if (root.utf8ByteLength(next) > root.documentOutputBytes) {
+          documentProc.outputOverflow = true
+          documentProc.collected = ""
+          root.documentError = "Detail provider output was too large"
+          root.invalidateDocument("detail output exceeded limit")
+          root.rebuildDisplay()
+        } else documentProc.collected = next
+      }
+    }
+    stderr: SplitParser {
+      onRead: function(data) {
+        if (documentProc.outputOverflow) return
+        documentProc.stderrBytes += root.utf8ByteLength(data) + 1
+        if (documentProc.stderrBytes > root.documentOutputBytes) {
+          documentProc.outputOverflow = true
+          root.documentError = "Detail provider error output was too large"
+          root.invalidateDocument("detail error output exceeded limit")
+          root.rebuildDisplay()
+        }
+      }
+    }
+    onExited: function(exitCode) {
+      documentTimeout.stop()
+      documentKillTimer.stop()
+      documentProc.stopGeneration = 0
+      documentProc.stopping = false
+      if (documentProc.generation !== root.documentGeneration || !root.documentActive
+          || !root.workflowExtension
+          || root.workflowExtension.capability !== documentProc.extensionCapability
+          || root.workflowNode.id !== documentProc.documentNodeId) return
+      root.documentLoading = false
+      var document = exitCode === 0 && !documentProc.outputOverflow
+        ? MenuModel.normalizeDetailDocument(documentProc.collected) : null
+      if (!document) {
+        root.documentError = "Could not load details"
+        console.warn("Omalaunch: detail provider returned invalid or failed output")
+      } else {
+        root.documentError = ""
+        root.workflowNode = Object.assign({}, root.workflowNode, { document: document })
+      }
+      root.rebuildDisplay()
     }
   }
 
@@ -3117,7 +3514,7 @@ Item {
       onRead: function(data) {
         if (dynamicMenuProc.outputOverflow) return
         var next = dynamicMenuProc.collected + data + "\n"
-        if (next.length > root.dynamicMenuOutputBytes) {
+        if (root.utf8ByteLength(next) > root.dynamicMenuOutputBytes) {
           dynamicMenuProc.outputOverflow = true
           dynamicMenuProc.collected = ""
           root.invalidateDynamicMenu()
@@ -3127,7 +3524,7 @@ Item {
     stderr: SplitParser {
       onRead: function(data) {
         if (dynamicMenuProc.outputOverflow) return
-        dynamicMenuProc.stderrBytes += data.length + 1
+        dynamicMenuProc.stderrBytes += root.utf8ByteLength(data) + 1
         if (dynamicMenuProc.stderrBytes > root.dynamicMenuOutputBytes) {
           dynamicMenuProc.outputOverflow = true
           root.invalidateDynamicMenu()
@@ -3633,7 +4030,10 @@ Item {
             return
           }
 
-          if (!root.dmenuActive && event.key === Qt.Key_Comma && (event.modifiers & Qt.ControlModifier)) {
+          if (root.workflowActive && event.key === Qt.Key_R && (event.modifiers & Qt.ControlModifier)) {
+            root.refreshWorkflowSurface()
+            event.accepted = true
+          } else if (!root.dmenuActive && event.key === Qt.Key_Comma && (event.modifiers & Qt.ControlModifier)) {
             root.openSettings()
             event.accepted = true
           } else if (root.workflowInputActive
@@ -3683,7 +4083,16 @@ Item {
               && !(event.modifiers & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier))) {
             root.select(event.key === Qt.Key_Backtab || (event.modifiers & Qt.ShiftModifier) ? -1 : 1)
             event.accepted = true
-          } else if (Util.editsFilter(event, root.filterText)) {
+          } else if (root.documentActive && (event.key === Qt.Key_Up || event.key === Qt.Key_PageUp)) {
+            documentFlick.contentY = Math.max(documentFlick.originY,
+              documentFlick.contentY - (event.key === Qt.Key_PageUp ? documentFlick.height * 0.8 : Style.space(48)))
+            event.accepted = true
+          } else if (root.documentActive && (event.key === Qt.Key_Down || event.key === Qt.Key_PageDown)) {
+            documentFlick.contentY = Math.min(Math.max(documentFlick.originY,
+              documentFlick.originY + documentFlick.contentHeight - documentFlick.height),
+              documentFlick.contentY + (event.key === Qt.Key_PageDown ? documentFlick.height * 0.8 : Style.space(48)))
+            event.accepted = true
+          } else if (!root.documentActive && Util.editsFilter(event, root.filterText)) {
             root.setFilter(Util.editedFilter(event, root.filterText))
             event.accepted = true
           } else if ((event.key === Qt.Key_Backspace || event.key === Qt.Key_Left) && !root.filterText) {
@@ -3722,7 +4131,7 @@ Item {
             } else if (root.cursorActive) root.activateIndex(root.selectedIndex)
             else if (displayModel.count > 0) root.cursorActive = true
             event.accepted = true
-          } else if (event.text && event.text.length === 1 && event.text.charCodeAt(0) >= 32 && event.text.charCodeAt(0) !== 127 && (event.modifiers === Qt.NoModifier || event.modifiers === Qt.ShiftModifier)) {
+          } else if (!root.documentActive && event.text && event.text.length === 1 && event.text.charCodeAt(0) >= 32 && event.text.charCodeAt(0) !== 127 && (event.modifiers === Qt.NoModifier || event.modifiers === Qt.ShiftModifier)) {
             root.setFilter(root.filterText + event.text)
             event.accepted = true
           }
@@ -3813,19 +4222,34 @@ Item {
           color: "transparent"
 
           Text {
-            visible: !root.focusedExtension
+            id: documentHeaderIcon
+            visible: root.documentActive && root.activeDocument && root.activeDocument.icon.length > 0
             anchors.left: parent.left
+            anchors.verticalCenter: parent.verticalCenter
+            text: root.activeDocument ? root.activeDocument.icon : ""
+            color: root.foreground
+            font.family: root.activeDocument && root.activeDocument.iconFont
+              ? root.activeDocument.iconFont : root.fontFamily
+            font.pixelSize: root.menuItemIconSize
+          }
+
+          Text {
+            visible: !root.focusedExtension
+            anchors.left: documentHeaderIcon.visible ? documentHeaderIcon.right : parent.left
+            anchors.leftMargin: documentHeaderIcon.visible ? Style.space(10) : 0
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
             text: root.actionPanelActive
               ? ("Actions for " + ((root.actionPanelFile && root.actionPanelFile.name) || "file"))
               : root.fileBrowserActive
                 ? (root.fileBrowserPath + (root.filterText ? "  ›  " + root.filterText : ""))
+              : root.documentActive
+                ? (root.activeDocument ? root.activeDocument.title : root.workflowNode.label)
               : root.workflowActive
                 ? root.filterText
               : (root.filterText || (root.dmenuActive ? (root.dmenuPrompt + "…") : ((root.item(root.activeMenu) ? (root.item(root.activeMenu).title || root.item(root.activeMenu).label) : "Go") + "…")))
             color: root.foreground
-            opacity: root.filterText ? 1 : 0.58
+            opacity: root.documentActive || root.filterText ? 1 : 0.58
             font.family: root.fontFamily
             font.pixelSize: root.menuItemFontSize
             elide: Text.ElideRight
@@ -3867,6 +4291,7 @@ Item {
 
           ListView {
             id: resultList
+            visible: !root.documentActive
             anchors.fill: parent
             anchors.rightMargin: root.imagePreviewActive ? root.previewPaneWidth + root.contentSpacing : 0
             model: displayModel
@@ -3902,6 +4327,9 @@ Item {
               required property string icon
               required property string iconFont
               required property string trailingIcon
+              required property string trailingText
+              required property string badge
+              required property string badgeTone
               required property string appIcon
               required property string appId
               required property string label
@@ -4027,11 +4455,44 @@ Item {
 
               Row {
                 id: trail
-                width: row.trailingIcon.length > 0 ? Style.space(34) : Style.space(14)
+                width: (row.trailingText.length > 0 ? trailingTextLabel.implicitWidth + Style.space(10) : 0)
+                  + (row.badge.length > 0 ? Math.max(Style.space(24), badgeText.implicitWidth + Style.space(12)) + Style.space(6) : 0)
+                  + (row.trailingIcon.length > 0 ? Style.space(34) : Style.space(14))
                 anchors.right: parent.right
                 anchors.rightMargin: root.rowReservedBorderRight + Style.space(8)
                 y: contentColumn.y + labelText.y + (labelText.height - height) / 2
                 spacing: Style.space(6)
+
+                Text {
+                  id: trailingTextLabel
+                  visible: row.trailingText.length > 0
+                  text: row.trailingText
+                  color: row.hasCursor ? root.selectedText : root.foreground
+                  opacity: 0.52
+                  font.family: root.fontFamily
+                  font.pixelSize: root.menuSecondaryFontSize
+                  anchors.verticalCenter: parent.verticalCenter
+                }
+
+                Rectangle {
+                  visible: row.badge.length > 0
+                  width: Math.max(Style.space(24), badgeText.implicitWidth + Style.space(12))
+                  height: Math.max(Style.space(24), badgeText.implicitHeight + Style.space(6))
+                  radius: height / 2
+                  color: Util.alpha(root.badgeToneColor(row.badgeTone), row.hasCursor ? 0.28 : 0.18)
+                  anchors.verticalCenter: parent.verticalCenter
+
+                  Text {
+                    id: badgeText
+                    anchors.centerIn: parent
+                    text: row.badge
+                    color: root.badgeToneColor(row.badgeTone)
+                    opacity: 0.92
+                    font.family: root.fontFamily
+                    font.pixelSize: root.menuSecondaryFontSize
+                    font.weight: Font.Medium
+                  }
+                }
 
                 Text {
                   visible: row.trailingIcon.length > 0
@@ -4080,6 +4541,313 @@ Item {
                   root.cursorActive = true
                   root.selectedIndex = row.index
                   root.activateIndex(row.index, true)
+                }
+              }
+            }
+          }
+
+          Flickable {
+            id: documentFlick
+            visible: root.documentActive
+            anchors.fill: parent
+            clip: true
+            contentWidth: width
+            contentHeight: documentColumn.height
+            boundsBehavior: Flickable.StopAtBounds
+
+            Column {
+              id: documentColumn
+              width: documentFlick.width
+              spacing: Style.space(16)
+
+              Text {
+                width: parent.width
+                visible: root.documentLoading || !!root.documentError
+                text: root.documentLoading ? "Loading details…" : root.documentError
+                color: root.foreground
+                opacity: 0.65
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.body
+                wrapMode: Text.Wrap
+              }
+
+              Text {
+                width: parent.width
+                visible: root.activeDocument && root.activeDocument.subtitle.length > 0
+                text: root.activeDocument ? root.activeDocument.subtitle : ""
+                color: root.foreground
+                opacity: 0.62
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.body
+                wrapMode: Text.Wrap
+              }
+
+              Rectangle {
+                visible: root.activeDocument && root.activeDocument.status.length > 0
+                width: documentStatus.implicitWidth + Style.space(16)
+                height: documentStatus.implicitHeight + Style.space(8)
+                radius: height / 2
+                color: Util.alpha(root.foreground, 0.09)
+
+                Text {
+                  id: documentStatus
+                  anchors.centerIn: parent
+                  text: root.activeDocument ? root.activeDocument.status : ""
+                  color: root.foreground
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.bodySmall
+                  font.weight: Font.Medium
+                }
+              }
+
+              Grid {
+                id: documentStats
+                width: parent.width
+                visible: root.activeDocument && root.activeDocument.stats.length > 0
+                columns: width >= Style.space(560) ? 3 : 2
+                columnSpacing: Style.space(10)
+                rowSpacing: Style.space(10)
+                height: visible ? childrenRect.height : 0
+
+                Repeater {
+                  model: root.activeDocument ? root.activeDocument.stats : []
+
+                  Rectangle {
+                    required property var modelData
+                    width: (documentStats.width - documentStats.columnSpacing * (documentStats.columns - 1))
+                      / documentStats.columns
+                    height: Style.space(68)
+                    radius: root.cornerRadius
+                    color: Util.alpha(root.foreground, 0.055)
+
+                    Text {
+                      id: statIcon
+                      visible: modelData.icon.length > 0
+                      anchors.left: parent.left
+                      anchors.leftMargin: Style.space(12)
+                      anchors.top: parent.top
+                      anchors.topMargin: Style.space(10)
+                      text: modelData.icon
+                      color: root.foreground
+                      opacity: 0.68
+                      font.family: modelData.iconFont || root.fontFamily
+                      font.pixelSize: root.menuItemIconSize
+                    }
+
+                    Column {
+                      anchors.left: statIcon.visible ? statIcon.right : parent.left
+                      anchors.leftMargin: Style.space(12)
+                      anchors.right: parent.right
+                      anchors.rightMargin: Style.space(10)
+                      anchors.top: parent.top
+                      anchors.topMargin: Style.space(9)
+                      spacing: Style.space(2)
+
+                      Text {
+                        width: parent.width
+                        text: modelData.value
+                        color: root.foreground
+                        font.family: root.fontFamily
+                        font.pixelSize: root.menuItemFontSize
+                        font.weight: Font.DemiBold
+                        elide: Text.ElideRight
+                      }
+                      Text {
+                        width: parent.width
+                        text: modelData.label
+                        color: root.foreground
+                        opacity: 0.55
+                        font.family: root.fontFamily
+                        font.pixelSize: root.menuSecondaryFontSize
+                        elide: Text.ElideRight
+                      }
+                    }
+                  }
+                }
+              }
+
+              Column {
+                width: parent.width
+                visible: root.activeDocument && root.activeDocument.fields.length > 0
+                spacing: Style.space(8)
+
+                Repeater {
+                  model: root.activeDocument ? root.activeDocument.fields : []
+
+                  Row {
+                    required property var modelData
+                    width: documentColumn.width
+                    spacing: Style.space(14)
+
+                    Text {
+                      width: Math.min(Style.space(150), parent.width * 0.3)
+                      text: modelData.label
+                      color: root.foreground
+                      opacity: 0.56
+                      font.family: root.fontFamily
+                      font.pixelSize: Style.font.bodySmall
+                      wrapMode: Text.Wrap
+                    }
+                    Text {
+                      width: parent.width - x
+                      text: modelData.value
+                      color: root.foreground
+                      font.family: root.fontFamily
+                      font.pixelSize: Style.font.body
+                      wrapMode: Text.Wrap
+                    }
+                  }
+                }
+              }
+
+              Repeater {
+                model: root.activeDocument ? root.activeDocument.sections : []
+
+                Column {
+                  required property var modelData
+                  width: documentColumn.width
+                  spacing: Style.space(7)
+
+                  Row {
+                    id: documentSectionHeader
+                    width: parent.width
+                    height: modelData.heading.length > 0 ? Math.max(sectionHeading.implicitHeight, Style.space(18)) : 0
+                    visible: modelData.heading.length > 0
+                    spacing: Style.space(10)
+
+                    Text {
+                      id: sectionHeading
+                      text: modelData.heading
+                      color: root.foreground
+                      opacity: 0.56
+                      font.family: root.fontFamily
+                      font.pixelSize: root.menuSecondaryFontSize
+                      font.weight: Font.DemiBold
+                      font.capitalization: Font.AllUppercase
+                      font.letterSpacing: Style.space(1)
+                      anchors.verticalCenter: parent.verticalCenter
+                    }
+
+                    Rectangle {
+                      width: Math.max(0, documentSectionHeader.width - sectionHeading.implicitWidth
+                        - documentSectionHeader.spacing)
+                      height: Style.spacing.hairline
+                      color: Util.alpha(root.foreground, 0.18)
+                      anchors.verticalCenter: parent.verticalCenter
+                    }
+                  }
+                  Text {
+                    width: parent.width
+                    visible: modelData.format !== "markdown"
+                    text: modelData.text
+                    color: root.foreground
+                    opacity: 0.88
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.body
+                    wrapMode: Text.Wrap
+                    textFormat: Text.PlainText
+                  }
+
+                  Column {
+                    width: parent.width
+                    visible: modelData.format === "markdown"
+                    spacing: Style.space(10)
+
+                    Repeater {
+                      model: modelData.format === "markdown" ? MenuMarkdown.documentBlocks(modelData.text) : []
+
+                      Item {
+                        required property var modelData
+                        width: parent ? parent.width : 0
+                        height: modelData.kind === "code" ? codeSurface.height : markdownText.implicitHeight
+
+                        Text {
+                          id: markdownText
+                          visible: modelData.kind === "markdown"
+                          width: parent.width
+                          text: modelData.html
+                          textFormat: Text.RichText
+                          color: root.foreground
+                          linkColor: root.selectedText
+                          opacity: 0.88
+                          font.family: root.fontFamily
+                          font.pixelSize: Style.font.body
+                          wrapMode: Text.Wrap
+                          onLinkActivated: function(link) { root.openDocumentLink(link) }
+                        }
+
+                        Rectangle {
+                          id: codeSurface
+                          visible: modelData.kind === "code"
+                          width: parent.width
+                          height: Math.max(Style.space(76), codeText.implicitHeight + Style.space(34))
+                          radius: root.cornerRadius
+                          color: Util.alpha(root.foreground, 0.065)
+                          clip: true
+
+                          Text {
+                            visible: modelData.language.length > 0
+                            anchors.left: parent.left
+                            anchors.leftMargin: Style.space(12)
+                            anchors.top: parent.top
+                            anchors.topMargin: Style.space(7)
+                            text: modelData.language
+                            color: root.foreground
+                            opacity: 0.42
+                            font.family: root.fontFamily
+                            font.pixelSize: root.menuCaptionFontSize
+                          }
+
+                          Text {
+                            id: copyCodeButton
+                            anchors.right: parent.right
+                            anchors.rightMargin: Style.space(12)
+                            anchors.top: parent.top
+                            anchors.topMargin: Style.space(7)
+                            text: "Copy code"
+                            color: root.foreground
+                            opacity: copyCodeMouse.containsMouse ? 0.95 : 0.55
+                            font.family: root.fontFamily
+                            font.pixelSize: root.menuCaptionFontSize
+
+                            MouseArea {
+                              id: copyCodeMouse
+                              anchors.fill: parent
+                              anchors.margins: -Style.space(5)
+                              hoverEnabled: true
+                              cursorShape: Qt.PointingHandCursor
+                              onClicked: root.copyDocumentCode(modelData.text)
+                            }
+                          }
+
+                          Flickable {
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.top: parent.top
+                            anchors.bottom: parent.bottom
+                            anchors.leftMargin: Style.space(12)
+                            anchors.rightMargin: Style.space(12)
+                            anchors.topMargin: Style.space(27)
+                            anchors.bottomMargin: Style.space(9)
+                            contentWidth: codeText.implicitWidth
+                            contentHeight: height
+                            clip: true
+                            boundsBehavior: Flickable.StopAtBounds
+
+                            Text {
+                              id: codeText
+                              text: modelData.text
+                              color: root.foreground
+                              font.family: root.fontFamily
+                              font.pixelSize: root.menuSecondaryFontSize
+                              textFormat: Text.PlainText
+                              wrapMode: Text.NoWrap
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -4185,7 +4953,9 @@ Item {
             Text {
               text: root.focusedExtension
                 ? "Start typing"
-                : (root.filterText ? "No matches for “" + root.filterText + "”" : "Nothing here yet")
+                : (root.filterText ? "No matches for “" + root.filterText + "”"
+                  : (root.workflowActive && root.workflowNode && root.workflowNode.description
+                    ? root.workflowNode.description : "Nothing here yet"))
               color: root.foreground
               opacity: 0.7
               font.family: root.fontFamily

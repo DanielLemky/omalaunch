@@ -14,6 +14,11 @@ const context = { module: { exports: {} } }
 vm.runInNewContext(source, context)
 const menu = context.module.exports
 
+assert(menu.utf8ByteLength('GitHub') === 6, 'UTF-8 limits count ASCII bytes')
+assert(menu.utf8ByteLength('é') === 2, 'UTF-8 limits count multibyte characters')
+assert(menu.utf8ByteLength('󰊤') === 4, 'UTF-8 limits count surrogate pairs once')
+assert(menu.utf8ByteLength('\ud800') === 3, 'UTF-8 limits count an unpaired surrogate as replacement bytes')
+
 const validMenuSnapshot = menu.parseMenuJsoncSnapshot('{"items":{"root":{"label":"Root"}}}')
 assert(validMenuSnapshot.valid && validMenuSnapshot.items.length === 1, 'valid menu snapshots are identified')
 assert(menu.parseMenuJsoncSnapshot('{}').valid, 'empty menu objects remain valid snapshots')
@@ -269,12 +274,17 @@ const workflowExtensions = menu.parseExtensions(JSON.stringify([{
 }]))
 const dynamicMenuExtensions = menu.parseExtensions(JSON.stringify([{
   schemaVersion: 1, id: 'quicklinks', capability: 'quicklinks', mode: 'menu', label: 'Quicklinks',
-  prefixes: ['links'], command: ['{extensionDir}/bin/menu', '--json'], globalSearch: true
+  prefixes: ['links'], command: ['{extensionDir}/bin/menu', '--json'], globalSearch: true,
+  globalSearchCommand: ['{extensionDir}/bin/menu', '--global-search']
 }, {
   schemaVersion: 1, id: 'private-menu', mode: 'menu', label: 'Private', prefixes: ['private'], command: ['private-menu']
 }]))
 assert(dynamicMenuExtensions.length === 2 && dynamicMenuExtensions[0].command[0] === '{extensionDir}/bin/menu', 'dynamic menu provider extensions are parsed')
 assert(dynamicMenuExtensions[0].globalSearch && !dynamicMenuExtensions[1].globalSearch, 'dynamic menu global search is explicit opt-in')
+assert(dynamicMenuExtensions[0].globalSearchCommand[1] === '--global-search', 'dynamic menus retain a separate global search command')
+assert(menu.normalizeExtension({ schemaVersion: 1, id: 'bad-search-command', mode: 'menu', label: 'Bad', prefixes: ['bad'], command: ['menu'], globalSearch: true, globalSearchCommand: 'search' }) === null, 'global search commands must be argument arrays')
+assert(menu.normalizeExtension({ schemaVersion: 1, id: 'disabled-search-command', mode: 'menu', label: 'Bad', prefixes: ['bad'], command: ['menu'], globalSearchCommand: ['search'] }) === null, 'separate search commands require global search opt-in')
+assert(menu.normalizeExtension({ schemaVersion: 1, id: 'wrong-mode-search-command', mode: 'prefix', label: 'Bad', prefixes: ['bad'], command: ['run'], globalSearchCommand: ['search'] }) === null, 'separate search commands are limited to menu extensions')
 assert(menu.extensionRootActivation(dynamicMenuExtensions[0]) === 'menu', 'dynamic menu roots start their provider')
 const dynamicMenu = menu.normalizeDynamicMenuOutput(JSON.stringify({ items: [
   { id: 'open', label: 'Open docs', description: 'Documentation', aliases: ['manual', 'reference'], starred: true, starAction: 'star', command: ['xdg-open', 'https://example.test'], closeOnSuccess: true, actions: [
@@ -311,11 +321,69 @@ assert(dynamicMenu.items[0].actions[2].refreshExtensions, 'mutation actions can 
 assert(dynamicMenu.items[1].kind === 'input' && dynamicMenu.items[1].prompt === 'URL', 'rows can open bounded host input forms')
 assert(menu.workflowCommand(dynamicMenu.items[1], 'https://literal.test/?q=$(bad)', {}).slice(-1)[0] === 'https://literal.test/?q=$(bad)', 'dynamic input is substituted as one literal argument')
 const scopedSearch = menu.normalizeDynamicMenuOutput([
-  { id: 'global', label: 'Google', globalSearch: true, trailingIcon: 'globe', command: ['search', 'google'] },
+  { id: 'global', label: 'Google', starredLabel: 'Web · Google', globalSearch: true, trailingIcon: 'globe', trailingText: '⌘ G', badge: '12', badgeTone: 'success', command: ['search', 'google'] },
   { id: 'menu-only', label: 'Bing', globalSearch: false, command: ['search', 'bing'] }
 ])
 assert(menu.dynamicMenuSearchItems(dynamicMenuExtensions[0], scopedSearch).length === 1, 'dynamic rows can remain in their extension menu without entering global search')
 assert(menu.dynamicMenuSearchItems(dynamicMenuExtensions[0], scopedSearch)[0].trailingIcon === 'globe', 'dynamic rows retain bounded trailing icons')
+assert(menu.dynamicMenuSearchItems(dynamicMenuExtensions[0], scopedSearch)[0].trailingText === '⌘ G', 'dynamic search rows retain bounded trailing text')
+assert(menu.displayRow({}, [], {}, scopedSearch.items[0], '', 0, '').trailingText === '⌘ G', 'display rows retain bounded trailing text')
+assert(menu.normalizeDynamicMenuOutput([{ id: 'long-trailing', label: 'Long', trailingText: 'x'.repeat(65), command: ['true'] }]).items[0].trailingText === '', 'oversized dynamic row trailing text is omitted')
+assert(menu.normalizeItem('bounded', { trailingText: 'x'.repeat(65) }).trailingText.length === 64, 'normalized row trailing text is bounded to 64 characters')
+assert(menu.dynamicMenuSearchItems(dynamicMenuExtensions[0], scopedSearch)[0].badge === '12', 'dynamic rows retain bounded badges')
+assert(menu.dynamicMenuSearchItems(dynamicMenuExtensions[0], scopedSearch)[0].badgeTone === 'success', 'dynamic rows retain semantic badge tones')
+assert(menu.dynamicMenuSearchItems(dynamicMenuExtensions[0], scopedSearch)[0].label === 'Google', 'unstarred dynamic rows retain their menu label')
+scopedSearch.items[0].starred = true
+assert(menu.dynamicMenuSearchItems(dynamicMenuExtensions[0], scopedSearch)[0].label === 'Web · Google', 'starred dynamic rows use their distinct top-level label')
+scopedSearch.items[0].starred = false
+assert(menu.normalizeDynamicMenuOutput([{ id: 'badge', label: 'Badge', badge: 'x'.repeat(17), command: ['true'] }]).items[0].badge === '', 'oversized dynamic row badges are omitted')
+const separateGlobalSearchMenu = menu.normalizeDynamicMenuOutput({
+  items: [{ id: 'visible', label: 'Visible only', command: ['open-visible'] }],
+  globalSearchItems: [{ id: 'search', label: 'Search only', aliases: ['dedicated'], command: ['open-search'] }]
+})
+assert(separateGlobalSearchMenu.items.length === 1 && separateGlobalSearchMenu.items[0].id === 'visible',
+  'dedicated global search rows do not change the visible dynamic menu collection')
+const separateGlobalSearchItems = menu.dynamicMenuSearchItems(dynamicMenuExtensions[0], separateGlobalSearchMenu)
+assert(separateGlobalSearchItems.length === 1 && separateGlobalSearchItems[0].label === 'Search only'
+  && separateGlobalSearchItems[0].aliases[0] === 'dedicated',
+  'dedicated global search rows replace visible rows as the dynamic search source')
+assert(menu.dynamicMenuSearchNodes(separateGlobalSearchMenu)[0].command[0] === 'open-search',
+  'dedicated global search actions use the dedicated source nodes')
+const emptyGlobalSearchMenu = menu.normalizeDynamicMenuOutput({
+  items: [{ id: 'visible', label: 'Visible only', command: ['true'] }], globalSearchItems: []
+})
+assert(emptyGlobalSearchMenu && menu.dynamicMenuSearchItems(dynamicMenuExtensions[0], emptyGlobalSearchMenu).length === 0,
+  'an explicit empty global search collection disables dynamic search rows')
+const legacyObjectMenu = menu.normalizeDynamicMenuOutput({ items: [
+  { id: 'legacy-object', label: 'Legacy object', command: ['true'] }
+] })
+assert(menu.dynamicMenuSearchItems(dynamicMenuExtensions[0], legacyObjectMenu)[0].label === 'Legacy object',
+  'object responses without global search rows preserve visible-row search behavior')
+assert(menu.dynamicMenuSearchItems(dynamicMenuExtensions[0], scopedSearch)[0].label === 'Google',
+  'array responses preserve visible-row search behavior')
+assert(menu.normalizeDynamicMenuOutput({
+  items: [{ id: 'visible', label: 'Visible', command: ['true'] }], globalSearchItems: {}
+}) === null, 'malformed dedicated global search collections are rejected')
+assert(menu.normalizeDynamicMenuOutput({
+  items: [{ id: 'visible', label: 'Visible', command: ['true'] }],
+  globalSearchItems: [{ id: 'same', label: 'One', command: ['true'] }, { id: 'same', label: 'Two', command: ['true'] }]
+}) === null, 'dedicated global search row ids must be unique within their collection')
+assert(menu.normalizeDynamicMenuOutput({
+  items: [{ id: 'shared', label: 'Visible', command: ['true'] }],
+  globalSearchItems: [{ id: 'shared', label: 'Search', command: ['true'] }]
+}) !== null, 'visible and dedicated global search collections normalize ids independently')
+assert(menu.normalizeDynamicMenuOutput({
+  items: [{ id: 'visible', label: 'Visible', command: ['true'] }],
+  globalSearchItems: Array.from({ length: 101 }, (_, i) => ({ id: String(i), label: String(i), command: ['true'] }))
+}) === null, 'dedicated global search row counts are independently bounded')
+assert(menu.normalizeDynamicMenuOutput({
+  items: Array.from({ length: 101 }, (_, i) => ({ id: String(i), label: String(i), command: ['true'] })),
+  globalSearchItems: [{ id: 'search', label: 'Search', command: ['true'] }]
+}) === null, 'visible dynamic menu row counts remain independently bounded')
+assert(menu.normalizeDynamicMenuOutput({
+  items: [{ id: 'visible', label: 'Visible', command: ['true'] }],
+  globalSearchItems: [{ id: 'bad', label: 'Bad', command: 'true' }]
+}) === null, 'dedicated global search rows use strict row normalization')
 const capturedMenu = menu.normalizeDynamicMenuOutput([{ id: 'add', label: 'Add', input: {
   prompt: 'Target', capture: 'target', next: { id: 'name', kind: 'input', label: 'Name', command: ['links', 'add', '{target}', '{input}'] }
 } }])
@@ -326,6 +394,95 @@ assert(menu.normalizeDynamicMenuOutput('{bad') === null, 'malformed dynamic menu
 assert(menu.normalizeDynamicMenuOutput({ items: Array.from({ length: 101 }, (_, i) => ({ id: String(i), label: String(i), command: ['true'] })) }) === null, 'dynamic menu row counts are bounded')
 assert(menu.normalizeDynamicMenuOutput([{ id: 'bad', label: 'Bad', command: 'true' }]) === null, 'dynamic menu commands must be argument arrays')
 assert(menu.normalizeDynamicMenuOutput([{ id: 'same', label: 'One', command: ['true'] }, { id: 'same', label: 'Two', command: ['true'] }]) === null, 'dynamic menu row ids are unique')
+const documentMenu = menu.normalizeDynamicMenuOutput([{ id: 'inspect', label: 'Inspect', document: {
+  command: ['helper', 'detail', '--cached'], refreshCommand: ['helper', 'detail', '--refresh']
+} }])
+assert(documentMenu && documentMenu.items[0].kind === 'action'
+  && documentMenu.items[0].command.length === 0
+  && documentMenu.items[0].documentCommand.join(',') === 'helper,detail,--cached'
+  && documentMenu.items[0].documentRefreshCommand.join(',') === 'helper,detail,--refresh',
+'dynamic action rows can request a document without a primary command')
+assert(menu.normalizeDynamicMenuOutput([{ id: 'bad-document', label: 'Bad', document: { command: 'helper detail' } }]) === null,
+'dynamic document commands must be argument arrays')
+assert(menu.normalizeDynamicMenuOutput([{ id: 'bad-document-extra', label: 'Bad', document: { command: ['true'], format: 'html' } }]) === null,
+'dynamic document requests reject unsupported fields')
+assert(menu.normalizeDynamicMenuOutput([{ id: 'bad-document-command', label: 'Bad', document: { command: Array(33).fill('x') } }]) === null,
+'dynamic document commands have a bounded argument count')
+const submenuMenu = menu.normalizeDynamicMenuOutput([{
+  id: 'projects', label: 'Projects', submenu: {
+    command: ['helper', 'projects', '--cached'], refreshCommand: ['helper', 'projects', '--refresh']
+  }
+}])
+assert(submenuMenu && submenuMenu.items[0].kind === 'action'
+  && submenuMenu.items[0].command.length === 0
+  && submenuMenu.items[0].submenuCommand.join(',') === 'helper,projects,--cached'
+  && submenuMenu.items[0].submenuRefreshCommand.join(',') === 'helper,projects,--refresh',
+'dynamic action rows can request an on-demand submenu without a primary command')
+const nestedSubmenu = menu.normalizeDynamicMenuOutput(JSON.stringify({ items: [
+  { id: 'open', label: 'Open project', command: ['xdg-open', '/tmp/project'] },
+  { id: 'recent', label: 'Recent', submenu: { command: ['helper', 'recent'] } }
+] }))
+assert(nestedSubmenu && nestedSubmenu.items.length === 2
+  && nestedSubmenu.items[1].submenuCommand.join(',') === 'helper,recent',
+'submenu provider output uses the same dynamic menu normalization recursively')
+assert(menu.normalizeDynamicMenuOutput([{ id: 'bad-submenu', label: 'Bad', submenu: ['helper'] }]) === null,
+'dynamic submenu requests must be strict command objects')
+assert(menu.normalizeDynamicMenuOutput([{ id: 'bad-submenu-extra', label: 'Bad', submenu: { command: ['true'], format: 'menu' } }]) === null,
+'dynamic submenu requests reject unsupported fields')
+assert(menu.normalizeDynamicMenuOutput([{ id: 'bad-submenu-empty', label: 'Bad', submenu: { command: [] } }]) === null,
+'dynamic submenu commands require at least one argument')
+assert(menu.normalizeDynamicMenuOutput([{ id: 'bad-submenu-argument', label: 'Bad', submenu: { command: ['helper', ''] } }]) === null,
+'dynamic submenu command arguments must be nonempty strings')
+assert(menu.normalizeDynamicMenuOutput([{ id: 'bad-submenu-command', label: 'Bad', submenu: { command: Array(33).fill('x') } }]) === null,
+'dynamic submenu commands have a bounded argument count')
+assert(menu.normalizeDynamicMenuOutput([{
+  id: 'ambiguous', label: 'Ambiguous', document: { command: ['detail'] }, submenu: { command: ['children'] }
+}]) === null, 'dynamic rows cannot declare both a document and a submenu')
+
+const detailDocument = menu.normalizeDetailDocument({
+  title: 'Build report', subtitle: 'main', status: 'Ready', icon: 'repo', iconFont: 'icons',
+  stats: [{ label: 'Stars', value: '12', icon: 'star' }],
+  fields: [{ label: 'Commit', value: '<b>literal</b>' }],
+  sections: [
+    { heading: 'Summary', text: 'No rich text is evaluated.' },
+    { heading: 'Notes', text: '**Markdown** is host rendered.', format: 'markdown' }
+  ],
+  actions: [
+    { id: 'copy', label: 'Copy', command: ['wl-copy', '--', '<b>literal</b>'] },
+    { id: 'remove', label: 'Remove', confirm: 'Remove it?', command: ['helper', 'remove'] },
+    { id: 'rename', label: 'Rename', input: { prompt: 'Name', command: ['helper', 'rename', '{input}'] } }
+  ]
+})
+assert(detailDocument && detailDocument.title === 'Build report'
+  && detailDocument.icon === 'repo' && detailDocument.stats[0].value === '12'
+  && detailDocument.fields[0].value === '<b>literal</b>'
+  && detailDocument.sections[0].format === 'plain'
+  && detailDocument.sections[1].format === 'markdown'
+  && detailDocument.actions.map(action => action.kind).join(',') === 'action,confirm,input',
+'structured detail documents retain bounded plain text and host-normalized actions')
+assert(menu.normalizeDetailDocument({ subtitle: 'Missing title' }) === null, 'detail documents require a title')
+assert(menu.normalizeDetailDocument({ title: 'Report', stats: Array.from({ length: 7 }, (_, i) => ({ label: String(i), value: '1' })) }) === null,
+'detail document statistic counts are bounded')
+assert(menu.normalizeDetailDocument({ title: 'Report', stats: [{ label: 'Stars', value: '1', html: '<b>1</b>' }] }) === null,
+'detail document statistics reject unsupported fields')
+assert(menu.normalizeDetailDocument({ title: 'Report', fields: Array.from({ length: 33 }, (_, i) => ({ label: String(i), value: 'x' })) }) === null,
+'detail document field counts are bounded')
+assert(menu.normalizeDetailDocument({ title: 'Report', sections: Array.from({ length: 17 }, (_, i) => ({ heading: String(i), text: 'x' })) }) === null,
+'detail document section counts are bounded')
+assert(menu.normalizeDetailDocument({ title: 'Report', sections: [{ heading: 'Bad', text: 'x', format: 'html' }] }) === null,
+'detail document sections reject unsupported formats')
+assert(menu.normalizeDetailDocument({ title: 'Report', sections: [{ heading: 'Bad', text: 'x', format: 1 }] }) === null,
+'detail document section formats must be plain or markdown strings')
+assert(menu.normalizeDetailDocument({ title: 'Report', actions: Array.from({ length: 17 }, (_, i) => ({ id: String(i), label: String(i), command: ['true'] })) }) === null,
+'detail document action counts are bounded')
+assert(menu.normalizeDetailDocument({ title: 'Report', sections: [
+  { heading: 'One', text: 'x'.repeat(32768) }, { heading: 'Two', text: 'x'.repeat(32768) }
+] }) === null, 'detail documents have a 64 KiB aggregate text limit')
+assert(menu.normalizeDetailDocument({ title: 'Report', sections: [
+  { heading: 'Unicode', text: '界'.repeat(32768) }
+] }) === null, 'detail document aggregate limits count UTF-8 bytes')
+assert(menu.normalizeDetailDocument({ title: 'Report', format: 'html' }) === null,
+'detail documents reject unsupported rich-content fields')
 
 assert(workflowExtensions.length === 1 && workflowExtensions[0].mode === 'workflow', 'workflow extension menus are parsed')
 assert(menu.extensionRootActivation(workflowExtensions[0]) === 'workflow', 'workflow extension roots enter their host-rendered workflow')
@@ -345,6 +502,7 @@ assert(menu.workflowClosesOnDispatch(sessionNode, promptedCommand), 'terminal wo
 assert(menu.workflowClosesOnDispatch(sessionNode, ['/usr/bin/omarchy-launch-terminal', 'codex']), 'terminal workflow detection accepts absolute launcher paths')
 assert(!menu.workflowClosesOnDispatch({ ...sessionNode, next: { id: 'next', kind: 'menu', label: 'Next', items: [] } }, promptedCommand), 'workflow commands with a next stage stay open')
 assert(!menu.workflowClosesOnDispatch(sessionNode, ['helper', 'save']), 'non-terminal workflow commands wait for successful completion')
+assert(menu.workflowClosesOnDispatch({ ...sessionNode, closeOnDispatch: true }, ['helper', 'launch']), 'explicit detached launch commands close immediately after dispatch')
 assert(!menu.workflowClosesOnDispatch({ ...sessionNode, allowEmpty: false }, []), 'pre-dispatch validation failures do not request closure')
 const backgroundStar = dynamicMenu.items[0].actions[0]
 assert(menu.workflowBackgroundEligible(backgroundStar, menu.workflowCommand(backgroundStar, '', {})), 'non-interactive action leaves are eligible for the background runner')
@@ -498,6 +656,11 @@ assert(fileActionHints.map(hint => `${hint.label}:${hint.shortcut}`).join(',')
 const starredActionHints = menu.actionBarHints({ hasSelection: true, canStar: true, starred: true })
 assert(starredActionHints.some(hint => hint.label === 'Unstar' && hint.shortcut === 'Ctrl S'),
   'the action bar reflects the selected favorite state')
+const refreshActionHints = menu.actionBarHints({ hasSelection: true, canRefresh: true })
+assert(refreshActionHints.some(hint => hint.label === 'Refresh' && hint.shortcut === 'Ctrl R'),
+  'refreshable extension surfaces advertise Ctrl+R')
+assert(menu.compactActionBarHints(refreshActionHints.concat([{ label: 'Star', shortcut: 'Ctrl S' }])).map(hint => hint.label).join(',') === 'Open,Refresh',
+  'narrow action bars retain refresh when no action panel is available')
 const inputActionHints = menu.actionBarHints({ dmenuActive: true, dmenuInput: true })
 assert(inputActionHints.map(hint => hint.label).join(',') === 'Submit',
   'input requests only advertise their submit action')

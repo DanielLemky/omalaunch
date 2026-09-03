@@ -95,6 +95,83 @@ assert(qml.includes('id: dynamicMenuKillTimer')
   && qml.includes('dynamicMenuProc.signal(9)')
   && qml.includes('root.invalidateDynamicMenu()'),
 'dynamic menu timeout and output cancellation escalate SIGTERM only for the same provider child')
+const submenuProviderBody = qml.slice(qml.indexOf('id: submenuProc'), qml.indexOf('id: documentTimeout'))
+assert(qml.includes('function refreshWorkflowSurface()')
+  && qml.includes('event.key === Qt.Key_R && (event.modifiers & Qt.ControlModifier)')
+  && qml.includes('documentProc.command = command.slice()')
+  && qml.includes('submenuProc.command = command.slice()'),
+'Ctrl+R refreshes active dynamic lists and detail documents through their saved direct commands')
+assert(qml.includes('function enterSubmenu(node)')
+  && qml.includes('MenuModel.normalizeDynamicMenuOutput(submenuProc.collected)')
+  && qml.includes('root.enterSubmenu(dynamicSearchEntry.node)'),
+'on-demand submenus open from extension menus and global dynamic search')
+assert(submenuProviderBody.includes('root.submenuOutputBytes')
+  && submenuProviderBody.includes('submenuProc.generation !== root.submenuGeneration')
+  && submenuProviderBody.includes('root.workflowNode.id !== submenuProc.submenuNodeId')
+  && qml.includes('id: submenuTimeout'),
+'submenu providers have output, timeout, capability, row, and stale-generation bounds')
+assert(qml.includes('id: submenuKillTimer')
+  && qml.includes('generation !== submenuProc.stopGeneration')
+  && qml.includes('generation !== submenuProc.generation')
+  && qml.includes('submenuProc.signal(9)')
+  && qml.includes('root.invalidateSubmenu("workflow navigation changed")'),
+'submenu cancellation escalates only for the same direct child and Back invalidates the request')
+assert(qml.includes('root.workflowStack.length >= root.workflowMaxDepth'),
+'on-demand document and submenu navigation has a host depth bound')
+
+const documentProviderBody = qml.slice(qml.indexOf('id: documentProc'), qml.indexOf('id: dynamicMenuTimeout'))
+assert(qml.includes('function enterDocument(node)')
+  && qml.includes('MenuModel.normalizeDetailDocument(documentProc.collected)')
+  && qml.includes('root.enterDocument(dynamicSearchEntry.node)'),
+'on-demand documents open from extension menus and global dynamic search')
+assert(documentProviderBody.includes('root.documentOutputBytes')
+  && documentProviderBody.includes('documentProc.generation !== root.documentGeneration')
+  && documentProviderBody.includes('root.workflowNode.id !== documentProc.documentNodeId')
+  && qml.includes('id: documentTimeout'),
+'detail providers have output, timeout, capability, row, and stale-generation bounds')
+assert(qml.includes('id: documentKillTimer')
+  && qml.includes('generation !== documentProc.stopGeneration')
+  && qml.includes('generation !== documentProc.generation')
+  && qml.includes('documentProc.signal(9)')
+  && qml.includes('root.invalidateDocument("workflow navigation changed")'),
+'detail cancellation escalates only for the same direct child and Back invalidates the request')
+assert(qml.includes('readonly property bool emptyRoot: !root.dmenuActive && !root.workflowActive'),
+'detail documents do not collapse into the empty root-menu layout')
+assert(qml.includes('required property string badge')
+  && qml.includes('required property string badgeTone')
+  && qml.includes('id: badgeText')
+  && qml.includes('root.badgeToneColor(row.badgeTone)')
+  && qml.includes('radius: height / 2'),
+'dynamic row badges use a host-rendered trailing pill')
+assert(qml.includes('required property string trailingText')
+  && qml.includes('id: trailingTextLabel'),
+'dynamic rows render always-visible trailing metadata')
+assert(qml.includes('id: documentSectionHeader')
+  && qml.includes('font.capitalization: Font.AllUppercase')
+  && qml.includes('color: Util.alpha(root.foreground, 0.18)'),
+'document sections use a distinct uppercase label and divider')
+assert(qml.includes('import "MenuMarkdown.js" as MenuMarkdown')
+  && qml.includes('MenuMarkdown.documentBlocks(modelData.text)')
+  && qml.includes('id: codeSurface')
+  && qml.includes('text: "Copy code"')
+  && qml.includes('root.openDocumentLink(link)'),
+'Markdown sections render safe rich text and separate copyable code blocks')
+assert(qml.includes('id: documentHeaderIcon')
+  && qml.includes('id: documentStats')
+  && qml.includes('model: root.activeDocument ? root.activeDocument.stats : []'),
+'detail documents render a header icon and statistic cards')
+assert(qml.includes('textFormat: Text.PlainText')
+  && qml.includes('model: root.activeDocument ? root.activeDocument.fields : []')
+  && qml.includes('model: root.activeDocument ? root.activeDocument.sections : []'),
+'detail documents render host-owned structured plain text')
+
+assert(qml.includes('var searchCommand = extension.globalSearchCommand && extension.globalSearchCommand.length > 0')
+  && qml.includes('? extension.globalSearchCommand : extension.command'),
+'global search preload can use a command independent from the visible extension menu')
+assert(qml.includes('var searchNodes = MenuModel.dynamicMenuSearchNodes(workflow)')
+  && qml.includes('item: searchItems[i], node: searchNode, items: workflow.items'),
+'dedicated global search actions retain the visible menu as their Back destination')
+
 assert(qml.includes('id: dynamicMenuSearchKillTimer')
   && qml.includes('generation !== dynamicMenuSearchProc.stopGeneration')
   && qml.includes('generation !== dynamicMenuSearchProc.generation')
@@ -210,8 +287,8 @@ assert(qml.includes('settingsProc.command = [root.configHelper, "set-font-class"
   && qml.includes('root.configuredMenuItemFontSize === 0')
   && qml.includes('row.action === root.menuItemFontClass ? "✓" : row.icon'),
 'font settings save through the bounded helper and mark the active class')
-assert((qml.match(/font\.pixelSize: root\.menuItemFontSize/g) || []).length === 6
-  && (qml.match(/font\.pixelSize: root\.menuSecondaryFontSize/g) || []).length === 3
+assert((qml.match(/font\.pixelSize: root\.menuItemFontSize/g) || []).length === 7
+  && (qml.match(/font\.pixelSize: root\.menuSecondaryFontSize/g) || []).length === 8
   && qml.includes('font.pixelSize: root.menuCaptionFontSize')
   && qml.includes('property int headerHeight: Math.max(Style.space(28), Math.round(Style.space(34) * menuItemScale))')
   && qml.includes('property int actionBarHeight: Math.max(Style.space(26), Math.round(Style.space(36) * menuItemScale))'),

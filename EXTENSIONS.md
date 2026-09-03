@@ -210,7 +210,62 @@ A basic row runs `command` directly:
 }
 ```
 
-Every row requires a unique, nonempty `id`, a nonempty `label`, and a nonempty argument-array `command`. Presentation strings and command arguments are bounded. Omalaunch does not invoke a shell and does not expand command text. `{extensionDir}` and form `{input}` values are substituted as complete literal arguments. Set `closeOnSuccess: true` for launch/open rows that should close Omalaunch after the command exits successfully. Other successful menu commands reload the provider so mutations appear immediately.
+Every row requires a unique, nonempty `id` and a nonempty `label`. An ordinary row also requires a nonempty argument-array `command`. A row can set a short `badge` string for a host-rendered trailing count or status pill; badge text is limited to 16 characters. Set `badgeTone` to `neutral`, `success`, `danger`, `warning`, or `info` for semantic host styling; invalid or omitted tones use `neutral`. A row can set `trailingText` for an always-visible date or other short metadata; it is limited to 64 characters. Presentation strings and command arguments are bounded. Omalaunch does not invoke a shell and does not expand command text. `{extensionDir}` and form `{input}` values are substituted as complete literal arguments. Set `closeOnSuccess: true` for commands that should close Omalaunch after they exit successfully. Set `closeOnDispatch: true` only for commands that launch an independent editor, terminal, or application and should close Omalaunch immediately without waiting for that process to exit. Other successful menu commands reload the provider so mutations appear immediately.
+
+A row can load another host-rendered menu on demand instead of running a primary action:
+
+```json
+{
+  "id": "issues",
+  "label": "Issues",
+  "context": { "repository": "example/project" },
+  "submenu": {
+    "command": ["{extensionDir}/bin/provider", "issues", "{repository}"]
+  }
+}
+```
+
+The submenu command uses the row context and returns the same bounded dynamic-menu JSON format as the root provider. Nested rows can open more submenus or detail documents. Press Ctrl+R in a dynamic menu, submenu, or detail document to run its provider again without leaving the current navigation path. A `submenu` or `document` can declare an optional `refreshCommand` beside `command`. Initial activation runs `command`; Ctrl+R runs `refreshCommand`. This lets a provider use cached data for navigation while keeping refresh explicitly live. Without `refreshCommand`, both operations use `command`. Omalaunch runs a submenu provider only after activation. It receives no stdin, has a five-second timeout, and has a 256 KiB limit on each output stream. Leaving the submenu, closing the launcher, replacing its session, or changing its provider invalidates the request. Cancellation sends SIGTERM and then sends SIGKILL to the same direct child after a 500 ms grace period. Submenu commands run directly as argument arrays and support the row context plus `{extensionDir}` placeholders.
+
+A row cannot declare both `submenu` and `document`. Recursive use remains bounded by the existing eight-level workflow navigation limit in the normalized provider data and by user-driven navigation history in the host.
+
+A row can open an on-demand, host-rendered detail document instead of running a primary action:
+
+```json
+{
+  "id": "issue:142",
+  "label": "Fix authentication timeout",
+  "description": "example/project #142",
+  "context": { "repository": "example/project", "number": "142" },
+  "document": {
+    "command": ["{extensionDir}/bin/provider", "issue", "{repository}", "{number}"]
+  }
+}
+```
+
+The detail command uses the row context and writes one structured JSON object:
+
+```json
+{
+  "title": "Fix authentication timeout",
+  "subtitle": "example/project #142",
+  "status": "Open",
+  "fields": [
+    { "label": "Author", "value": "octocat" },
+    { "label": "Updated", "value": "2 hours ago" }
+  ],
+  "sections": [
+    { "heading": "Description", "text": "Users are signed out during a slow token refresh." }
+  ],
+  "actions": [
+    { "id": "open", "label": "Open on GitHub", "command": ["xdg-open", "https://github.com/example/project/issues/142"], "closeOnSuccess": true }
+  ]
+}
+```
+
+`title` is required. `subtitle`, `status`, `icon`, and `iconFont` are optional. A document can include up to six statistic cards through `stats`; each card requires `label` and `value` and can include `icon` and `iconFont`. A document also accepts at most 32 label/value fields, 16 plain-text sections, and 16 host-rendered actions. The complete normalized document text is limited to 64 KiB. Sections default to `format: "plain"`. A section can set `format: "markdown"` for host-rendered headings, emphasis, lists, block quotes, inline code, fenced code blocks, and safe HTTP or HTTPS links. Raw HTML is escaped, unsafe links remain text, and images and extension QML are not loaded. Code blocks use a separate scrollable monospace surface with a Copy code control. Ctrl+K opens the document actions. Escape returns to the source list.
+
+Omalaunch runs the detail provider only after activation. It receives no stdin, has a five-second timeout, and has a 256 KiB limit on each output stream. Leaving the document, closing the launcher, replacing its session, or changing its provider invalidates the request. Cancellation sends SIGTERM and then sends SIGKILL to the same direct child after a 500 ms grace period. Detail commands run directly as argument arrays and support the row context plus `{extensionDir}` placeholders.
 
 A row can ask for confirmation before dispatch:
 
@@ -240,11 +295,39 @@ A row can open a host-rendered text input form. The input object supports the wo
 }
 ```
 
-A row can include up to 16 `actions`. Press Ctrl+K on that row to open its contextual action list. Each contextual action has the same direct command, confirmation, input, and refresh fields as a row, but actions cannot contain more nested actions. A row can set `starAction` to the ID of one direct contextual action; Ctrl+S then runs that action through the normal tracked lifecycle. Providers should update the row's `starred` value and the action label/command in the next snapshot.
+A row can include up to 16 `actions`. Press Ctrl+K on that row to open its contextual action list. Each contextual action has the same direct command, confirmation, input, and refresh fields as a row, but actions cannot contain more nested actions. A row can set `starAction` to the ID of one direct contextual action; Ctrl+S then runs that action through the normal tracked lifecycle. Providers should update the row's `starred` value and the action label/command in the next snapshot. Set `starredLabel` when a starred shortcut needs more context than its menu label. The menu continues to show `label`; the top-level and global-search snapshot uses `starredLabel` only while the row is starred.
 
 Menu and action commands use the workflow action lifecycle. A non-terminal direct child runs for at most 30 seconds. Cancellation sends SIGTERM and then sends SIGKILL to the same direct child after one second. Stale generation checks prevent old exits from changing a new session. A successful menu mutation reloads the provider so the visible rows show current state. `refreshExtensions: true` also reloads the extension catalog after success. Failed commands leave the current menu open and do not refresh it.
 
-Set the extension field `globalSearch: true` to include its current top-level actionable rows in Omalaunch general search. The default is `false`, so omitted and false values keep the current shortcut-only behavior. An opted-in provider can set `globalSearch: false` on an individual row to keep that row in its extension menu but omit it from general search. Omalaunch preloads opted-in, available providers and searches each row by `label`, `description`, and optional string or string-array `aliases`. A row with `starred: true` also appears on the launcher's top-level starting view; non-starred rows remain search-only. The extension root remains visible as a separate search result. Activating a cached row runs the same primary command, including confirmation or input handling, and honors `closeOnSuccess`. Ctrl+K opens the row's cached contextual actions.
+Set the extension field `globalSearch: true` to include provider rows in Omalaunch general search. The default is `false`, so omitted and false values keep the current shortcut-only behavior. By default, Omalaunch uses the provider's top-level `items` for both its visible menu and global search. A provider can separate these surfaces with an explicit `globalSearchItems` collection:
+
+```json
+{
+  "items": [
+    { "id": "repositories", "label": "Repositories", "submenu": { "command": ["provider", "repositories"] } }
+  ],
+  "globalSearchItems": [
+    { "id": "repo:example/project", "label": "example/project", "submenu": { "command": ["provider", "repository", "example/project"] } }
+  ]
+}
+```
+
+When `globalSearchItems` is present, only that collection supplies global search rows; its rows do not appear in the opened extension menu. An explicit empty collection disables result contribution while the extension root remains searchable. Each collection has its own 100-row limit and uses the same row schema and validation. Array responses and objects without `globalSearchItems` retain the original shared-collection behavior.
+
+If building global search data is slower than building the visible menu, declare a separate extension-level `globalSearchCommand`:
+
+```json
+{
+  "mode": "menu",
+  "globalSearch": true,
+  "command": ["provider", "menu"],
+  "globalSearchCommand": ["provider", "global-search"]
+}
+```
+
+Opening the extension runs only `command`. Global-search preload runs `globalSearchCommand` independently and treats its normal array or `items` output as the search source. This lets a static extension menu open without waiting for network-backed search data. `globalSearchCommand` is accepted only for a global-search-enabled menu extension and has the same 32-argument and bounded-string validation as `command`.
+
+An opted-in provider can set `globalSearch: false` on an individual row to omit it from general search. Omalaunch preloads opted-in, available providers and searches each row by `label`, `description`, and optional string or string-array `aliases`. A row with `starred: true` also appears on the launcher's top-level starting view; non-starred rows remain search-only. The extension root remains visible as a separate search result. Activating a cached row runs the same primary command, including confirmation or input handling, and honors `closeOnSuccess`. Ctrl+K opens the row's cached contextual actions.
 
 The preload is one atomic cached snapshot. Omalaunch keeps the last complete snapshot if one provider fails, times out, returns invalid or excessive output, or exceeds an aggregate safeguard. At most 16 opted-in providers, 1,000 searchable rows, 1 MiB of output, and ten seconds of aggregate preload time are accepted; the existing five-second, 256 KiB, and 100-row limits still apply to each provider. Catalog changes and successful menu mutations invalidate and reload the snapshot. Generation checks reject stale provider exits. Providers must return all searchable state in the normal bounded menu response; Omalaunch does not run providers for each keystroke.
 
