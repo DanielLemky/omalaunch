@@ -168,6 +168,9 @@ assert(qml.includes('textFormat: Text.PlainText')
 assert(qml.includes('var searchCommand = extension.globalSearchCommand && extension.globalSearchCommand.length > 0')
   && qml.includes('? extension.globalSearchCommand : extension.command'),
 'global search preload can use a command independent from the visible extension menu')
+assert(qml.includes('var searchNodes = MenuModel.dynamicMenuSearchNodes(workflow)')
+  && qml.includes('item: searchItems[i], node: searchNode, items: workflow.items'),
+'dedicated global search actions retain the visible menu as their Back destination')
 
 assert(qml.includes('id: dynamicMenuSearchKillTimer')
   && qml.includes('generation !== dynamicMenuSearchProc.stopGeneration')

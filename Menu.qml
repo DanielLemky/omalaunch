@@ -3291,7 +3291,7 @@ Item {
           return
         }
         candidate.push({
-          item: searchItems[i], node: searchNode, items: searchNodes,
+          item: searchItems[i], node: searchNode, items: workflow.items,
           capability: dynamicMenuSearchProc.extension.capability, extensionId: dynamicMenuSearchProc.extension.id
         })
       }
