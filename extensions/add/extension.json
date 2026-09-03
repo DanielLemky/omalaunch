@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "id": "omalaunch.add-extension",
+  "capability": "add-extension",
+  "mode": "workflow",
+  "label": "Add Extension",
+  "prefixes": ["add extension"],
+  "icon": "󰐕",
+  "description": "Add an Omalaunch extension",
+  "requires": ["python", "omarchy-agent", "omarchy-default-agent"],
+  "workflow": {
+    "items": [
+      {
+        "id": "create-with-agent",
+        "kind": "input",
+        "label": "Create with Agent",
+        "prompt": "Extension name",
+        "maxLength": 120,
+        "closeOnDispatch": true,
+        "command": [
+          "python",
+          "{extensionDir}/create-with-agent.py",
+          "{input}"
+        ]
+      }
+    ]
+  }
+}

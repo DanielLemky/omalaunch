@@ -30,6 +30,8 @@ assert(qml.includes('MenuModel.focusedPrefixMatch(root.focusedExtension, query)'
 'focused prefix QML path builds one dedicated action row')
 assert(qml.includes('action: root.extensionAction(focusedPrefix.extension, focusedPrefix.prompt)'),
 'focused prefix QML path uses the literal argument-array substitution action path')
+assert(qml.includes('omalaunchDir: root.pluginPath'),
+'workflow commands receive the active Omalaunch directory for shared host helpers')
 assert(qml.includes('Quickshell.execDetached(command)')
   && qml.includes('MenuModel.workflowClosesOnDispatch(node, command)'),
 'terminal workflow leaves detach instead of occupying the reusable action process')
@@ -181,8 +183,9 @@ assert(qml.includes('id: dynamicMenuSearchKillTimer')
 assert(qml.includes(': root.workflowActive\n                ? root.filterText')
   && qml.includes('height: root.workflowHintHeight')
   && qml.includes('visible: root.workflowInputActive || root.workflowFilterMenuActive')
-  && qml.includes('root.workflowNode.prompt || root.workflowNode.label')
-  && qml.includes('"Search " + root.workflowText'),
+  && qml.includes('root.workflowNode ? (root.workflowNode.prompt || root.workflowNode.label)')
+  && qml.includes('? root.workflowNode.label')
+  && qml.includes(': "Select an item"'),
 'workflow inputs and filterable menus keep context helper text below the typed-value field')
 assert(qml.includes('id: pasteProc')
   && qml.includes('["wl-paste", "--no-newline", "--type", "text"]')

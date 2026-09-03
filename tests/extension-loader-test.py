@@ -150,7 +150,7 @@ elif mode == 'integer-overflow':
 
     config_root = home / ".config" / "omarchy" / "omalaunch"
     (config_root / "extensions").mkdir(parents=True)
-    (config_root / "config.jsonc").write_text('{\n// selection\n"version": 1, "menuItemFontClass": "title", "menuItemFontSize": 14, "capabilities": {"files": {"provider": "chosen",},},\n}')
+    (config_root / "config.jsonc").write_text('{\n// selection\n"version": 1, "menuItemFontClass": "title", "menuItemFontSize": 14, "extensionDevelopmentDirectory": "~/Code/extensions", "capabilities": {"files": {"provider": "chosen",},},\n}')
     (config_root / "extensions" / "omalaunch.files.jsonc").write_text('{"version": 1, "includeGitIgnored": true,}')
 
     catalog = run_loader(plugin_root, omarchy_root, home, env)
@@ -160,6 +160,7 @@ elif mode == 'integer-overflow':
               "capabilities": {"files": {"provider": "chosen"}},
               "menuItemFontClass": "title",
               "menuItemFontSize": 14,
+              "extensionDevelopmentDirectory": "~/Code/extensions",
           }
           and catalog["providerConfig"]["omalaunch.files"] == {"version": 1, "includeGitIgnored": True, "favorites": []},
           "bounded JSONC loads core and provider configuration")
@@ -191,6 +192,11 @@ elif mode == 'integer-overflow':
     check(invalid_font_class_catalog["omalaunchConfig"] == {}
           and "menuItemFontClass must be a supported Style.font class" in "\n".join(invalid_font_class_catalog["diagnostics"]),
           "invalid core menu font classes are rejected")
+    (config_root / "config.jsonc").write_text('{"version":1,"extensionDevelopmentDirectory":""}')
+    invalid_development_directory_catalog = run_loader(plugin_root, omarchy_root, home, env)
+    check(invalid_development_directory_catalog["omalaunchConfig"] == {}
+          and "extensionDevelopmentDirectory must be a nonempty path" in "\n".join(invalid_development_directory_catalog["diagnostics"]),
+          "invalid extension development directories are rejected")
     check("emitted invalid JSON" in messages, "malformed provider output produces a diagnostic")
     check("exited with code 7" in messages and "provider setup failed" in messages,
           "provider failures include exit status and bounded stderr")

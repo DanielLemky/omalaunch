@@ -486,6 +486,15 @@ assert(menu.normalizeDetailDocument({ title: 'Report', format: 'html' }) === nul
 
 assert(workflowExtensions.length === 1 && workflowExtensions[0].mode === 'workflow', 'workflow extension menus are parsed')
 assert(menu.extensionRootActivation(workflowExtensions[0]) === 'workflow', 'workflow extension roots enter their host-rendered workflow')
+const addExtension = menu.parseExtensions(JSON.stringify({
+  ...JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'extensions', 'add', 'extension.json'), 'utf8')),
+  _bundled: true,
+  _sourceDir: path.join(__dirname, '..', 'extensions', 'add')
+}))
+assert(addExtension.length === 1 && addExtension[0].workflow.items.length === 1
+  && addExtension[0].workflow.items[0].kind === 'input'
+  && addExtension[0].workflow.items[0].closeOnDispatch === true,
+'bundled Add extension exposes its detached agent creation workflow')
 const projectsNode = workflowExtensions[0].workflow.items[0]
 assert(projectsNode.label === 'Projects' && projectsNode.items.length === 2, 'workflow navigation data retains Projects and Add Project stages')
 const directoryTransition = menu.workflowDirectoryTransition(projectsNode.items[1], '/tmp/Saved Project/', {})

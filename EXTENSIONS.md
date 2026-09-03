@@ -13,6 +13,8 @@ Omalaunch gives every resolved bundled and external extension one shortcut in th
 
 Extension shortcuts do not otherwise appear on the launcher's starting view. Press Ctrl+S on a shortcut to promote it there; the same shortcut remains in **Extensions**, and Ctrl+S removes it from both views. Favorites use the extension provider's stable `id`, so a replacement does not inherit the shortcut or its starred state. Extension roots are also included in global search whether or not they are starred.
 
+The **Add Extension** shortcut contains **Create with Agent**. Create with Agent asks for a name, creates a development workspace with a minimal `manifest.json`, `omalaunch.json`, `.gitignore`, `README.md`, `AGENTS.md`, and `CLAUDE.md`, and opens the user's default Omarchy coding agent there with the extension contract in its initial prompt. The plugin ID and directory use `<username>.<extension-slug>`, consistent with Omarchy's local plugin convention. Workspaces use `~/.config/omarchy/plugins/` by default, where Omarchy discovers local plugins. Set `extensionDevelopmentDirectory` in `~/.config/omarchy/omalaunch/config.jsonc` to select another parent directory; `~` and environment variables are expanded.
+
 Activating a shortcut enters the interface appropriate to its mode:
 
 - `files` opens the file browser.
@@ -49,7 +51,7 @@ The original `omalaunch.queryProviders` manifest field remains accepted as an al
 
 ### Development layout
 
-Develop every external extension in its own source repository. Do not develop inside `~/.config/omarchy/plugins/`: Omarchy watches that directory recursively and can repeatedly reload the shell while files change. For live testing, install a stable snapshot of the extension repository as the Omarchy plugin, then restore the normal installed plugin after the test.
+Published external extensions should use their own source repository. **Add Extension** follows Omarchy's local plugin-development model and creates new projects in `~/.config/omarchy/plugins/` by default, so Omarchy discovers them without a manual copy step. Omarchy watches that directory and can reload the shell while files change. Set `extensionDevelopmentDirectory` when an isolated source checkout is preferred; install a stable snapshot in the plugin directory for live testing.
 
 The extension directory repository lists available extensions; it does not contain their source code. One plugin repository can provide several extension definitions, but each definition provides one capability and has its own stable extension `id`.
 
@@ -333,6 +335,27 @@ The preload is one atomic cached snapshot. Omalaunch keeps the last complete sna
 
 Dynamic menus are for small actionable collections, not unbounded search results or a persistent RPC protocol. The plugin remains trusted local software; argument arrays prevent accidental shell parsing but do not sandbox it.
 
+### Launching the default coding agent
+
+Use Omalaunch's shared agent launcher and `closeOnDispatch` for an extension action that hands work to the user's default coding agent:
+
+```json
+{
+  "id": "edit-with-agent",
+  "label": "Edit with agent",
+  "command": [
+    "{omalaunchDir}/libexec/omalaunch-launch-agent",
+    "--dir", "{extensionDir}",
+    "--prompt", "Help the user configure this extension."
+  ],
+  "closeOnDispatch": true
+}
+```
+
+`{omalaunchDir}` is the active Omalaunch plugin directory. The shared launcher checks that a default agent is selected, expands `~` and environment variables in the directory, changes to that existing directory, and replaces itself with `omarchy-agent --prompt`. `closeOnDispatch` lets Omalaunch close without waiting for the terminal agent. Declare `omarchy-agent` and `omarchy-default-agent` in the extension's `requires` list.
+
+Extensions remain responsible for preparing their files and directories and building their prompt. A preparation helper should replace itself with `omalaunch-launch-agent` after setup. Do not start an intermediate detached process or call `xdg-terminal-exec`; the shared launcher and `omarchy-agent` apply consistent validation, working-directory behavior, and standard Omarchy terminal behavior.
+
 ## Live-query extension
 
 Live-query extensions recognize input, run asynchronously, and display the command output:
@@ -405,6 +428,8 @@ Select a provider by extension `id` in `config.jsonc`. The key is the capability
 ```jsonc
 {
   "version": 1,
+  // Optional parent for workspaces created by Extensions > Add Extension.
+  "extensionDevelopmentDirectory": "~/Development/omalaunch-extensions",
   "capabilities": {
     "files": { "provider": "example.files" },
   },

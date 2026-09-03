@@ -1,0 +1,50 @@
+#!/usr/bin/env python3
+"""Open the user's default Omarchy coding agent for an extension action."""
+
+from __future__ import annotations
+
+import argparse
+import os
+from pathlib import Path
+import subprocess
+import sys
+
+
+def fail(message: str) -> None:
+    print(f"omalaunch-launch-agent: {message}", file=sys.stderr)
+    raise SystemExit(1)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--dir", required=True, dest="directory")
+    parser.add_argument("--prompt", required=True)
+    args = parser.parse_args()
+
+    if not args.prompt.strip():
+        fail("--prompt must not be empty")
+    expanded = os.path.expandvars(os.path.expanduser(args.directory))
+    directory = Path(expanded)
+    if not directory.is_absolute():
+        fail("--dir must resolve to an absolute path")
+    if not directory.is_dir():
+        fail(f"directory does not exist: {directory}")
+
+    try:
+        selected_agent = subprocess.run(
+            ["omarchy-default-agent"], check=True, capture_output=True, text=True,
+        ).stdout.strip()
+    except (OSError, subprocess.CalledProcessError) as error:
+        fail(f"cannot read the default agent: {error}")
+    if not selected_agent:
+        fail("select a default agent first")
+
+    try:
+        os.chdir(directory)
+        os.execvp("omarchy-agent", ["omarchy-agent", "--prompt", args.prompt])
+    except OSError as error:
+        fail(f"cannot open the default agent: {error}")
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

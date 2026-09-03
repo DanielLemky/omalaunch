@@ -488,6 +488,14 @@ def load_user_configuration(home: Path, builder: CatalogBuilder, limits: Limits)
                 or not 8 <= menu_item_font_size <= 24
             ):
                 raise ValueError("menuItemFontSize must be an integer from 8 to 24")
+            extension_development_directory = value.get("extensionDevelopmentDirectory")
+            if extension_development_directory is not None and (
+                not isinstance(extension_development_directory, str)
+                or not extension_development_directory.strip()
+                or "\0" in extension_development_directory
+                or len(extension_development_directory) > 4096
+            ):
+                raise ValueError("extensionDevelopmentDirectory must be a nonempty path of at most 4096 characters")
             builder.provider_preferences = {
                 capability: setting["provider"]
                 for capability, setting in normalized_capabilities.items()
@@ -500,6 +508,8 @@ def load_user_configuration(home: Path, builder: CatalogBuilder, limits: Limits)
                 builder.omalaunch_config["menuItemFontClass"] = menu_item_font_class
             if menu_item_font_size is not None:
                 builder.omalaunch_config["menuItemFontSize"] = menu_item_font_size
+            if extension_development_directory is not None:
+                builder.omalaunch_config["extensionDevelopmentDirectory"] = extension_development_directory.strip()
         except (OSError, UnicodeDecodeError, ValueError) as error:
             builder.diagnostic(f"Could not load configuration {main_path}: {error}")
 
