@@ -4634,15 +4634,33 @@ Item {
                   width: documentColumn.width
                   spacing: Style.space(7)
 
-                  Text {
+                  Row {
+                    id: documentSectionHeader
                     width: parent.width
+                    height: modelData.heading.length > 0 ? Math.max(sectionHeading.implicitHeight, Style.space(18)) : 0
                     visible: modelData.heading.length > 0
-                    text: modelData.heading
-                    color: root.foreground
-                    font.family: root.fontFamily
-                    font.pixelSize: Style.font.heading
-                    font.weight: Font.Medium
-                    wrapMode: Text.Wrap
+                    spacing: Style.space(10)
+
+                    Text {
+                      id: sectionHeading
+                      text: modelData.heading
+                      color: root.foreground
+                      opacity: 0.56
+                      font.family: root.fontFamily
+                      font.pixelSize: root.menuSecondaryFontSize
+                      font.weight: Font.DemiBold
+                      font.capitalization: Font.AllUppercase
+                      font.letterSpacing: Style.space(1)
+                      anchors.verticalCenter: parent.verticalCenter
+                    }
+
+                    Rectangle {
+                      width: Math.max(0, documentSectionHeader.width - sectionHeading.implicitWidth
+                        - documentSectionHeader.spacing)
+                      height: Style.spacing.hairline
+                      color: Util.alpha(root.foreground, 0.18)
+                      anchors.verticalCenter: parent.verticalCenter
+                    }
                   }
                   Text {
                     width: parent.width
