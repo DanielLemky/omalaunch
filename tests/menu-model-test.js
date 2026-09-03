@@ -316,11 +316,15 @@ assert(dynamicMenu.items[0].actions[2].refreshExtensions, 'mutation actions can 
 assert(dynamicMenu.items[1].kind === 'input' && dynamicMenu.items[1].prompt === 'URL', 'rows can open bounded host input forms')
 assert(menu.workflowCommand(dynamicMenu.items[1], 'https://literal.test/?q=$(bad)', {}).slice(-1)[0] === 'https://literal.test/?q=$(bad)', 'dynamic input is substituted as one literal argument')
 const scopedSearch = menu.normalizeDynamicMenuOutput([
-  { id: 'global', label: 'Google', globalSearch: true, trailingIcon: 'globe', badge: '12', command: ['search', 'google'] },
+  { id: 'global', label: 'Google', globalSearch: true, trailingIcon: 'globe', trailingText: '⌘ G', badge: '12', command: ['search', 'google'] },
   { id: 'menu-only', label: 'Bing', globalSearch: false, command: ['search', 'bing'] }
 ])
 assert(menu.dynamicMenuSearchItems(dynamicMenuExtensions[0], scopedSearch).length === 1, 'dynamic rows can remain in their extension menu without entering global search')
 assert(menu.dynamicMenuSearchItems(dynamicMenuExtensions[0], scopedSearch)[0].trailingIcon === 'globe', 'dynamic rows retain bounded trailing icons')
+assert(menu.dynamicMenuSearchItems(dynamicMenuExtensions[0], scopedSearch)[0].trailingText === '⌘ G', 'dynamic search rows retain bounded trailing text')
+assert(menu.displayRow({}, [], {}, scopedSearch.items[0], '', 0, '').trailingText === '⌘ G', 'display rows retain bounded trailing text')
+assert(menu.normalizeDynamicMenuOutput([{ id: 'long-trailing', label: 'Long', trailingText: 'x'.repeat(65), command: ['true'] }]).items[0].trailingText === '', 'oversized dynamic row trailing text is omitted')
+assert(menu.normalizeItem('bounded', { trailingText: 'x'.repeat(65) }).trailingText.length === 64, 'normalized row trailing text is bounded to 64 characters')
 assert(menu.dynamicMenuSearchItems(dynamicMenuExtensions[0], scopedSearch)[0].badge === '12', 'dynamic rows retain bounded badges')
 assert(menu.normalizeDynamicMenuOutput([{ id: 'badge', label: 'Badge', badge: 'x'.repeat(17), command: ['true'] }]).items[0].badge === '', 'oversized dynamic row badges are omitted')
 const separateGlobalSearchMenu = menu.normalizeDynamicMenuOutput({
@@ -421,7 +425,10 @@ const detailDocument = menu.normalizeDetailDocument({
   title: 'Build report', subtitle: 'main', status: 'Ready', icon: 'repo', iconFont: 'icons',
   stats: [{ label: 'Stars', value: '12', icon: 'star' }],
   fields: [{ label: 'Commit', value: '<b>literal</b>' }],
-  sections: [{ heading: 'Summary', text: 'No rich text is evaluated.' }],
+  sections: [
+    { heading: 'Summary', text: 'No rich text is evaluated.' },
+    { heading: 'Notes', text: '**Markdown** is host rendered.', format: 'markdown' }
+  ],
   actions: [
     { id: 'copy', label: 'Copy', command: ['wl-copy', '--', '<b>literal</b>'] },
     { id: 'remove', label: 'Remove', confirm: 'Remove it?', command: ['helper', 'remove'] },
@@ -431,6 +438,8 @@ const detailDocument = menu.normalizeDetailDocument({
 assert(detailDocument && detailDocument.title === 'Build report'
   && detailDocument.icon === 'repo' && detailDocument.stats[0].value === '12'
   && detailDocument.fields[0].value === '<b>literal</b>'
+  && detailDocument.sections[0].format === 'plain'
+  && detailDocument.sections[1].format === 'markdown'
   && detailDocument.actions.map(action => action.kind).join(',') === 'action,confirm,input',
 'structured detail documents retain bounded plain text and host-normalized actions')
 assert(menu.normalizeDetailDocument({ subtitle: 'Missing title' }) === null, 'detail documents require a title')
@@ -442,6 +451,10 @@ assert(menu.normalizeDetailDocument({ title: 'Report', fields: Array.from({ leng
 'detail document field counts are bounded')
 assert(menu.normalizeDetailDocument({ title: 'Report', sections: Array.from({ length: 17 }, (_, i) => ({ heading: String(i), text: 'x' })) }) === null,
 'detail document section counts are bounded')
+assert(menu.normalizeDetailDocument({ title: 'Report', sections: [{ heading: 'Bad', text: 'x', format: 'html' }] }) === null,
+'detail document sections reject unsupported formats')
+assert(menu.normalizeDetailDocument({ title: 'Report', sections: [{ heading: 'Bad', text: 'x', format: 1 }] }) === null,
+'detail document section formats must be plain or markdown strings')
 assert(menu.normalizeDetailDocument({ title: 'Report', actions: Array.from({ length: 17 }, (_, i) => ({ id: String(i), label: String(i), command: ['true'] })) }) === null,
 'detail document action counts are bounded')
 assert(menu.normalizeDetailDocument({ title: 'Report', sections: [

@@ -136,6 +136,15 @@ assert(qml.includes('required property string badge')
   && qml.includes('id: badgeText')
   && qml.includes('radius: height / 2'),
 'dynamic row badges use a host-rendered trailing pill')
+assert(qml.includes('required property string trailingText')
+  && qml.includes('id: trailingTextLabel'),
+'dynamic rows render always-visible trailing metadata')
+assert(qml.includes('import "MenuMarkdown.js" as MenuMarkdown')
+  && qml.includes('MenuMarkdown.documentBlocks(modelData.text)')
+  && qml.includes('id: codeSurface')
+  && qml.includes('text: "Copy code"')
+  && qml.includes('root.openDocumentLink(link)'),
+'Markdown sections render safe rich text and separate copyable code blocks')
 assert(qml.includes('id: documentHeaderIcon')
   && qml.includes('id: documentStats')
   && qml.includes('model: root.activeDocument ? root.activeDocument.stats : []'),
@@ -265,7 +274,7 @@ assert(qml.includes('settingsProc.command = [root.configHelper, "set-font-class"
   && qml.includes('row.action === root.menuItemFontClass ? "✓" : row.icon'),
 'font settings save through the bounded helper and mark the active class')
 assert((qml.match(/font\.pixelSize: root\.menuItemFontSize/g) || []).length === 7
-  && (qml.match(/font\.pixelSize: root\.menuSecondaryFontSize/g) || []).length === 5
+  && (qml.match(/font\.pixelSize: root\.menuSecondaryFontSize/g) || []).length === 7
   && qml.includes('font.pixelSize: root.menuCaptionFontSize')
   && qml.includes('property int headerHeight: Math.max(Style.space(28), Math.round(Style.space(34) * menuItemScale))')
   && qml.includes('property int actionBarHeight: Math.max(Style.space(26), Math.round(Style.space(36) * menuItemScale))'),

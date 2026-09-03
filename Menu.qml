@@ -5,6 +5,7 @@ import QtQuick
 import qs.Commons
 import qs.Ui
 import "MenuModel.js" as MenuModel
+import "MenuMarkdown.js" as MenuMarkdown
 import "extensions/currency" as CurrencyExtension
 
 Item {
@@ -723,6 +724,16 @@ Item {
 
   function workflowText(value, extra) {
     return MenuModel.workflowInterpolate(value, root.workflowValues(extra))
+  }
+
+  function openDocumentLink(url) {
+    var target = String(url || "")
+    if (!/^https?:\/\/[^\s<>]+$/i.test(target)) return
+    Quickshell.execDetached(["xdg-open", target])
+  }
+
+  function copyDocumentCode(value) {
+    Quickshell.execDetached(["wl-copy", "--", String(value || "")])
   }
 
   function workflowNodeContext(node, base) {
@@ -1907,6 +1918,7 @@ Item {
         icon: option.icon,
         iconFont: "",
         trailingIcon: "",
+        trailingText: "",
         badge: "",
         appIcon: "",
         appId: "",
@@ -1955,6 +1967,7 @@ Item {
             icon: workflowChild.icon,
             iconFont: workflowChild.iconFont,
             trailingIcon: workflowChild.trailingIcon,
+            trailingText: workflowChild.trailingText,
             badge: workflowChild.badge,
             label: root.workflowText(workflowChild.label),
             description: root.workflowText(workflowChild.description),
@@ -4241,6 +4254,7 @@ Item {
               required property string icon
               required property string iconFont
               required property string trailingIcon
+              required property string trailingText
               required property string badge
               required property string appIcon
               required property string appId
@@ -4367,12 +4381,24 @@ Item {
 
               Row {
                 id: trail
-                width: (row.badge.length > 0 ? Math.max(Style.space(24), badgeText.implicitWidth + Style.space(12)) + Style.space(6) : 0)
+                width: (row.trailingText.length > 0 ? trailingTextLabel.implicitWidth + Style.space(10) : 0)
+                  + (row.badge.length > 0 ? Math.max(Style.space(24), badgeText.implicitWidth + Style.space(12)) + Style.space(6) : 0)
                   + (row.trailingIcon.length > 0 ? Style.space(34) : Style.space(14))
                 anchors.right: parent.right
                 anchors.rightMargin: root.rowReservedBorderRight + Style.space(8)
                 y: contentColumn.y + labelText.y + (labelText.height - height) / 2
                 spacing: Style.space(6)
+
+                Text {
+                  id: trailingTextLabel
+                  visible: row.trailingText.length > 0
+                  text: row.trailingText
+                  color: row.hasCursor ? root.selectedText : root.foreground
+                  opacity: 0.52
+                  font.family: root.fontFamily
+                  font.pixelSize: root.menuSecondaryFontSize
+                  anchors.verticalCenter: parent.verticalCenter
+                }
 
                 Rectangle {
                   visible: row.badge.length > 0
@@ -4620,6 +4646,7 @@ Item {
                   }
                   Text {
                     width: parent.width
+                    visible: modelData.format !== "markdown"
                     text: modelData.text
                     color: root.foreground
                     opacity: 0.88
@@ -4627,6 +4654,107 @@ Item {
                     font.pixelSize: Style.font.body
                     wrapMode: Text.Wrap
                     textFormat: Text.PlainText
+                  }
+
+                  Column {
+                    width: parent.width
+                    visible: modelData.format === "markdown"
+                    spacing: Style.space(10)
+
+                    Repeater {
+                      model: modelData.format === "markdown" ? MenuMarkdown.documentBlocks(modelData.text) : []
+
+                      Item {
+                        required property var modelData
+                        width: parent ? parent.width : 0
+                        height: modelData.kind === "code" ? codeSurface.height : markdownText.implicitHeight
+
+                        Text {
+                          id: markdownText
+                          visible: modelData.kind === "markdown"
+                          width: parent.width
+                          text: modelData.html
+                          textFormat: Text.RichText
+                          color: root.foreground
+                          linkColor: root.selectedText
+                          opacity: 0.88
+                          font.family: root.fontFamily
+                          font.pixelSize: Style.font.body
+                          wrapMode: Text.Wrap
+                          onLinkActivated: function(link) { root.openDocumentLink(link) }
+                        }
+
+                        Rectangle {
+                          id: codeSurface
+                          visible: modelData.kind === "code"
+                          width: parent.width
+                          height: Math.max(Style.space(76), codeText.implicitHeight + Style.space(34))
+                          radius: root.cornerRadius
+                          color: Util.alpha(root.foreground, 0.065)
+                          clip: true
+
+                          Text {
+                            visible: modelData.language.length > 0
+                            anchors.left: parent.left
+                            anchors.leftMargin: Style.space(12)
+                            anchors.top: parent.top
+                            anchors.topMargin: Style.space(7)
+                            text: modelData.language
+                            color: root.foreground
+                            opacity: 0.42
+                            font.family: root.fontFamily
+                            font.pixelSize: root.menuCaptionFontSize
+                          }
+
+                          Text {
+                            id: copyCodeButton
+                            anchors.right: parent.right
+                            anchors.rightMargin: Style.space(12)
+                            anchors.top: parent.top
+                            anchors.topMargin: Style.space(7)
+                            text: "Copy code"
+                            color: root.foreground
+                            opacity: copyCodeMouse.containsMouse ? 0.95 : 0.55
+                            font.family: root.fontFamily
+                            font.pixelSize: root.menuCaptionFontSize
+
+                            MouseArea {
+                              id: copyCodeMouse
+                              anchors.fill: parent
+                              anchors.margins: -Style.space(5)
+                              hoverEnabled: true
+                              cursorShape: Qt.PointingHandCursor
+                              onClicked: root.copyDocumentCode(modelData.text)
+                            }
+                          }
+
+                          Flickable {
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.top: parent.top
+                            anchors.bottom: parent.bottom
+                            anchors.leftMargin: Style.space(12)
+                            anchors.rightMargin: Style.space(12)
+                            anchors.topMargin: Style.space(27)
+                            anchors.bottomMargin: Style.space(9)
+                            contentWidth: codeText.implicitWidth
+                            contentHeight: height
+                            clip: true
+                            boundsBehavior: Flickable.StopAtBounds
+
+                            Text {
+                              id: codeText
+                              text: modelData.text
+                              color: root.foreground
+                              font.family: root.fontFamily
+                              font.pixelSize: root.menuSecondaryFontSize
+                              textFormat: Text.PlainText
+                              wrapMode: Text.NoWrap
+                            }
+                          }
+                        }
+                      }
+                    }
                   }
                 }
               }

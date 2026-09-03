@@ -27,6 +27,7 @@ function normalizeItem(id, raw) {
     icon: value.icon || "",
     iconFont: value.iconFont || "",
     trailingIcon: value.trailingIcon || "",
+    trailingText: typeof value.trailingText === "string" ? value.trailingText.substring(0, 64) : "",
     badge: value.badge || "",
     label: value.label || id,
     title: value.title || "",
@@ -618,6 +619,7 @@ function normalizeWorkflowNode(raw, state, depth) {
     icon: boundedWorkflowText(raw.icon, 32),
     iconFont: boundedWorkflowText(raw.iconFont, 128),
     trailingIcon: boundedWorkflowText(raw.trailingIcon, 32),
+    trailingText: boundedWorkflowText(raw.trailingText, 64),
     badge: boundedWorkflowText(raw.badge, 16),
     context: workflowContext(raw.context),
     items: [],
@@ -756,12 +758,16 @@ function normalizeDetailDocument(raw) {
     var section = rawSections[sectionIndex]
     if (!section || typeof section !== "object" || Array.isArray(section)) return null
     var sectionKeys = Object.keys(section)
-    if (sectionKeys.length !== 2 || sectionKeys.indexOf("heading") < 0 || sectionKeys.indexOf("text") < 0) return null
+    if (sectionKeys.length < 2 || sectionKeys.length > 3 || sectionKeys.indexOf("heading") < 0
+        || sectionKeys.indexOf("text") < 0) return null
+    for (var sectionKeyIndex = 0; sectionKeyIndex < sectionKeys.length; sectionKeyIndex++)
+      if (["heading", "text", "format"].indexOf(sectionKeys[sectionKeyIndex]) < 0) return null
     var heading = detailDocumentText(section.heading, 256, true)
     var text = detailDocumentText(section.text, 32768, false)
-    if (heading === null || text === null) return null
+    var format = section.format === undefined ? "plain" : section.format
+    if (heading === null || text === null || ["plain", "markdown"].indexOf(format) < 0) return null
     textSize += heading.length + text.length
-    sections.push({ heading: heading, text: text })
+    sections.push({ heading: heading, text: text, format: format })
   }
   if (textSize > MAX_DETAIL_DOCUMENT_TEXT) return null
 
@@ -1006,6 +1012,7 @@ function dynamicMenuSearchItems(extension, workflow) {
       icon: node.icon || extension.icon,
       iconFont: node.iconFont || extension.iconFont,
       trailingIcon: node.trailingIcon,
+      trailingText: node.trailingText,
       badge: node.badge,
       label: node.label,
       description: node.description,
@@ -1668,6 +1675,7 @@ function displayRow(items, itemOrder, checkedResults, entry, detail, score, sect
     icon: entry.icon,
     iconFont: entry.iconFont || "",
     trailingIcon: entry.trailingIcon || "",
+    trailingText: typeof entry.trailingText === "string" ? entry.trailingText.substring(0, 64) : "",
     badge: entry.badge || "",
     appIcon: entry.appIcon || "",
     appId: entry.appId || "",
