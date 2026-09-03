@@ -96,6 +96,11 @@ assert(qml.includes('id: dynamicMenuKillTimer')
   && qml.includes('root.invalidateDynamicMenu()'),
 'dynamic menu timeout and output cancellation escalate SIGTERM only for the same provider child')
 const submenuProviderBody = qml.slice(qml.indexOf('id: submenuProc'), qml.indexOf('id: documentTimeout'))
+assert(qml.includes('function refreshWorkflowSurface()')
+  && qml.includes('event.key === Qt.Key_R && (event.modifiers & Qt.ControlModifier)')
+  && qml.includes('documentProc.command = command.slice()')
+  && qml.includes('submenuProc.command = command.slice()'),
+'Ctrl+R refreshes active dynamic lists and detail documents through their saved direct commands')
 assert(qml.includes('function enterSubmenu(node)')
   && qml.includes('MenuModel.normalizeDynamicMenuOutput(submenuProc.collected)')
   && qml.includes('root.enterSubmenu(dynamicSearchEntry.node)'),

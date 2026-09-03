@@ -639,6 +639,11 @@ assert(fileActionHints.map(hint => `${hint.label}:${hint.shortcut}`).join(',')
 const starredActionHints = menu.actionBarHints({ hasSelection: true, canStar: true, starred: true })
 assert(starredActionHints.some(hint => hint.label === 'Unstar' && hint.shortcut === 'Ctrl S'),
   'the action bar reflects the selected favorite state')
+const refreshActionHints = menu.actionBarHints({ hasSelection: true, canRefresh: true })
+assert(refreshActionHints.some(hint => hint.label === 'Refresh' && hint.shortcut === 'Ctrl R'),
+  'refreshable extension surfaces advertise Ctrl+R')
+assert(menu.compactActionBarHints(refreshActionHints.concat([{ label: 'Star', shortcut: 'Ctrl S' }])).map(hint => hint.label).join(',') === 'Open,Refresh',
+  'narrow action bars retain refresh when no action panel is available')
 const inputActionHints = menu.actionBarHints({ dmenuActive: true, dmenuInput: true })
 assert(inputActionHints.map(hint => hint.label).join(',') === 'Submit',
   'input requests only advertise their submit action')

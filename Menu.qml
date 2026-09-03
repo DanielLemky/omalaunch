@@ -337,6 +337,8 @@ Item {
     fileBrowserActive: root.fileBrowserActive,
     directoryPickerActive: root.directoryPickerActive,
     actionPanelActive: root.actionPanelActive,
+    canRefresh: root.workflowActive && root.workflowExtension && root.workflowExtension.mode === "menu"
+      && root.workflowNode && (root.workflowNode.id === "root" || root.workflowNode.reloadCommand),
     canContextActions: root.selectedWorkflowHasActions
       || (root.documentActive && root.activeDocument && root.activeDocument.actions.length > 0)
       || (root.selectedDynamicSearchEntry && root.selectedDynamicSearchEntry.node.actions.length > 0),
@@ -891,8 +893,11 @@ Item {
     if (root.workflowNode)
       root.workflowStack = root.workflowStack.concat([{ node: root.workflowNode, context: root.workflowContext }])
     root.workflowContext = root.workflowNodeContext(node, root.workflowContext)
+    var reloadCommand = node.submenuCommand.map(function(argument) {
+      return MenuModel.workflowInterpolate(argument, root.workflowValues())
+    })
     root.workflowNode = { id: node.id + ".submenu", kind: "menu", label: node.label,
-      description: "Loading…", items: [] }
+      description: "Loading…", items: [], reloadCommand: reloadCommand }
     root.filterText = ""
     root.selectedIndex = 0
     root.cursorActive = false
@@ -904,9 +909,7 @@ Item {
     submenuProc.collected = ""
     submenuProc.stderrBytes = 0
     submenuProc.outputOverflow = false
-    submenuProc.command = node.submenuCommand.map(function(argument) {
-      return MenuModel.workflowInterpolate(argument, root.workflowValues())
-    })
+    submenuProc.command = reloadCommand
     submenuProc.running = true
     submenuTimeout.restart()
     root.rebuildDisplay()
@@ -934,8 +937,11 @@ Item {
     if (root.workflowNode)
       root.workflowStack = root.workflowStack.concat([{ node: root.workflowNode, context: root.workflowContext }])
     root.workflowContext = root.workflowNodeContext(node, root.workflowContext)
+    var reloadCommand = node.documentCommand.map(function(argument) {
+      return MenuModel.workflowInterpolate(argument, root.workflowValues())
+    })
     root.workflowNode = { id: node.id + ".document", kind: "document", label: node.label,
-      document: null }
+      document: null, reloadCommand: reloadCommand }
     root.filterText = ""
     root.selectedIndex = 0
     root.cursorActive = false
@@ -948,12 +954,49 @@ Item {
     documentProc.collected = ""
     documentProc.stderrBytes = 0
     documentProc.outputOverflow = false
-    documentProc.command = node.documentCommand.map(function(argument) {
-      return MenuModel.workflowInterpolate(argument, root.workflowValues())
-    })
+    documentProc.command = reloadCommand
     documentProc.running = true
     documentTimeout.restart()
     root.rebuildDisplay()
+  }
+
+  function refreshWorkflowSurface() {
+    if (!root.workflowActive || !root.workflowExtension || root.workflowExtension.mode !== "menu"
+        || !root.workflowNode) return
+    if (root.workflowNode.id === "root") {
+      root.enterDynamicMenu(root.workflowExtension, true)
+      return
+    }
+    var command = root.workflowNode.reloadCommand
+    if (!command || command.length === 0) return
+    if (root.documentActive) {
+      if (documentProc.running || documentProc.stopping) return
+      root.documentError = ""
+      root.documentLoading = true
+      root.documentGeneration += 1
+      documentProc.generation = root.documentGeneration
+      documentProc.extensionCapability = root.workflowExtension.capability
+      documentProc.documentNodeId = root.workflowNode.id
+      documentProc.collected = ""
+      documentProc.stderrBytes = 0
+      documentProc.outputOverflow = false
+      documentProc.command = command.slice()
+      documentProc.running = true
+      documentTimeout.restart()
+      return
+    }
+    if (root.workflowNode.kind !== "menu" || submenuProc.running || submenuProc.stopping) return
+    root.submenuLoading = true
+    root.submenuGeneration += 1
+    submenuProc.generation = root.submenuGeneration
+    submenuProc.extensionCapability = root.workflowExtension.capability
+    submenuProc.submenuNodeId = root.workflowNode.id
+    submenuProc.collected = ""
+    submenuProc.stderrBytes = 0
+    submenuProc.outputOverflow = false
+    submenuProc.command = command.slice()
+    submenuProc.running = true
+    submenuTimeout.restart()
   }
 
   function enterWorkflow(extension) {
@@ -3970,7 +4013,10 @@ Item {
             return
           }
 
-          if (!root.dmenuActive && event.key === Qt.Key_Comma && (event.modifiers & Qt.ControlModifier)) {
+          if (root.workflowActive && event.key === Qt.Key_R && (event.modifiers & Qt.ControlModifier)) {
+            root.refreshWorkflowSurface()
+            event.accepted = true
+          } else if (!root.dmenuActive && event.key === Qt.Key_Comma && (event.modifiers & Qt.ControlModifier)) {
             root.openSettings()
             event.accepted = true
           } else if (root.workflowInputActive

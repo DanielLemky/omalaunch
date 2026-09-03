@@ -225,7 +225,7 @@ A row can load another host-rendered menu on demand instead of running a primary
 }
 ```
 
-The submenu command uses the row context and returns the same bounded dynamic-menu JSON format as the root provider. Nested rows can open more submenus or detail documents. Omalaunch runs a submenu provider only after activation. It receives no stdin, has a five-second timeout, and has a 256 KiB limit on each output stream. Leaving the submenu, closing the launcher, replacing its session, or changing its provider invalidates the request. Cancellation sends SIGTERM and then sends SIGKILL to the same direct child after a 500 ms grace period. Submenu commands run directly as argument arrays and support the row context plus `{extensionDir}` placeholders.
+The submenu command uses the row context and returns the same bounded dynamic-menu JSON format as the root provider. Nested rows can open more submenus or detail documents. Press Ctrl+R in a dynamic menu, submenu, or detail document to run its provider again without leaving the current navigation path. Omalaunch runs a submenu provider only after activation. It receives no stdin, has a five-second timeout, and has a 256 KiB limit on each output stream. Leaving the submenu, closing the launcher, replacing its session, or changing its provider invalidates the request. Cancellation sends SIGTERM and then sends SIGKILL to the same direct child after a 500 ms grace period. Submenu commands run directly as argument arrays and support the row context plus `{extensionDir}` placeholders.
 
 A row cannot declare both `submenu` and `document`. Recursive use remains bounded by the existing eight-level workflow navigation limit in the normalized provider data and by user-driven navigation history in the host.
 

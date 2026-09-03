@@ -1835,6 +1835,8 @@ function actionBarHints(state) {
 
   if (value.canContextActions)
     hints.push({ label: "Actions", shortcut: "Ctrl K" })
+  if (value.canRefresh)
+    hints.push({ label: "Refresh", shortcut: "Ctrl R" })
   if (value.fileBrowserActive && value.hasSelection && !value.directoryPickerActive && !value.actionPanelActive) {
     if (!value.canContextActions) hints.push({ label: "Actions", shortcut: "Ctrl K" })
     hints.push({ label: "Copy Path", shortcut: "Ctrl C" })
@@ -1851,12 +1853,15 @@ function compactActionBarHints(hints) {
   var values = Array.isArray(hints) ? hints : []
   if (values.length <= 2) return values.slice()
   var compact = values.length > 0 ? [values[0]] : []
+  var fallback = null
   for (var i = 1; i < values.length; i++) {
     if (values[i].label === "Actions") {
       compact.push(values[i])
-      break
+      return compact
     }
+    if (!fallback && values[i].label === "Refresh") fallback = values[i]
   }
+  if (fallback) compact.push(fallback)
   return compact
 }
 
