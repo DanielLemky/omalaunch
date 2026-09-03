@@ -123,20 +123,38 @@ def validate_config(provider:str,value:Any)->dict[str,Any]:
         track=value.get("rankByUsage",True)
         if not isinstance(track,bool): raise ValueError("rankByUsage must be boolean")
         return {"version":1,"rankByUsage":track}
-    if not isinstance(value,dict) or value.get("version")!=1 or set(value)-{"version","rankByUsage","engines"} or "engines" not in value: raise ValueError("invalid Web Search configuration")
+    if not isinstance(value,dict) or value.get("version") not in (1,2) or set(value)-{"version","rankByUsage","engines"} or "engines" not in value: raise ValueError("invalid Web Search configuration")
     rank=value.get("rankByUsage",True)
     if not isinstance(rank,bool): raise ValueError("rankByUsage must be boolean")
-    engines=value.get("engines")
-    if not isinstance(engines,list) or not 1<=len(engines)<=32: raise ValueError("invalid search engines")
-    result=[]; seen=set()
-    for engine in engines:
-        if not isinstance(engine,dict) or set(engine)!={"id","name","url"}: raise ValueError("invalid search engine fields")
-        ident=engine.get("id"); name=engine.get("name"); url=engine.get("url")
-        if not isinstance(ident,str) or not LINK_ID.fullmatch(ident) or ident in seen: raise ValueError("invalid or duplicate search engine id")
-        if not isinstance(name,str) or not 1<=len(name)<=120 or CONTROL.search(name): raise ValueError("invalid search engine name")
-        if not isinstance(url,str) or url.count("{query}")!=1 or not valid_url(url.replace("{query}","search")): raise ValueError("invalid search engine URL template")
-        seen.add(ident); result.append({"id":ident,"name":name,"url":url})
-    return {"version":1,"rankByUsage":rank,"engines":result}
+    raw_engines=value["engines"]
+    if value["version"]==1:
+        if not isinstance(raw_engines,list) or not 1<=len(raw_engines)<=32: raise ValueError("invalid search engines")
+        result=[]; seen=set()
+        for engine in raw_engines:
+            if not isinstance(engine,dict) or set(engine)!={"id","name","url"}: raise ValueError("invalid search engine fields")
+            ident=engine.get("id"); name=engine.get("name"); url=engine.get("url")
+            if not isinstance(ident,str) or not LINK_ID.fullmatch(ident) or ident in seen: raise ValueError("invalid or duplicate search engine id")
+            if not isinstance(name,str) or not 1<=len(name)<=120 or CONTROL.search(name): raise ValueError("invalid search engine name")
+            if not isinstance(url,str) or url.count("{query}")!=1 or not valid_url(url.replace("{query}","search")): raise ValueError("invalid search engine URL template")
+            seen.add(ident); result.append({"id":ident,"name":name,"url":url})
+    else:
+        if not isinstance(raw_engines,dict) or len(raw_engines)>27: raise ValueError("invalid search engines")
+        merged={engine["id"]:dict(engine) for engine in DEFAULT_SEARCH_ENGINES}
+        for ident,changes in raw_engines.items():
+            if not isinstance(ident,str) or not LINK_ID.fullmatch(ident) or not isinstance(changes,dict) or not changes or set(changes)-{"name","url","enabled"}: raise ValueError("invalid search engine override")
+            if "enabled" in changes and not isinstance(changes["enabled"],bool): raise ValueError("search engine enabled must be boolean")
+            if changes.get("enabled") is False:
+                if ident not in merged or set(changes)!={"enabled"}: raise ValueError("only a bundled search engine can be disabled")
+                del merged[ident]; continue
+            current=merged.get(ident)
+            if current is None and set(changes)-{"enabled"}!={"name","url"}: raise ValueError("new search engines require name and url")
+            name=changes.get("name",current["name"] if current else None); url=changes.get("url",current["url"] if current else None)
+            if not isinstance(name,str) or not 1<=len(name)<=120 or CONTROL.search(name): raise ValueError("invalid search engine name")
+            if not isinstance(url,str) or url.count("{query}")!=1 or not valid_url(url.replace("{query}","search")): raise ValueError("invalid search engine URL template")
+            merged[ident]={"id":ident,"name":name,"url":url}
+        result=list(merged.values())
+    if not 1<=len(result)<=32: raise ValueError("invalid search engines")
+    return {"version":value["version"],"rankByUsage":rank,"engines":result}
 def validate_state(provider:str,value:Any,home:Path)->dict[str,Any]:
     if provider not in PROVIDERS or not isinstance(value,dict) or value.get("version")!=1: raise ValueError("expected version-1 provider state")
     allowed={"version","links"} if provider=="omalaunch.quicklinks" else ({"version","globalSearchExcludedEngines","starredEngines"} if provider=="omalaunch.web-search" else {"version","favorites"})

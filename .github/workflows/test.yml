@@ -16,7 +16,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --yes fd-find fzf jq qalc
+          sudo apt-get install --yes fd-find fzf jq qalc python3-fastjsonschema
           if ! command -v fd >/dev/null; then sudo ln -s "$(command -v fdfind)" /usr/local/bin/fd; fi
 
       - name: Validate manifest
