@@ -15,6 +15,7 @@ DEFAULT_SEARCH_ENGINES=[
     {"id":"bing","name":"Bing","url":"https://www.bing.com/search?q={query}"},
     {"id":"brave","name":"Brave Search","url":"https://search.brave.com/search?q={query}"},
     {"id":"ecosia","name":"Ecosia","url":"https://www.ecosia.org/search?q={query}"},
+    {"id":"kagi","name":"Kagi","url":"https://kagi.com/search?q={query}"},
 ]
 
 

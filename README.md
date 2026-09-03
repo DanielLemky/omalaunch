@@ -44,7 +44,7 @@ This workaround can be removed once Omarchy supports setting a widget’s sectio
 - Copy calculation results directly to the clipboard
 - Browse, recursively search, open, copy paths, and star local files and directories
 - Look up current times and convert times across DST-aware timezones
-- Search with Google, DuckDuckGo, Bing, Brave Search, or Ecosia
+- Search with Google, DuckDuckGo, Bing, Brave Search, Ecosia, or Kagi
 - Accept dmenu-style select and input requests
 - Load extensions contributed by enabled Omarchy plugins
 - Launch agent prompts such as Pi and Codex through optional extensions

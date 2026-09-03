@@ -11,7 +11,7 @@ with tempfile.TemporaryDirectory() as raw:
     for provider in pc.PROVIDERS: check(pc.load_state(provider,home)==pc.state_default(provider),provider+" has missing-state defaults")
     check(pc.load_config("omalaunch.files",home)=={"version":1,"includeGitIgnored":False},"Files has a missing-config default")
     check(pc.load_config("omalaunch.quicklinks",home)=={"version":1,"rankByUsage":True},"Quicklinks has an enabled missing-config default")
-    check(len(pc.load_config("omalaunch.web-search",home)["engines"])==5,"Web Search has default engines")
+    check(len(pc.load_config("omalaunch.web-search",home)["engines"])==6,"Web Search has default engines")
     for provider in ("omalaunch.apps","omalaunch.extensions"):
         check(not pc.config_path(provider,home).exists(),provider+" has no meaningless config file")
     config=pc.config_path("omalaunch.files",home); config.parent.mkdir(parents=True)
@@ -31,7 +31,7 @@ with tempfile.TemporaryDirectory() as raw:
     check(pc.load_state("omalaunch.web-search",home)=={"version":1,"globalSearchExcludedEngines":["bing"],"starredEngines":["google"]},"Web Search stores global search exclusions and stars in state")
     web_search=subprocess.run([ROOT/"extensions/web-search/web-search","menu"],env=env,check=True,capture_output=True,text=True)
     search_items=json.loads(web_search.stdout)["items"]
-    check([item["id"] for item in search_items]==["search-brave","search-duckduckgo","search-ecosia","search-google","search-bing"],"Web Search sorts global engines by name before excluded engines")
+    check([item["id"] for item in search_items]==["search-brave","search-duckduckgo","search-ecosia","search-google","search-kagi","search-bing"],"Web Search sorts global engines by name before excluded engines")
     check(search_items[-1]["globalSearch"] is False and search_items[-1]["description"]=="Web Search menu","excluded engines remain usable in the Web Search menu")
     check(search_items[0]["trailingIcon"] and search_items[-1]["trailingIcon"]=="","only global engines receive the trailing globe icon")
     google=next(item for item in search_items if item["id"]=="search-google")

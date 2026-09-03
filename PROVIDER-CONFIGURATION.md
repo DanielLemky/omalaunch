@@ -69,7 +69,7 @@ The array defaults to `[]` and has at most 256 unique values. A replacement prov
 
 ## Web Search
 
-The optional `omalaunch.web-search.jsonc` configuration defines 1 to 32 search engines. A missing file supplies Google, DuckDuckGo, Bing, Brave Search, and Ecosia. Each engine has a stable `id`, display `name`, and absolute HTTP(S) `url` template with exactly one `{query}` placeholder:
+The optional `omalaunch.web-search.jsonc` configuration defines 1 to 32 search engines. A missing file supplies Google, DuckDuckGo, Bing, Brave Search, Ecosia, and Kagi. Each engine has a stable `id`, display `name`, and absolute HTTP(S) `url` template with exactly one `{query}` placeholder:
 
 ```jsonc
 {
