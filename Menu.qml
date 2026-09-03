@@ -4525,7 +4525,8 @@ Item {
                       visible: modelData.icon.length > 0
                       anchors.left: parent.left
                       anchors.leftMargin: Style.space(12)
-                      anchors.verticalCenter: parent.verticalCenter
+                      anchors.top: parent.top
+                      anchors.topMargin: Style.space(10)
                       text: modelData.icon
                       color: root.foreground
                       opacity: 0.68
@@ -4538,7 +4539,8 @@ Item {
                       anchors.leftMargin: Style.space(12)
                       anchors.right: parent.right
                       anchors.rightMargin: Style.space(10)
-                      anchors.verticalCenter: parent.verticalCenter
+                      anchors.top: parent.top
+                      anchors.topMargin: Style.space(9)
                       spacing: Style.space(2)
 
                       Text {
