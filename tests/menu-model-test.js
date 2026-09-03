@@ -347,6 +347,8 @@ const separateGlobalSearchItems = menu.dynamicMenuSearchItems(dynamicMenuExtensi
 assert(separateGlobalSearchItems.length === 1 && separateGlobalSearchItems[0].label === 'Search only'
   && separateGlobalSearchItems[0].aliases[0] === 'dedicated',
   'dedicated global search rows replace visible rows as the dynamic search source')
+assert(menu.dynamicMenuSearchNodes(separateGlobalSearchMenu)[0].command[0] === 'open-search',
+  'dedicated global search actions use the dedicated source nodes')
 const emptyGlobalSearchMenu = menu.normalizeDynamicMenuOutput({
   items: [{ id: 'visible', label: 'Visible only', command: ['true'] }], globalSearchItems: []
 })
@@ -476,6 +478,9 @@ assert(menu.normalizeDetailDocument({ title: 'Report', actions: Array.from({ len
 assert(menu.normalizeDetailDocument({ title: 'Report', sections: [
   { heading: 'One', text: 'x'.repeat(32768) }, { heading: 'Two', text: 'x'.repeat(32768) }
 ] }) === null, 'detail documents have a 64 KiB aggregate text limit')
+assert(menu.normalizeDetailDocument({ title: 'Report', sections: [
+  { heading: 'Unicode', text: '界'.repeat(32768) }
+] }) === null, 'detail document aggregate limits count UTF-8 bytes')
 assert(menu.normalizeDetailDocument({ title: 'Report', format: 'html' }) === null,
 'detail documents reject unsupported rich-content fields')
 

@@ -3275,6 +3275,7 @@ Item {
         root.rejectDynamicMenuSearch("global menu search provider returned an invalid snapshot")
         return
       }
+      var searchNodes = MenuModel.dynamicMenuSearchNodes(workflow)
       var searchItems = MenuModel.dynamicMenuSearchItems(dynamicMenuSearchProc.extension, workflow)
       if (root.dynamicMenuSearchCandidate.length + searchItems.length > root.dynamicMenuSearchMaxRows) {
         root.rejectDynamicMenuSearch("global menu search preload exceeds the aggregate row limit")
@@ -3283,14 +3284,14 @@ Item {
       var candidate = root.dynamicMenuSearchCandidate.slice()
       for (var i = 0; i < searchItems.length; i++) {
         var searchNode = null
-        for (var nodeIndex = 0; nodeIndex < workflow.items.length; nodeIndex++)
-          if (workflow.items[nodeIndex].id === searchItems[i].action) { searchNode = workflow.items[nodeIndex]; break }
+        for (var nodeIndex = 0; nodeIndex < searchNodes.length; nodeIndex++)
+          if (searchNodes[nodeIndex].id === searchItems[i].action) { searchNode = searchNodes[nodeIndex]; break }
         if (!searchNode) {
           root.rejectDynamicMenuSearch("global menu search row lost its normalized provider identity")
           return
         }
         candidate.push({
-          item: searchItems[i], node: searchNode, items: workflow.items,
+          item: searchItems[i], node: searchNode, items: searchNodes,
           capability: dynamicMenuSearchProc.extension.capability, extensionId: dynamicMenuSearchProc.extension.id
         })
       }

@@ -755,7 +755,8 @@ function normalizeDetailDocument(raw) {
   var icon = detailDocumentText(parsed.icon, 32, false)
   var iconFont = detailDocumentText(parsed.iconFont, 128, false)
   if (title === null || subtitle === null || status === null || icon === null || iconFont === null) return null
-  var textSize = title.length + subtitle.length + status.length + icon.length + iconFont.length
+  var textSize = utf8ByteLength(title) + utf8ByteLength(subtitle) + utf8ByteLength(status)
+    + utf8ByteLength(icon) + utf8ByteLength(iconFont)
 
   var rawStats = parsed.stats === undefined ? [] : parsed.stats
   if (!Array.isArray(rawStats) || rawStats.length > 6) return null
@@ -772,7 +773,8 @@ function normalizeDetailDocument(raw) {
     var statIcon = detailDocumentText(stat.icon, 32, false)
     var statIconFont = detailDocumentText(stat.iconFont, 128, false)
     if (statLabel === null || statValue === null || statIcon === null || statIconFont === null) return null
-    textSize += statLabel.length + statValue.length + statIcon.length + statIconFont.length
+    textSize += utf8ByteLength(statLabel) + utf8ByteLength(statValue)
+      + utf8ByteLength(statIcon) + utf8ByteLength(statIconFont)
     stats.push({ label: statLabel, value: statValue, icon: statIcon, iconFont: statIconFont })
   }
 
@@ -787,7 +789,7 @@ function normalizeDetailDocument(raw) {
     var label = detailDocumentText(field.label, 256, true)
     var value = detailDocumentText(field.value, 4096, false)
     if (label === null || value === null) return null
-    textSize += label.length + value.length
+    textSize += utf8ByteLength(label) + utf8ByteLength(value)
     fields.push({ label: label, value: value })
   }
 
@@ -806,7 +808,7 @@ function normalizeDetailDocument(raw) {
     var text = detailDocumentText(section.text, 32768, false)
     var format = section.format === undefined ? "plain" : section.format
     if (heading === null || text === null || ["plain", "markdown"].indexOf(format) < 0) return null
-    textSize += heading.length + text.length
+    textSize += utf8ByteLength(heading) + utf8ByteLength(text)
     sections.push({ heading: heading, text: text, format: format })
   }
   if (textSize > MAX_DETAIL_DOCUMENT_TEXT) return null
@@ -1039,10 +1041,15 @@ function workflowClosesOnDispatch(node, command) {
   return executable === "xdg-terminal-exec" || executable === "omarchy-launch-terminal"
 }
 
+function dynamicMenuSearchNodes(workflow) {
+  if (!workflow || !Array.isArray(workflow.items)) return []
+  return Object.prototype.hasOwnProperty.call(workflow, "globalSearchItems")
+    ? workflow.globalSearchItems : workflow.items
+}
+
 function dynamicMenuSearchItems(extension, workflow) {
   if (!extension || !workflow || !Array.isArray(workflow.items)) return []
-  var source = Object.prototype.hasOwnProperty.call(workflow, "globalSearchItems")
-    ? workflow.globalSearchItems : workflow.items
+  var source = dynamicMenuSearchNodes(workflow)
   if (!Array.isArray(source)) return []
   var result = []
   for (var i = 0; i < source.length; i++) {
@@ -1937,6 +1944,7 @@ if (typeof module !== "undefined") {
     normalizeWorkflow: normalizeWorkflow,
     normalizeDetailDocument: normalizeDetailDocument,
     normalizeDynamicMenuOutput: normalizeDynamicMenuOutput,
+    dynamicMenuSearchNodes: dynamicMenuSearchNodes,
     dynamicMenuSearchItems: dynamicMenuSearchItems,
     dynamicMenuItemId: dynamicMenuItemId,
     dynamicMenuSearchIdentity: dynamicMenuSearchIdentity,
