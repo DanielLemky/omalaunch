@@ -309,6 +309,7 @@ Item {
   property int rowPeek: Math.round(baseRowHeight * 0.55)
   property int rowSpacing: Math.max(Style.space(1), Math.round(Style.spacing.xs * menuItemScale))
   property int dividerHeight: Style.space(17)
+  readonly property int emptyStateHeight: Math.max(Style.space(108), Math.round(Style.space(132) * menuItemScale))
   property bool searchDivider: false
   property int layoutSerial: 0
   property int cardWidth: Math.min(root.dmenuActive
@@ -463,7 +464,7 @@ Item {
   }
 
   function rowListHeight(_serial, _count, _filter, _divider) {
-    if (displayModel.count === 0) return root.baseRowHeight
+    if (displayModel.count === 0) return root.emptyStateHeight
 
     var totals = []
     var total = 0
@@ -483,10 +484,10 @@ Item {
 
   function dmenuRowListHeight(_serial, _count, _filter) {
     if (root.mode === "input") return 0
-    if (displayModel.count === 0) return root.baseRowHeight
 
     var available = availableRowsHeight()
     if (root.dmenuMaxHeight > 0) available = Math.min(available, Style.space(root.dmenuMaxHeight))
+    if (displayModel.count === 0) return Math.max(0, Math.min(root.emptyStateHeight, available))
 
     var totals = []
     var total = 0
@@ -4310,6 +4311,7 @@ Item {
         Item {
           width: parent.width
           height: root.visibleRowsHeight
+          clip: true
 
           ListView {
             id: resultList
@@ -4968,32 +4970,51 @@ Item {
 
           Column {
             anchors.centerIn: parent
-            spacing: Math.max(Style.space(3), Math.round(Style.space(8) * root.menuItemScale))
+            width: Math.max(0, Math.min(parent.width - Style.space(32), Style.space(420)))
+            spacing: Math.max(Style.space(4), Math.round(Style.space(7) * root.menuItemScale))
             visible: !root.documentActive && !root.focusedExtension && displayModel.count === 0 && root.mode !== "input" && !root.workflowInputActive && (root.filterText || root.activeMenu !== "root") && !root.isPotentialExtensionQuery(root.filterText)
 
-            Text {
-              visible: !root.focusedExtension
-              text: "󰈉"
-              color: root.selectedText
-              opacity: 0.8
-              font.family: root.fontFamily
-              font.pixelSize: Math.max(1, Math.round(Style.font.displayLarge * root.menuItemScale))
-              horizontalAlignment: Text.AlignHCenter
-              width: Style.space(320)
+            Rectangle {
+              anchors.horizontalCenter: parent.horizontalCenter
+              width: Math.max(Style.space(36), Math.round(Style.space(44) * root.menuItemScale))
+              height: width
+              radius: width / 2
+              color: Util.alpha(root.foreground, 0.065)
+              border.width: Style.spacing.hairline
+              border.color: Util.alpha(root.foreground, 0.1)
+
+              Text {
+                anchors.centerIn: parent
+                text: root.filterText ? "󰍉" : "󰅖"
+                color: root.foreground
+                opacity: 0.56
+                font.family: root.fontFamily
+                font.pixelSize: Math.max(1, Math.round(Style.font.heading * root.menuItemScale))
+              }
             }
 
             Text {
-              text: root.focusedExtension
-                ? "Start typing"
-                : (root.filterText ? "No matches for “" + root.filterText + "”"
-                  : (root.workflowActive && root.workflowNode && root.workflowNode.description
-                    ? root.workflowNode.description : "Nothing here yet"))
+              width: parent.width
+              text: root.filterText ? "No results found" : "Nothing here yet"
               color: root.foreground
-              opacity: 0.7
+              opacity: 0.86
               font.family: root.fontFamily
               font.pixelSize: Math.max(1, Math.round(Style.font.title * root.menuItemScale))
+              font.weight: Font.Medium
               horizontalAlignment: Text.AlignHCenter
-              width: Style.space(320)
+            }
+
+            Text {
+              width: parent.width
+              text: root.filterText ? "Try another search, or press Esc to clear"
+                : (root.workflowActive && root.workflowNode && root.workflowNode.description
+                  ? root.workflowNode.description : "Items will appear here when available")
+              color: root.foreground
+              opacity: 0.48
+              font.family: root.fontFamily
+              font.pixelSize: root.menuSecondaryFontSize
+              horizontalAlignment: Text.AlignHCenter
+              elide: Text.ElideRight
             }
           }
         }
