@@ -124,6 +124,10 @@ assert(qml.includes('normalCommand: initialCommand, reloadCommand: reloadCommand
   && qml.includes('liveRefresh === false ? root.workflowNode.normalCommand : root.workflowNode.reloadCommand')
   && qml.includes('root.refreshWorkflowSurface(false)'),
 'background star actions refresh the current surface without leaving its navigation level')
+assert(qml.includes('submenuProc.selectionNodeId = root.selectedWorkflowNode ? root.selectedWorkflowNode.id : ""')
+  && qml.includes('workflow.items[selectedWorkflowIndex].id === submenuProc.selectionNodeId')
+  && qml.includes('Number(displayModel.get(selectedDisplayIndex).action) === selectedWorkflowNodeIndex'),
+'submenu refresh restores the selected row by stable provider id')
 assert(qml.includes('function enterSubmenu(node)')
   && qml.includes('MenuModel.normalizeDynamicMenuOutput(submenuProc.collected)')
   && qml.includes('root.enterSubmenu(dynamicSearchEntry.node)'),

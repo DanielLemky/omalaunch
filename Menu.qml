@@ -1025,6 +1025,7 @@ Item {
     submenuProc.generation = root.submenuGeneration
     submenuProc.extensionCapability = root.workflowExtension.capability
     submenuProc.submenuNodeId = root.workflowNode.id
+    submenuProc.selectionNodeId = ""
     submenuProc.collected = ""
     submenuProc.stderrBytes = 0
     submenuProc.outputOverflow = false
@@ -1120,6 +1121,7 @@ Item {
     submenuProc.generation = root.submenuGeneration
     submenuProc.extensionCapability = root.workflowExtension.capability
     submenuProc.submenuNodeId = root.workflowNode.id
+    submenuProc.selectionNodeId = root.selectedWorkflowNode ? root.selectedWorkflowNode.id : ""
     submenuProc.collected = ""
     submenuProc.stderrBytes = 0
     submenuProc.outputOverflow = false
@@ -3569,6 +3571,7 @@ Item {
     property bool stopping: false
     property string extensionCapability: ""
     property string submenuNodeId: ""
+    property string selectionNodeId: ""
     property string collected: ""
     property int stderrBytes: 0
     property bool outputOverflow: false
@@ -3617,9 +3620,19 @@ Item {
           { description: "Provider failed", items: [] })
       } else root.workflowNode = Object.assign({}, root.workflowNode,
         { description: "", items: workflow.items })
+      var selectedWorkflowNodeIndex = -1
+      if (workflow && submenuProc.selectionNodeId) {
+        for (var selectedWorkflowIndex = 0; selectedWorkflowIndex < workflow.items.length; selectedWorkflowIndex++)
+          if (workflow.items[selectedWorkflowIndex].id === submenuProc.selectionNodeId) { selectedWorkflowNodeIndex = selectedWorkflowIndex; break }
+      }
+      submenuProc.selectionNodeId = ""
       root.selectedIndex = 0
       root.cursorActive = workflow && workflow.items.length > 0
       root.rebuildDisplay()
+      if (selectedWorkflowNodeIndex >= 0) {
+        for (var selectedDisplayIndex = 0; selectedDisplayIndex < displayModel.count; selectedDisplayIndex++)
+          if (Number(displayModel.get(selectedDisplayIndex).action) === selectedWorkflowNodeIndex) { root.selectedIndex = selectedDisplayIndex; break }
+      }
     }
   }
 
