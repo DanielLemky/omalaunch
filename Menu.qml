@@ -1015,7 +1015,8 @@ Item {
       return MenuModel.workflowInterpolate(argument, root.workflowValues())
     })
     root.workflowNode = { id: node.id + ".submenu", kind: "menu", label: node.label,
-      description: "Loading…", items: [], reloadCommand: reloadCommand, refreshable: node.refreshable }
+      description: "Loading…", items: [], normalCommand: initialCommand, reloadCommand: reloadCommand,
+      refreshable: node.refreshable }
     root.filterText = ""
     root.selectedIndex = 0
     root.cursorActive = false
@@ -1068,7 +1069,8 @@ Item {
       return MenuModel.workflowInterpolate(argument, root.workflowValues())
     })
     root.workflowNode = { id: node.id + ".document", kind: "document", label: node.label,
-      document: null, reloadCommand: reloadCommand, refreshable: node.refreshable }
+      document: null, normalCommand: initialCommand, reloadCommand: reloadCommand,
+      refreshable: node.refreshable }
     root.filterText = ""
     root.selectedIndex = 0
     root.cursorActive = false
@@ -1087,14 +1089,14 @@ Item {
     root.rebuildDisplay()
   }
 
-  function refreshWorkflowSurface() {
+  function refreshWorkflowSurface(liveRefresh) {
     if (!root.workflowActive || !root.workflowExtension || root.workflowExtension.mode !== "menu"
         || !root.workflowNode) return
     if (root.workflowNode.id === "root") {
       root.enterDynamicMenu(root.workflowExtension, true)
       return
     }
-    var command = root.workflowNode.reloadCommand
+    var command = liveRefresh === false ? root.workflowNode.normalCommand : root.workflowNode.reloadCommand
     if (!command || command.length === 0) return
     if (root.documentActive) {
       if (documentProc.running || documentProc.stopping) return
@@ -3923,7 +3925,7 @@ Item {
       root.preloadDynamicMenuSearch()
       if (root.workflowActive && root.workflowExtension
           && root.workflowExtension.capability === extension.capability)
-        root.enterDynamicMenu(extension, true)
+        root.refreshWorkflowSurface(false)
       if (backgroundActionProc.closeAfter) root.cancel()
     }
   }

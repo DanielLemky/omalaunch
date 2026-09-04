@@ -111,15 +111,19 @@ assert(qml.includes('id: dynamicMenuKillTimer')
   && qml.includes('root.invalidateDynamicMenu()'),
 'dynamic menu timeout and output cancellation escalate SIGTERM only for the same provider child')
 const submenuProviderBody = qml.slice(qml.indexOf('id: submenuProc'), qml.indexOf('id: documentTimeout'))
-assert(qml.includes('function refreshWorkflowSurface()')
+assert(qml.includes('function refreshWorkflowSurface(liveRefresh)')
   && qml.includes('MenuModel.footerActionIdForShortcut(key, modifiers)')
-  && qml.includes('if (id === "refresh") root.refreshWorkflowSurface()')
+  && qml.includes('if (id === "refresh") root.refreshWorkflowSurface(true)')
   && qml.includes('root.workflowNode.refreshable === true')
   && qml.includes('root.workflowNode.refreshable == null && root.workflowExtension.refreshable')
   && qml.includes('refreshable: node.refreshable')
   && qml.includes('documentProc.command = command.slice()')
   && qml.includes('submenuProc.command = command.slice()'),
 'Ctrl+R refreshes only opted-in dynamic lists and detail documents through their saved direct commands')
+assert(qml.includes('normalCommand: initialCommand, reloadCommand: reloadCommand')
+  && qml.includes('liveRefresh === false ? root.workflowNode.normalCommand : root.workflowNode.reloadCommand')
+  && qml.includes('root.refreshWorkflowSurface(false)'),
+'background star actions refresh the current surface without leaving its navigation level')
 assert(qml.includes('function enterSubmenu(node)')
   && qml.includes('MenuModel.normalizeDynamicMenuOutput(submenuProc.collected)')
   && qml.includes('root.enterSubmenu(dynamicSearchEntry.node)'),
