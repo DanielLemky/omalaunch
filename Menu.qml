@@ -484,10 +484,10 @@ Item {
 
   function dmenuRowListHeight(_serial, _count, _filter) {
     if (root.mode === "input") return 0
-    if (displayModel.count === 0) return root.emptyStateHeight
 
     var available = availableRowsHeight()
     if (root.dmenuMaxHeight > 0) available = Math.min(available, Style.space(root.dmenuMaxHeight))
+    if (displayModel.count === 0) return Math.max(0, Math.min(root.emptyStateHeight, available))
 
     var totals = []
     var total = 0
@@ -4969,7 +4969,7 @@ Item {
 
           Column {
             anchors.centerIn: parent
-            width: Math.min(parent.width - Style.space(32), Style.space(420))
+            width: Math.max(0, Math.min(parent.width - Style.space(32), Style.space(420)))
             spacing: Math.max(Style.space(4), Math.round(Style.space(7) * root.menuItemScale))
             visible: !root.documentActive && !root.focusedExtension && displayModel.count === 0 && root.mode !== "input" && !root.workflowInputActive && (root.filterText || root.activeMenu !== "root") && !root.isPotentialExtensionQuery(root.filterText)
 

@@ -318,9 +318,11 @@ assert(qml.includes('readonly property real actionBarFontScale: menuItemFontSize
 'action bar compaction accounts for increased footer font sizes')
 assert(qml.includes('readonly property int emptyStateHeight:')
   && qml.includes('if (displayModel.count === 0) return root.emptyStateHeight')
+  && qml.includes('if (displayModel.count === 0) return Math.max(0, Math.min(root.emptyStateHeight, available))')
+  && qml.includes('width: Math.max(0, Math.min(parent.width - Style.space(32), Style.space(420)))')
   && qml.includes('text: root.filterText ? "No results found" : "Nothing here yet"')
   && qml.includes('text: root.filterText ? "Try another search, or press Esc to clear"'),
-'empty results use a clear, helpful state with enough vertical space')
+'empty results use a clear, bounded, helpful state')
 assert(qml.includes('font.pixelSize: row.starred ? root.menuSecondaryFontSize : root.menuItemFontSize'),
 'trailing menu glyphs scale with the configured item font size')
 assert(qml.includes('width: Math.max(height, shortcutText.implicitWidth')
