@@ -189,6 +189,8 @@ Item {
   readonly property int dynamicMenuSearchMaxRows: 1000
   readonly property int dynamicMenuSearchMaxOutputBytes: 1024 * 1024
   readonly property int dynamicMenuSearchTotalTimeoutMs: 10 * 1000
+  readonly property int dynamicMenuTopLevelPollMs: 60 * 1000
+  readonly property int dynamicMenuTopLevelStaleMs: 2 * dynamicMenuTopLevelPollMs
   property int workflowGeneration: 0
   readonly property int workflowActionTimeoutMs: 30 * 1000
   readonly property int workflowTerminationGraceMs: 1000
@@ -891,7 +893,8 @@ Item {
     var queue = []
     for (var i = 0; i < root.extensions.length; i++) {
       var extension = root.extensions[i]
-      if (extension.mode === "menu" && extension.available && extension.globalSearch) queue.push(extension)
+      if (extension.mode === "menu" && extension.available
+          && (extension.globalSearch || extension.topLevel)) queue.push(extension)
     }
     if (queue.length > root.dynamicMenuSearchMaxProviders) {
       console.warn("Omalaunch: global menu search preload exceeds the provider limit; retained the previous snapshot")
@@ -918,8 +921,9 @@ Item {
     dynamicMenuSearchProc.collected = ""
     dynamicMenuSearchProc.stderrBytes = 0
     dynamicMenuSearchProc.outputOverflow = false
-    var searchCommand = extension.globalSearchCommand && extension.globalSearchCommand.length > 0
-      ? extension.globalSearchCommand : extension.command
+    var searchCommand = extension.preloadCommand && extension.preloadCommand.length > 0
+      ? extension.preloadCommand : (extension.globalSearchCommand && extension.globalSearchCommand.length > 0
+        ? extension.globalSearchCommand : extension.command)
     dynamicMenuSearchProc.command = searchCommand.map(function(argument) {
       return MenuModel.workflowInterpolate(argument, { extensionDir: extension.sourceDir })
     })
@@ -2322,7 +2326,8 @@ Item {
       if (!root.focusedExtension && active === "root") {
         for (var dynamicSearchIndex = 0; dynamicSearchIndex < root.dynamicMenuSearchSnapshot.length; dynamicSearchIndex++) {
           var dynamicSearchEntry = root.dynamicMenuSearchSnapshot[dynamicSearchIndex]
-          if (!MenuModel.matchesQuery(dynamicSearchEntry.item, preparedQuery, true)) continue
+          if (dynamicSearchEntry.searchable !== true
+              || !MenuModel.matchesQuery(dynamicSearchEntry.item, preparedQuery, true)) continue
           var dynamicSearchRow = root.displayRow(dynamicSearchEntry.item, dynamicSearchEntry.item.description, 0)
           dynamicSearchRow.starred = dynamicSearchEntry.node.starred
           dynamicSearchRow.matchPriority = MenuModel.searchMatchPriority(dynamicSearchEntry.item, preparedQuery)
@@ -2484,9 +2489,11 @@ Item {
       if (active === "root") {
         for (var starredDynamicIndex = 0; starredDynamicIndex < root.dynamicMenuSearchSnapshot.length; starredDynamicIndex++) {
           var starredDynamicEntry = root.dynamicMenuSearchSnapshot[starredDynamicIndex]
-          if (!starredDynamicEntry.node.starred) continue
+          var temporaryTopLevel = starredDynamicEntry.topLevel === true
+            && Date.now() - Number(starredDynamicEntry.loadedAt || 0) <= root.dynamicMenuTopLevelStaleMs
+          if (!starredDynamicEntry.node.starred && !temporaryTopLevel) continue
           var starredDynamicRow = root.displayRow(starredDynamicEntry.item, starredDynamicEntry.item.description, 0)
-          starredDynamicRow.starred = true
+          starredDynamicRow.starred = starredDynamicEntry.node.starred
           rows.push(starredDynamicRow)
         }
 
@@ -3479,6 +3486,18 @@ Item {
     }
   }
 
+  Timer {
+    id: dynamicMenuTopLevelPoll
+    interval: root.dynamicMenuTopLevelPollMs
+    repeat: true
+    running: true
+    onTriggered: {
+      root.rebuildDisplay()
+      if (!dynamicMenuSearchProc.running && !dynamicMenuSearchProc.stopping
+          && root.dynamicMenuSearchQueue.length === 0) root.preloadDynamicMenuSearch()
+    }
+  }
+
   Process {
     id: dynamicMenuSearchProc
     property int generation: 0
@@ -3537,8 +3556,11 @@ Item {
         return
       }
       var searchNodes = MenuModel.dynamicMenuSearchNodes(workflow)
-      var searchItems = MenuModel.dynamicMenuSearchItems(dynamicMenuSearchProc.extension, workflow)
-      if (root.dynamicMenuSearchCandidate.length + searchItems.length > root.dynamicMenuSearchMaxRows) {
+      var searchItems = dynamicMenuSearchProc.extension.globalSearch
+        ? MenuModel.dynamicMenuSearchItems(dynamicMenuSearchProc.extension, workflow) : []
+      var topLevelNodes = MenuModel.dynamicMenuTopLevelNodes(workflow)
+      var topLevelItems = MenuModel.dynamicMenuTopLevelItems(dynamicMenuSearchProc.extension, workflow)
+      if (root.dynamicMenuSearchCandidate.length + searchItems.length + topLevelItems.length > root.dynamicMenuSearchMaxRows) {
         root.rejectDynamicMenuSearch("global menu search preload exceeds the aggregate row limit")
         return
       }
@@ -3553,7 +3575,31 @@ Item {
         }
         candidate.push({
           item: searchItems[i], node: searchNode, items: workflow.items,
-          capability: dynamicMenuSearchProc.extension.capability, extensionId: dynamicMenuSearchProc.extension.id
+          capability: dynamicMenuSearchProc.extension.capability, extensionId: dynamicMenuSearchProc.extension.id,
+          searchable: true, topLevel: false, loadedAt: Date.now()
+        })
+      }
+      for (var topIndex = 0; topIndex < topLevelItems.length; topIndex++) {
+        var topNode = null
+        for (var topNodeIndex = 0; topNodeIndex < topLevelNodes.length; topNodeIndex++)
+          if (topLevelNodes[topNodeIndex].id === topLevelItems[topIndex].action) { topNode = topLevelNodes[topNodeIndex]; break }
+        if (!topNode) {
+          root.rejectDynamicMenuSearch("top-level row lost its normalized provider identity")
+          return
+        }
+        var merged = false
+        for (var candidateIndex = 0; candidateIndex < candidate.length; candidateIndex++) {
+          if (candidate[candidateIndex].item.id === topLevelItems[topIndex].id) {
+            candidate[candidateIndex].topLevel = true
+            candidate[candidateIndex].loadedAt = Date.now()
+            merged = true
+            break
+          }
+        }
+        if (!merged) candidate.push({
+          item: topLevelItems[topIndex], node: topNode, items: workflow.items,
+          capability: dynamicMenuSearchProc.extension.capability, extensionId: dynamicMenuSearchProc.extension.id,
+          searchable: false, topLevel: true, loadedAt: Date.now()
         })
       }
       root.dynamicMenuSearchCandidate = candidate

@@ -420,6 +420,25 @@ assert(menu.normalizeDynamicMenuOutput({
   items: [{ id: 'visible', label: 'Visible', command: ['true'] }],
   globalSearchItems: [{ id: 'bad', label: 'Bad', command: 'true' }]
 }) === null, 'dedicated global search rows use strict row normalization')
+const topLevelExtension = menu.normalizeExtension({ schemaVersion: 1, id: 'runs', mode: 'menu',
+  label: 'Runs', prefixes: ['runs'], command: ['menu'], globalSearch: false, topLevel: true,
+  preloadCommand: ['provider', 'preload'] })
+const topLevelWorkflow = menu.normalizeDynamicMenuOutput({ items: [], globalSearchItems: [], topLevelItems: [
+  { id: 'run:repo:7', label: 'repo · CI', topLevel: true, globalSearch: false,
+    document: { command: ['provider', 'run', 'repo', '7'] } },
+  { id: 'not-top', label: 'Other', command: ['true'] }
+] })
+assert(topLevelExtension && !topLevelExtension.globalSearch && topLevelExtension.topLevel,
+  'top-level preload is independent from extension global search')
+assert(menu.dynamicMenuSearchItems(topLevelExtension, topLevelWorkflow).length === 0,
+  'global search disabled prevents search rows but not top-level rows')
+assert(menu.dynamicMenuTopLevelItems(topLevelExtension, topLevelWorkflow).length === 1,
+  'only explicit top-level rows appear independently from star state')
+assert(menu.dynamicMenuTopLevelItems(topLevelExtension, topLevelWorkflow)[0].action === 'run:repo:7',
+  'temporary top-level rows retain normal detail routing')
+assert(menu.normalizeExtension({ schemaVersion: 1, id: 'bad-preload', mode: 'menu', label: 'Bad',
+  prefixes: ['bad'], command: ['menu'], preloadCommand: ['provider'] }) === null,
+  'preload commands require a top-level or global-search surface')
 const capturedMenu = menu.normalizeDynamicMenuOutput([{ id: 'add', label: 'Add', input: {
   prompt: 'Target', capture: 'target', next: { id: 'name', kind: 'input', label: 'Name', command: ['links', 'add', '{target}', '{input}'] }
 } }])
