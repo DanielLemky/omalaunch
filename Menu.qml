@@ -728,7 +728,8 @@ Item {
 
   function workflowValues(extra) {
     return Object.assign({}, root.workflowContext || ({}), {
-      extensionDir: root.workflowExtension ? root.workflowExtension.sourceDir : ""
+      extensionDir: root.workflowExtension ? root.workflowExtension.sourceDir : "",
+      omalaunchDir: root.pluginPath
     }, extra || ({}))
   }
 
@@ -4276,7 +4277,9 @@ Item {
           visible: root.workflowInputActive || root.workflowFilterMenuActive
           text: root.workflowInputActive
             ? root.workflowText(root.workflowNode ? (root.workflowNode.prompt || root.workflowNode.label) : "")
-            : ("Search " + root.workflowText(root.workflowNode ? root.workflowNode.label : (root.workflowExtension ? root.workflowExtension.label : "items")))
+            : root.workflowText(root.workflowNode
+                ? root.workflowNode.label
+                : (root.workflowExtension ? root.workflowExtension.label : "Select an item"))
           color: root.foreground
           opacity: 0.58
           font.family: root.fontFamily
