@@ -53,6 +53,12 @@ function inlineMarkdown(value) {
   return output
 }
 
+function colorizeLinks(value, color) {
+  var linkColor = String(color || "")
+  if (!/^#[0-9a-f]{6}(?:[0-9a-f]{2})?$/i.test(linkColor)) return String(value || "")
+  return String(value || "").replace(/<a href=/g, '<a style="color: ' + linkColor + '" href=')
+}
+
 function renderMarkdown(value) {
   var source = String(value === undefined || value === null ? "" : value)
   if (source.length > MAX_MARKDOWN_LENGTH) source = source.substring(0, MAX_MARKDOWN_LENGTH)
@@ -146,6 +152,7 @@ if (typeof module !== "undefined") module.exports = {
   escapeHtml: escapeHtml,
   safeLink: safeLink,
   inlineMarkdown: inlineMarkdown,
+  colorizeLinks: colorizeLinks,
   renderMarkdown: renderMarkdown,
   documentBlocks: documentBlocks
 }

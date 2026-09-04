@@ -156,8 +156,10 @@ assert(qml.includes('import "MenuMarkdown.js" as MenuMarkdown')
   && qml.includes('MenuMarkdown.documentBlocks(modelData.text)')
   && qml.includes('id: codeSurface')
   && qml.includes('text: "Copy code"')
+  && qml.includes('property string hoveredLink: markdownText.linkAt(mouseX, mouseY)')
+  && qml.includes('cursorShape: hoveredLink ? Qt.PointingHandCursor : Qt.ArrowCursor')
   && qml.includes('root.openDocumentLink(link)'),
-'Markdown sections render safe rich text and separate copyable code blocks')
+'Markdown sections render safe rich text with clickable link cursors and separate copyable code blocks')
 assert(qml.includes('id: documentHeaderIcon')
   && qml.includes('id: documentStats')
   && qml.includes('model: root.activeDocument ? root.activeDocument.stats : []'),
@@ -249,6 +251,21 @@ assert(qml.includes('function openWorkflowActions()')
   && qml.includes('root.openWorkflowActions()')
   && qml.includes('id: workflowConfirm'),
 'dynamic rows expose host-rendered contextual actions and confirmations')
+assert(qml.includes('text: MenuMarkdown.colorizeLinks(modelData.html, root.foreground)')
+  && qml.includes('linkColor: root.foreground'),
+'document links use the normal foreground color')
+assert(qml.includes('visible: !root.documentActive && !root.focusedExtension && displayModel.count === 0'),
+'document pages suppress the empty menu state')
+assert(qml.includes('? Math.max(root.menuItemFontSize, Style.font.heading)')
+  && qml.includes('font.weight: root.documentActive ? Font.DemiBold : Font.Normal'),
+'document titles use a larger emphasized heading style')
+assert(qml.includes('event.key === Qt.Key_K && event.modifiers === Qt.NoModifier')
+  && qml.includes('event.key === Qt.Key_J && event.modifiers === Qt.NoModifier'),
+'document pages scroll with unmodified K and J keys')
+assert((qml.match(/selectedIndex: root\.selectedIndex/g) || []).length === 3
+  && qml.includes('Math.min(previous.selectedIndex || 0, displayModel.count - 1)')
+  && qml.includes('root.cursorActive = displayModel.count > 0'),
+'workflow Back restores the selected source row')
 assert(qml.includes('readonly property real menuItemScale: menuItemFontSize / Style.font.body')
   && qml.includes('readonly property int menuItemIconSize: Math.max(Style.space(10), Math.min(Style.space(32),')
   && qml.includes('Math.round(menuItemFontSize * 1.25)')
@@ -290,7 +307,7 @@ assert(qml.includes('settingsProc.command = [root.configHelper, "set-font-class"
   && qml.includes('root.configuredMenuItemFontSize === 0')
   && qml.includes('row.action === root.menuItemFontClass ? "✓" : row.icon'),
 'font settings save through the bounded helper and mark the active class')
-assert((qml.match(/font\.pixelSize: root\.menuItemFontSize/g) || []).length === 7
+assert((qml.match(/font\.pixelSize: root\.menuItemFontSize/g) || []).length === 6
   && (qml.match(/font\.pixelSize: root\.menuSecondaryFontSize/g) || []).length === 8
   && qml.includes('font.pixelSize: root.menuCaptionFontSize')
   && qml.includes('property int headerHeight: Math.max(Style.space(28), Math.round(Style.space(34) * menuItemScale))')
