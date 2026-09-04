@@ -319,6 +319,7 @@ assert(qml.includes('readonly property real actionBarFontScale: menuItemFontSize
 assert(qml.includes('readonly property int emptyStateHeight:')
   && qml.includes('if (displayModel.count === 0) return root.emptyStateHeight')
   && qml.includes('if (displayModel.count === 0) return Math.max(0, Math.min(root.emptyStateHeight, available))')
+  && qml.includes('height: root.visibleRowsHeight\n          clip: true')
   && qml.includes('width: Math.max(0, Math.min(parent.width - Style.space(32), Style.space(420)))')
   && qml.includes('text: root.filterText ? "No results found" : "Nothing here yet"')
   && qml.includes('text: root.filterText ? "Try another search, or press Esc to clear"'),

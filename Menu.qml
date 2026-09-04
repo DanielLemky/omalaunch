@@ -4311,6 +4311,7 @@ Item {
         Item {
           width: parent.width
           height: root.visibleRowsHeight
+          clip: true
 
           ListView {
             id: resultList
