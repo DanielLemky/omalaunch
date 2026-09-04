@@ -892,7 +892,11 @@ Item {
     root.invalidateWorkflowAction("entered submenu")
     root.invalidateDocument("entered submenu")
     if (root.workflowNode)
-      root.workflowStack = root.workflowStack.concat([{ node: root.workflowNode, context: root.workflowContext }])
+      root.workflowStack = root.workflowStack.concat([{
+        node: root.workflowNode,
+        context: root.workflowContext,
+        selectedIndex: root.selectedIndex
+      }])
     root.workflowContext = root.workflowNodeContext(node, root.workflowContext)
     var initialCommand = node.submenuCommand.map(function(argument) {
       return MenuModel.workflowInterpolate(argument, root.workflowValues())
@@ -941,7 +945,11 @@ Item {
         || documentProc.running || documentProc.stopping) return
     root.invalidateWorkflowAction("entered document")
     if (root.workflowNode)
-      root.workflowStack = root.workflowStack.concat([{ node: root.workflowNode, context: root.workflowContext }])
+      root.workflowStack = root.workflowStack.concat([{
+        node: root.workflowNode,
+        context: root.workflowContext,
+        selectedIndex: root.selectedIndex
+      }])
     root.workflowContext = root.workflowNodeContext(node, root.workflowContext)
     var initialCommand = node.documentCommand.map(function(argument) {
       return MenuModel.workflowInterpolate(argument, root.workflowValues())
@@ -1062,7 +1070,11 @@ Item {
   function showWorkflowNode(node, context, pushCurrent) {
     if (!node) return
     if (pushCurrent && root.workflowNode)
-      root.workflowStack = root.workflowStack.concat([{ node: root.workflowNode, context: root.workflowContext }])
+      root.workflowStack = root.workflowStack.concat([{
+        node: root.workflowNode,
+        context: root.workflowContext,
+        selectedIndex: root.selectedIndex
+      }])
     root.resetFileIndex()
     root.fileBrowserActive = false
     root.directoryPickerActive = false
@@ -1093,6 +1105,8 @@ Item {
     var previous = root.workflowStack[root.workflowStack.length - 1]
     root.workflowStack = root.workflowStack.slice(0, root.workflowStack.length - 1)
     root.showWorkflowNode(previous.node, previous.context, false)
+    root.selectedIndex = Math.max(0, Math.min(previous.selectedIndex || 0, displayModel.count - 1))
+    root.cursorActive = displayModel.count > 0
     return true
   }
 
@@ -4084,11 +4098,13 @@ Item {
               && !(event.modifiers & (Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier))) {
             root.select(event.key === Qt.Key_Backtab || (event.modifiers & Qt.ShiftModifier) ? -1 : 1)
             event.accepted = true
-          } else if (root.documentActive && (event.key === Qt.Key_Up || event.key === Qt.Key_PageUp)) {
+          } else if (root.documentActive && (event.key === Qt.Key_Up || event.key === Qt.Key_PageUp
+              || (event.key === Qt.Key_K && event.modifiers === Qt.NoModifier))) {
             documentFlick.contentY = Math.max(documentFlick.originY,
               documentFlick.contentY - (event.key === Qt.Key_PageUp ? documentFlick.height * 0.8 : Style.space(48)))
             event.accepted = true
-          } else if (root.documentActive && (event.key === Qt.Key_Down || event.key === Qt.Key_PageDown)) {
+          } else if (root.documentActive && (event.key === Qt.Key_Down || event.key === Qt.Key_PageDown
+              || (event.key === Qt.Key_J && event.modifiers === Qt.NoModifier))) {
             documentFlick.contentY = Math.min(Math.max(documentFlick.originY,
               documentFlick.originY + documentFlick.contentHeight - documentFlick.height),
               documentFlick.contentY + (event.key === Qt.Key_PageDown ? documentFlick.height * 0.8 : Style.space(48)))
@@ -4252,7 +4268,10 @@ Item {
             color: root.foreground
             opacity: root.documentActive || root.filterText ? 1 : 0.58
             font.family: root.fontFamily
-            font.pixelSize: root.menuItemFontSize
+            font.pixelSize: root.documentActive
+              ? Math.max(root.menuItemFontSize, Style.font.heading)
+              : root.menuItemFontSize
+            font.weight: root.documentActive ? Font.DemiBold : Font.Normal
             elide: Text.ElideRight
           }
 
@@ -4768,15 +4787,25 @@ Item {
                           id: markdownText
                           visible: modelData.kind === "markdown"
                           width: parent.width
-                          text: modelData.html
+                          text: MenuMarkdown.colorizeLinks(modelData.html, root.foreground)
                           textFormat: Text.RichText
                           color: root.foreground
-                          linkColor: root.selectedText
+                          linkColor: root.foreground
                           opacity: 0.88
                           font.family: root.fontFamily
                           font.pixelSize: Style.font.body
                           wrapMode: Text.Wrap
-                          onLinkActivated: function(link) { root.openDocumentLink(link) }
+
+                          MouseArea {
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: hoveredLink ? Qt.PointingHandCursor : Qt.ArrowCursor
+                            property string hoveredLink: markdownText.linkAt(mouseX, mouseY)
+                            onClicked: function(mouse) {
+                              var link = markdownText.linkAt(mouse.x, mouse.y)
+                              if (link) root.openDocumentLink(link)
+                            }
+                          }
                         }
 
                         Rectangle {
@@ -4940,7 +4969,7 @@ Item {
           Column {
             anchors.centerIn: parent
             spacing: Math.max(Style.space(3), Math.round(Style.space(8) * root.menuItemScale))
-            visible: !root.focusedExtension && displayModel.count === 0 && root.mode !== "input" && !root.workflowInputActive && (root.filterText || root.activeMenu !== "root") && !root.isPotentialExtensionQuery(root.filterText)
+            visible: !root.documentActive && !root.focusedExtension && displayModel.count === 0 && root.mode !== "input" && !root.workflowInputActive && (root.filterText || root.activeMenu !== "root") && !root.isPotentialExtensionQuery(root.filterText)
 
             Text {
               visible: !root.focusedExtension
