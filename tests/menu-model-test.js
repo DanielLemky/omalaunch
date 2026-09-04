@@ -630,10 +630,16 @@ const addExtension = menu.parseExtensions(JSON.stringify({
   _bundled: true,
   _sourceDir: path.join(__dirname, '..', 'extensions', 'add')
 }))
-assert(addExtension.length === 1 && addExtension[0].workflow.items.length === 1
-  && addExtension[0].workflow.items[0].kind === 'input'
-  && addExtension[0].workflow.items[0].closeOnDispatch === true,
-'bundled Add extension exposes its detached agent creation workflow')
+const browseMarketplace = addExtension[0].workflow.items[0]
+const createWithAgent = addExtension[0].workflow.items[1]
+assert(addExtension.length === 1 && addExtension[0].workflow.items.length === 2
+  && browseMarketplace.kind === 'action'
+  && browseMarketplace.label === 'Browse Marketplace'
+  && browseMarketplace.command.join('\0') === ['xdg-open', 'https://github.com/DanielLemky/omalaunch-extensions'].join('\0')
+  && browseMarketplace.closeOnDispatch === true
+  && createWithAgent.kind === 'input'
+  && createWithAgent.closeOnDispatch === true,
+'bundled Add extension exposes marketplace browsing and detached agent creation')
 const projectsNode = workflowExtensions[0].workflow.items[0]
 assert(projectsNode.label === 'Projects' && projectsNode.items.length === 2, 'workflow navigation data retains Projects and Add Project stages')
 const directoryTransition = menu.workflowDirectoryTransition(projectsNode.items[1], '/tmp/Saved Project/', {})

@@ -7,9 +7,19 @@
   "prefixes": ["add extension"],
   "icon": "󰐕",
   "description": "Add an Omalaunch extension",
-  "requires": ["python", "omarchy-agent", "omarchy-default-agent"],
+  "requires": ["python", "omarchy-agent", "omarchy-default-agent", "xdg-open"],
   "workflow": {
     "items": [
+      {
+        "id": "browse-marketplace",
+        "kind": "action",
+        "label": "Browse Marketplace",
+        "closeOnDispatch": true,
+        "command": [
+          "xdg-open",
+          "https://github.com/DanielLemky/omalaunch-extensions"
+        ]
+      },
       {
         "id": "create-with-agent",
         "kind": "input",
