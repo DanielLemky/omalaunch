@@ -25,6 +25,9 @@ jobs:
       - name: Run model tests
         run: node tests/menu-model-test.js
 
+      - name: Run menu layout tests
+        run: node tests/menu-layout-test.js
+
       - name: Test opening screen selection
         run: node tests/opening-screen-test.js
 
