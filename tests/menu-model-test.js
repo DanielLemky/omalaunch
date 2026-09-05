@@ -273,9 +273,10 @@ const workflowExtensions = menu.parseExtensions(JSON.stringify([{
   }
 }]))
 const dynamicMenuExtensions = menu.parseExtensions(JSON.stringify([{
-  schemaVersion: 1, id: 'quicklinks', capability: 'quicklinks', mode: 'menu', label: 'Quicklinks',
+  schemaVersion: 1, id: 'omalaunch.quicklinks', capability: 'quicklinks', mode: 'menu', label: 'Quicklinks',
   prefixes: ['links'], command: ['{extensionDir}/bin/menu', '--json'], globalSearch: true,
-  globalSearchCommand: ['{extensionDir}/bin/menu', '--global-search']
+  globalSearchCommand: ['{extensionDir}/bin/menu', '--global-search'],
+  configuration: { provider: 'omalaunch.quicklinks' }
 }, {
   schemaVersion: 1, id: 'private-menu', mode: 'menu', label: 'Private', prefixes: ['private'], command: ['private-menu']
 }]))
@@ -286,6 +287,10 @@ assert(dynamicMenuExtensions[0].refreshable === false, 'dynamic menus do not sho
 assert(menu.normalizeExtension({ schemaVersion: 1, id: 'refreshable-menu', mode: 'menu', label: 'Refreshable', prefixes: ['refreshable'], command: ['menu'], refreshable: true }).refreshable === true, 'dynamic menus can opt in to manual refresh')
 assert(menu.normalizeExtension({ schemaVersion: 1, id: 'bad-refreshable', mode: 'menu', label: 'Bad', prefixes: ['bad'], command: ['menu'], refreshable: 'no' }) === null, 'refreshable must be boolean')
 assert(menu.normalizeExtension({ schemaVersion: 1, id: 'wrong-mode-refreshable', mode: 'prefix', label: 'Bad', prefixes: ['bad'], command: ['run'], refreshable: true }) === null, 'refreshable is limited to menu extensions')
+assert(menu.normalizeExtension({ schemaVersion: 1, id: 'bad-configuration', mode: 'menu', label: 'Bad', prefixes: ['bad'], command: ['menu'], configuration: { provider: '' } }) === null, 'configuration providers must be nonempty')
+assert(menu.normalizeExtension({ schemaVersion: 1, id: 'replacement.quicklinks', capability: 'quicklinks', mode: 'menu', label: 'Bad', prefixes: ['bad'], command: ['menu'], configuration: { provider: 'omalaunch.quicklinks' } }) === null, 'a replacement cannot target another provider configuration')
+assert(menu.normalizeExtension({ schemaVersion: 1, id: 'unknown.provider', mode: 'menu', label: 'Bad', prefixes: ['bad'], command: ['menu'], configuration: { provider: 'unknown.provider' } }) === null, 'unknown provider configuration menus are not shown')
+assert(menu.normalizeExtension({ schemaVersion: 1, id: 'wrong-mode-configuration', mode: 'prefix', label: 'Bad', prefixes: ['bad'], command: ['run'], configuration: { provider: 'bad' } }) === null, 'configuration metadata is limited to menu extensions')
 assert(menu.normalizeExtension({ schemaVersion: 1, id: 'bad-search-command', mode: 'menu', label: 'Bad', prefixes: ['bad'], command: ['menu'], globalSearch: true, globalSearchCommand: 'search' }) === null, 'global search commands must be argument arrays')
 assert(menu.normalizeExtension({ schemaVersion: 1, id: 'disabled-search-command', mode: 'menu', label: 'Bad', prefixes: ['bad'], command: ['menu'], globalSearchCommand: ['search'] }) === null, 'separate search commands require global search opt-in')
 assert(menu.normalizeExtension({ schemaVersion: 1, id: 'wrong-mode-search-command', mode: 'prefix', label: 'Bad', prefixes: ['bad'], command: ['run'], globalSearchCommand: ['search'] }) === null, 'separate search commands are limited to menu extensions')
@@ -695,6 +700,12 @@ assert(refreshActionHints.some(hint => hint.label === 'Refresh' && hint.shortcut
   'refreshable extension surfaces advertise Ctrl+R')
 assert(menu.compactActionBarHints(refreshActionHints.concat([{ id: 'star', label: 'Star', shortcut: 'Ctrl S' }])).map(hint => hint.label).join(',') === 'Open,Refresh',
   'narrow action bars retain refresh when no action panel is available')
+const configurationActionHints = menu.actionBarHints({ hasSelection: true, canRefresh: true, canStar: true, canContextActions: true, canConfigure: true })
+assert(configurationActionHints.map(hint => hint.label).join(',') === 'Open,Refresh,Star,Actions,Settings'
+  && configurationActionHints[4].shortcut === 'Ctrl ,',
+  'configurable extension surfaces place Settings at the right edge')
+assert(menu.compactActionBarHints(configurationActionHints).map(hint => hint.label).join(',') === 'Open,Actions',
+  'narrow configurable extension footers retain the action-panel shortcut')
 const settingsActionHints = menu.actionBarHints({ hasSelection: true, canStar: true, canContextActions: true, canSettings: true })
 assert(settingsActionHints.map(hint => hint.label).join(',') === 'Open,Star,Actions,Settings'
   && settingsActionHints[3].shortcut === 'Ctrl ,',

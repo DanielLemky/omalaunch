@@ -197,6 +197,7 @@ Item {
   readonly property string fileIndexHelper: root.pluginPath + "/extensions/files/file-index.py"
   readonly property string extensionLoaderHelper: root.pluginPath + "/libexec/load-extensions.py"
   readonly property string configHelper: root.pluginPath + "/libexec/omalaunch-config"
+  readonly property string providerConfigHelper: root.pluginPath + "/libexec/provider-config"
   readonly property string fileIndexInstanceId: Date.now() + "-" + Math.floor(Math.random() * 1000000000)
   readonly property string fileIndexPathPrefix: Quickshell.env("XDG_RUNTIME_DIR")
     ? Quickshell.env("XDG_RUNTIME_DIR") + "/omalaunch-file-index-" + root.fileIndexInstanceId
@@ -344,6 +345,9 @@ Item {
   property int visibleRowsHeight: MenuLayout.imagePreviewRowsHeight(root.imagePreviewActive,
     root.naturalRowsHeight, root.imagePreviewMinRowsHeight, root.availableRowsHeight())
   readonly property bool workflowFilterMenuActive: root.workflowActive && root.workflowNode && root.workflowNode.kind === "menu"
+  readonly property bool canConfigureExtension: root.workflowActive && root.workflowExtension
+    && root.workflowExtension.mode === "menu" && root.workflowNode && root.workflowNode.id === "root"
+    && root.workflowExtension.configurationProvider === root.workflowExtension.id
   readonly property bool canRefreshWorkflow: root.workflowActive && root.workflowExtension
     && root.workflowExtension.mode === "menu" && root.workflowNode
     && (root.workflowNode.refreshable === true
@@ -370,6 +374,7 @@ Item {
     directoryPickerActive: root.directoryPickerActive,
     actionPanelActive: root.actionPanelActive,
     canRefresh: root.canRefreshWorkflow,
+    canConfigure: root.canConfigureExtension,
     canSettings: !root.dmenuActive && !root.workflowActive && !root.fileBrowserActive
       && root.activeMenu === "root",
     canContextActions: root.selectedWorkflowHasActions
@@ -464,7 +469,10 @@ Item {
       } else if (root.cursorActive) root.activateIndex(root.selectedIndex)
       else return false
     } else if (id === "refresh") root.refreshWorkflowSurface()
-    else if (id === "settings") root.openSettings()
+    else if (id === "settings") {
+      if (root.canConfigureExtension) root.openExtensionConfiguration()
+      else root.openSettings()
+    }
     else if (id === "actions") {
       if (!root.workflowActive && root.selectedDynamicSearchEntry) root.openDynamicSearchActions()
       else if (root.workflowActive && !root.fileBrowserActive) root.openWorkflowActions()
@@ -961,6 +969,17 @@ Item {
       submenuKillTimer.restart()
     }
     root.submenuLoading = false
+  }
+
+  function openExtensionConfiguration() {
+    if (!root.canConfigureExtension) return
+    root.enterSubmenu({
+      id: "extension-configuration",
+      label: "Settings",
+      submenuCommand: [root.providerConfigHelper, "configuration-menu", root.workflowExtension.configurationProvider,
+        root.workflowExtension.id],
+      submenuRefreshCommand: []
+    })
   }
 
   function enterSubmenu(node) {
@@ -1739,6 +1758,27 @@ Item {
       label: "Omalaunch Settings",
       title: "Omalaunch Settings"
     })
+    nextItems["settings.configuration"] = root.normalizeItem("settings.configuration", {
+      parent: "settings",
+      kind: "menu",
+      icon: "󰒓",
+      label: "Configuration",
+      title: "Configuration"
+    })
+    nextItems["settings.configuration.open"] = root.normalizeItem("settings.configuration.open", {
+      parent: "settings.configuration",
+      kind: "action",
+      icon: "󰈙",
+      label: "Open config file",
+      action: "open-config"
+    })
+    nextItems["settings.configuration.agent"] = root.normalizeItem("settings.configuration.agent", {
+      parent: "settings.configuration",
+      kind: "action",
+      icon: "󰚩",
+      label: "Edit with agent",
+      action: "edit-config-agent"
+    })
     nextItems["settings.font-size"] = root.normalizeItem("settings.font-size", {
       parent: "settings",
       kind: "menu",
@@ -1773,9 +1813,10 @@ Item {
     })
     var rootIndex = nextOrder.indexOf("root")
     var insertAt = rootIndex >= 0 ? rootIndex + 1 : 0
-    nextOrder.splice(insertAt, 0, "omarchy", "extensions", "settings", "settings.font-size")
+    nextOrder.splice(insertAt, 0, "omarchy", "extensions", "settings", "settings.configuration",
+      "settings.configuration.open", "settings.configuration.agent", "settings.font-size")
     for (var fontOptionIndex = 0; fontOptionIndex < fontOptions.length; fontOptionIndex++)
-      nextOrder.splice(insertAt + 4 + fontOptionIndex, 0, "settings.font-size." + fontOptions[fontOptionIndex][0])
+      nextOrder.splice(insertAt + 7 + fontOptionIndex, 0, "settings.font-size." + fontOptions[fontOptionIndex][0])
     root.items = nextItems
     root.itemOrder = nextOrder
     root.rebuildItemMetadata()
@@ -2532,7 +2573,36 @@ Item {
   }
 
   function openSettings() {
-    root.resetForOpen()
+    if (root.dmenuActive) return
+
+    // Ctrl+Comma changes the route of the visible launcher. Do not use the
+    // fresh-open reset here: its opened=false transition destroys the overlay
+    // for one frame before openRoute() creates it again.
+    root.invalidateWorkflowAction("opened settings")
+    root.invalidateBackgroundAction("opened settings")
+    root.invalidateSubmenu("opened settings")
+    root.invalidateDocument("opened settings")
+    root.invalidateDynamicMenu()
+    root.invalidateExtensionQuery("opened settings")
+    root.routePendingForMenuSources = false
+    root.resetFileIndex()
+
+    var reset = MenuModel.openStateReset()
+    for (var key in reset) root[key] = reset[key]
+    root.fileBrowserShowHidden = false
+    root.workflowConfirmOpen = false
+    root.workflowConfirmNode = null
+    root.deleteConfirmOpen = false
+    root.deleteTarget = null
+    root.dependencyConfirmOpen = false
+    root.dependencyTarget = null
+    root.mode = "menu"
+    root.requestActive = false
+    root.selectionFile = ""
+    root.doneFile = ""
+    root.dmenuPrompt = ""
+    root.dmenuOptions = []
+    root.dmenuRows = []
     root.openRoute("settings")
   }
 
@@ -2697,6 +2767,13 @@ Item {
         root.opened = false
         root.runAction(openCommand)
       }
+      return
+    }
+    if (row.itemId === "settings.configuration.open" || row.itemId === "settings.configuration.agent") {
+      root.applySerial = root.requestSerial
+      root.opened = false
+      root.runAction(root.shellCommand([root.configHelper,
+        row.itemId === "settings.configuration.open" ? "open-config" : "edit-config-agent"], {}))
       return
     }
     if (root.isFontSizeSetting(row.itemId)) {

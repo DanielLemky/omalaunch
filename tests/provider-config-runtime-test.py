@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import importlib.util, json, os, pathlib, subprocess, tempfile
+import importlib.util, json, os, pathlib, stat, subprocess, sys, tempfile
 ROOT=pathlib.Path(__file__).resolve().parents[1]
 spec=importlib.util.spec_from_file_location("pc",ROOT/"libexec/provider_config.py"); pc=importlib.util.module_from_spec(spec); spec.loader.exec_module(pc)
 def check(v,m):
@@ -12,9 +12,25 @@ with tempfile.TemporaryDirectory() as raw:
     check(pc.load_config("omalaunch.files",home)=={"version":1,"includeGitIgnored":False},"Files has a missing-config default")
     check(pc.load_config("omalaunch.quicklinks",home)=={"version":1,"rankByUsage":True},"Quicklinks has an enabled missing-config default")
     check(len(pc.load_config("omalaunch.web-search",home)["engines"])==5,"Web Search has default engines")
+    for extension in ("quicklinks","web-search"):
+        definition=json.loads((ROOT/"extensions"/extension/"extension.json").read_text())
+        check("omarchy-launch-editor" not in definition["requires"] and "omarchy-agent" not in definition["requires"],extension+" stays available without optional settings tools")
+    quicklinks_created=pc.ensure_config("omalaunch.quicklinks",home)
+    web_search_created=pc.ensure_config("omalaunch.web-search",home)
+    check(json.loads(quicklinks_created.read_text())=={"version":1,"rankByUsage":True},"Quicklinks creates its editable default configuration")
+    check(json.loads(web_search_created.read_text())=={"version":2,"rankByUsage":True,"engines":{}},"Web Search creates its additive editable default configuration")
+    check(quicklinks_created.stat().st_mode&0o777==0o600 and web_search_created.stat().st_mode&0o777==0o600,"created provider configurations are private")
+    quicklinks_created.unlink(); web_search_created.unlink()
+    target=base/"provider-target.jsonc"; target.write_text('{"version":1,"rankByUsage":false}')
+    quicklinks_created.symlink_to(target)
+    try: pc.ensure_config("omalaunch.quicklinks",home)
+    except OSError: pass
+    else: raise AssertionError("symbolic-link provider configuration must be rejected")
+    check(target.read_text()=='{"version":1,"rankByUsage":false}',"symbolic-link provider configuration is rejected without changing its target")
+    quicklinks_created.unlink()
     for provider in ("omalaunch.apps","omalaunch.extensions"):
         check(not pc.config_path(provider,home).exists(),provider+" has no meaningless config file")
-    config=pc.config_path("omalaunch.files",home); config.parent.mkdir(parents=True)
+    config=pc.config_path("omalaunch.files",home); config.parent.mkdir(parents=True,exist_ok=True)
     original=b'{\n  // preserve this comment and layout\n  "version": 1,\n  "includeGitIgnored": true,\n}\n'; config.write_bytes(original)
     quicklinks_config=pc.config_path("omalaunch.quicklinks",home)
     quicklinks_original=b'{\n  // keep ranking preference\n  "version": 1,\n  "rankByUsage": false,\n}\n'; quicklinks_config.write_bytes(quicklinks_original)
@@ -32,8 +48,16 @@ with tempfile.TemporaryDirectory() as raw:
     web_search=subprocess.run([ROOT/"extensions/web-search/web-search","menu"],env=env,check=True,capture_output=True,text=True)
     search_items=json.loads(web_search.stdout)["items"]
     check([item["id"] for item in search_items]==["search-brave","search-duckduckgo","search-ecosia","search-google","search-bing"],"Web Search sorts global engines by name before excluded engines")
-    check(search_items[-1]["globalSearch"] is False and search_items[-1]["description"]=="Web Search menu","excluded engines remain usable in the Web Search menu")
-    check(search_items[0]["trailingIcon"] and search_items[-1]["trailingIcon"]=="","only global engines receive the trailing globe icon")
+    bing=next(item for item in search_items if item["id"]=="search-bing")
+    check(bing["globalSearch"] is False and bing["description"]=="Web Search menu","excluded engines remain usable in the Web Search menu")
+    check(search_items[0]["trailingIcon"] and bing["trailingIcon"]=="","only global engines receive the trailing globe icon")
+    missing_tools=base/"missing-tools"; missing_tools.mkdir()
+    unavailable=json.loads(subprocess.run([sys.executable,cli,"configuration-menu","omalaunch.web-search","omalaunch.web-search"],env={**env,"PATH":str(missing_tools)},check=True,capture_output=True,text=True).stdout)["items"]
+    check(all("(unavailable)" in item["label"] and item["description"].startswith("Unavailable:") for item in unavailable),"missing editor and agent tools disable only their settings actions")
+    mismatch=subprocess.run([cli,"configuration-menu","omalaunch.web-search","replacement.web-search"],env=env,capture_output=True,text=True)
+    check(mismatch.returncode!=0 and "identity does not match" in mismatch.stderr,"a replacement cannot open bundled provider settings")
+    unknown=subprocess.run([cli,"configuration-menu","unknown.provider","unknown.provider"],env=env,capture_output=True,text=True)
+    check(unknown.returncode!=0 and "no configuration menu" in unknown.stderr,"an unknown provider cannot open settings")
     google=next(item for item in search_items if item["id"]=="search-google")
     check(google["starred"] is True and google["starAction"]=="toggle-star","starred engines expose the dynamic-menu star action")
     subprocess.run([cli,"toggle-global-search","omalaunch.web-search","google"],env=env,check=True)
@@ -41,7 +65,19 @@ with tempfile.TemporaryDirectory() as raw:
     check(next(item for item in search_items if item["id"]=="search-google")["input"]["closeOnSuccess"] is True,"Web Search closes after a successful query dispatch")
     bin_dir=base/"bin"; bin_dir.mkdir(); opened=base/"opened-url"
     opener=bin_dir/"xdg-open"; opener.write_text("#!/bin/sh\nprintf '%s' \"$1\" > \"$OPENED_URL\"\n"); opener.chmod(0o755)
-    open_env={**env,"PATH":str(bin_dir)+os.pathsep+env["PATH"],"OPENED_URL":str(opened)}
+    editor_record=base/"editor-path"; editor=bin_dir/"omarchy-launch-editor"; editor.write_text("#!/bin/sh\nprintf '%s' \"$1\" > \"$EDITOR_RECORD\"\n"); editor.chmod(0o755)
+    agent_record=base/"agent.json"; default_agent=bin_dir/"omarchy-default-agent"; default_agent.write_text("#!/bin/sh\nprintf 'pi\\n'\n"); default_agent.chmod(0o755)
+    agent=bin_dir/"omarchy-agent"; agent.write_text("#!/usr/bin/env python3\nimport json,os,sys\nopen(os.environ['AGENT_RECORD'],'w').write(json.dumps({'cwd':os.getcwd(),'args':sys.argv[1:]}))\n"); agent.chmod(0o755)
+    open_env={**env,"PATH":str(bin_dir)+os.pathsep+env["PATH"],"OPENED_URL":str(opened),"EDITOR_RECORD":str(editor_record),"AGENT_RECORD":str(agent_record)}
+    web_config_menu=json.loads(subprocess.run([cli,"configuration-menu","omalaunch.web-search","omalaunch.web-search"],env=open_env,check=True,capture_output=True,text=True).stdout)["items"]
+    check([item["id"] for item in web_config_menu]==["open-config","edit-config-agent"] and all(item["closeOnDispatch"] for item in web_config_menu),"Web Search settings actions are available when their tools exist")
+    subprocess.run([cli,"open-config","omalaunch.web-search"],env=open_env,check=True)
+    web_config_path=pc.config_path("omalaunch.web-search",home)
+    check(editor_record.read_text()==str(web_config_path) and json.loads(web_config_path.read_text())["version"]==2,"Open config creates and opens the Web Search configuration")
+    check(stat.S_IMODE(web_config_path.stat().st_mode)==0o600 and stat.S_IMODE(web_config_path.parent.stat().st_mode)==0o700,"provider configuration and its directory are private")
+    subprocess.run([cli,"edit-config-agent","omalaunch.quicklinks"],env=open_env,check=True)
+    agent_launch=json.loads(agent_record.read_text())
+    check(agent_launch["cwd"]==str(quicklinks_config.parent) and agent_launch["args"][0]=="--prompt" and "Quicklinks" in agent_launch["args"][1],"Edit with agent uses the shared launcher with provider context")
     subprocess.run([ROOT/"extensions/web-search/web-search","open","google","two words & more"],env=open_env,check=True)
     check(opened.read_text()=="https://www.google.com/search?q=two+words+%26+more","Web Search percent-encodes the complete query before opening it")
     links=pc.load_state("omalaunch.quicklinks",home)["links"]
@@ -52,7 +88,10 @@ with tempfile.TemporaryDirectory() as raw:
     link=pc.load_state("omalaunch.quicklinks",home)["links"][0]
     check(link["openWith"]=={"type":"profile","profile":"Work"} and link["starred"],"Quicklinks preserves an authoritative manual openWith assignment during normalization")
     quicklinks=subprocess.run([ROOT/"extensions/quicklinks/quicklinks","menu"],env=env,check=True,capture_output=True,text=True)
-    quicklink_item=json.loads(quicklinks.stdout)["items"][1]
+    quicklink_items=json.loads(quicklinks.stdout)["items"]
+    quicklink_item=quicklink_items[1]
+    quicklinks_config_menu=json.loads(subprocess.run([cli,"configuration-menu","omalaunch.quicklinks","omalaunch.quicklinks"],env=open_env,check=True,capture_output=True,text=True).stdout)["items"]
+    check([item["id"] for item in quicklinks_config_menu]==["open-config","edit-config-agent"] and all(item["closeOnDispatch"] for item in quicklinks_config_menu),"Quicklinks settings actions are available when their tools exist")
     copy_action=next(action for action in quicklink_item["actions"] if action["id"]=="copy")
     check(copy_action["command"]==["wl-copy","--",link["url"]] and copy_action["closeOnSuccess"] is True,"Quicklinks Copy URL uses the tracked close-on-success action contract")
     for unsafe_url in ("https://example.test\\path", "https://exa mple.test", "https://example.test:bad"):

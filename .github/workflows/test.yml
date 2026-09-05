@@ -37,6 +37,9 @@ jobs:
       - name: Run footer Settings fallback tests
         run: node tests/footer-settings-fallback-test.js
 
+      - name: Run Settings overlay navigation tests
+        run: tests/settings-overlay-navigation-test.js
+
       - name: Run Quickshell live-query process harness when available
         run: bash tests/live-query-process-integration-test.sh
 

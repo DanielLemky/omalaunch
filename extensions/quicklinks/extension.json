@@ -9,5 +9,6 @@
   "description": "Open saved web links",
   "globalSearch": true,
   "requires": ["python", "xdg-open", "wl-copy", "omarchy-launch-browser"],
-  "command": ["{extensionDir}/quicklinks", "menu"]
+  "command": ["{extensionDir}/quicklinks", "menu"],
+  "configuration": {"provider": "omalaunch.quicklinks"}
 }

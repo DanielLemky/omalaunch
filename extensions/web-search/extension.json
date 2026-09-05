@@ -9,5 +9,6 @@
   "description": "Search the web",
   "globalSearch": true,
   "requires": ["python", "xdg-open"],
-  "command": ["{extensionDir}/web-search", "menu"]
+  "command": ["{extensionDir}/web-search", "menu"],
+  "configuration": {"provider": "omalaunch.web-search"}
 }
