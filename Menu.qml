@@ -316,6 +316,7 @@ Item {
   readonly property real menuItemScale: menuItemFontSize / Style.font.body
   readonly property int menuSecondaryFontSize: Math.max(1, Math.round(Style.font.bodySmall * menuItemScale))
   readonly property int menuCaptionFontSize: Math.max(1, Math.round(Style.font.caption * menuItemScale))
+  readonly property int actionBarLabelFontSize: menuCaptionFontSize
   readonly property int menuItemIconSize: Math.max(Style.space(10), Math.min(Style.space(32),
     Math.round(menuItemFontSize * 1.25)))
   property int baseRowHeight: Math.max(Style.space(28), Math.round(Style.space(44) * menuItemScale))
@@ -343,6 +344,11 @@ Item {
   property int visibleRowsHeight: MenuLayout.imagePreviewRowsHeight(root.imagePreviewActive,
     root.naturalRowsHeight, root.imagePreviewMinRowsHeight, root.availableRowsHeight())
   readonly property bool workflowFilterMenuActive: root.workflowActive && root.workflowNode && root.workflowNode.kind === "menu"
+  readonly property bool canRefreshWorkflow: root.workflowActive && root.workflowExtension
+    && root.workflowExtension.mode === "menu" && root.workflowNode
+    && (root.workflowNode.refreshable === true
+      || (root.workflowNode.refreshable == null && root.workflowExtension.refreshable))
+    && (root.workflowNode.id === "root" || root.workflowNode.reloadCommand)
   property int workflowHintHeight: (root.workflowInputActive || root.workflowFilterMenuActive)
     ? Math.max(Style.space(12), Math.round(Style.space(18) * menuItemScale)) : 0
   property int cardHeight: Math.min(contentMargin + actionBarBottomPadding + headerHeight + actionBarHeight + contentSpacing
@@ -350,6 +356,12 @@ Item {
     + (workflowHintHeight > 0 ? contentSpacing + workflowHintHeight : 0), panel.height - Style.gapsOut * 2)
 
   readonly property var actionBarHints: MenuModel.actionBarHints({
+    primaryActionLabel: MenuModel.selectedPrimaryActionLabel({
+      workflowInputActive: root.workflowInputActive,
+      workflowNode: root.workflowNode,
+      selectedWorkflowNode: root.selectedWorkflowNode,
+      selectedDynamicSearchNode: root.selectedDynamicSearchEntry ? root.selectedDynamicSearchEntry.node : null
+    }),
     dmenuActive: root.dmenuActive,
     dmenuInput: root.dmenuActive && root.mode === "input",
     workflowActive: root.workflowActive,
@@ -357,8 +369,9 @@ Item {
     fileBrowserActive: root.fileBrowserActive,
     directoryPickerActive: root.directoryPickerActive,
     actionPanelActive: root.actionPanelActive,
-    canRefresh: root.workflowActive && root.workflowExtension && root.workflowExtension.mode === "menu"
-      && root.workflowNode && (root.workflowNode.id === "root" || root.workflowNode.reloadCommand),
+    canRefresh: root.canRefreshWorkflow,
+    canSettings: !root.dmenuActive && !root.workflowActive && !root.fileBrowserActive
+      && root.activeMenu === "root",
     canContextActions: root.selectedWorkflowHasActions
       || (root.documentActive && root.activeDocument && root.activeDocument.actions.length > 0)
       || (root.selectedDynamicSearchEntry && root.selectedDynamicSearchEntry.node.actions.length > 0),
@@ -433,6 +446,51 @@ Item {
     if (!command) return
 
     Util.execDetached(command)
+  }
+
+  function footerActionAvailable(id) {
+    for (var index = 0; index < root.actionBarHints.length; index++)
+      if (root.actionBarHints[index].id === id) return true
+    return false
+  }
+
+  function triggerFooterAction(id) {
+    if (!root.footerActionAvailable(id)) return false
+    if (id === "primary") {
+      if (root.workflowInputActive) root.submitWorkflowInput()
+      else if (root.dmenuActive) {
+        if (root.mode === "input") root.applyDmenuSelection(root.filterText)
+        else if (displayModel.count > 0) root.activateIndex(root.cursorActive ? root.selectedIndex : 0)
+      } else if (root.cursorActive) root.activateIndex(root.selectedIndex)
+      else return false
+    } else if (id === "refresh") root.refreshWorkflowSurface()
+    else if (id === "settings") root.openSettings()
+    else if (id === "actions") {
+      if (!root.workflowActive && root.selectedDynamicSearchEntry) root.openDynamicSearchActions()
+      else if (root.workflowActive && !root.fileBrowserActive) root.openWorkflowActions()
+      else if (root.fileBrowserActive) root.openActionPanel()
+    } else if (id === "copy") root.copySelectedFilePath()
+    else if (id === "star") {
+      if (root.workflowActive) root.toggleSelectedWorkflowStar()
+      else if (root.selectedDynamicStarAction) root.toggleSelectedDynamicStar()
+      else root.toggleSelectedStar()
+    } else return false
+    return true
+  }
+
+  function handleFooterShortcut(event) {
+    if (event.modifiers & (Qt.AltModifier | Qt.ShiftModifier | Qt.MetaModifier)) return false
+    var key = event.key === Qt.Key_Return || event.key === Qt.Key_Enter
+      ? "Enter" : String.fromCharCode(event.key).toUpperCase()
+    var modifiers = event.modifiers & Qt.ControlModifier ? "Ctrl" : ""
+    var id = MenuModel.footerActionIdForShortcut(key, modifiers)
+    if (id && root.triggerFooterAction(id)) return true
+    // Keep the existing global Settings shortcut outside the root footer.
+    if (id === "settings" && !root.dmenuActive) {
+      root.openSettings()
+      return true
+    }
+    return false
   }
 
   function refreshAppIconsIfStale() {
@@ -927,7 +985,7 @@ Item {
       return MenuModel.workflowInterpolate(argument, root.workflowValues())
     })
     root.workflowNode = { id: node.id + ".submenu", kind: "menu", label: node.label,
-      description: "Loading…", items: [], reloadCommand: reloadCommand }
+      description: "Loading…", items: [], reloadCommand: reloadCommand, refreshable: node.refreshable }
     root.filterText = ""
     root.selectedIndex = 0
     root.cursorActive = false
@@ -980,7 +1038,7 @@ Item {
       return MenuModel.workflowInterpolate(argument, root.workflowValues())
     })
     root.workflowNode = { id: node.id + ".document", kind: "document", label: node.label,
-      document: null, reloadCommand: reloadCommand }
+      document: null, reloadCommand: reloadCommand, refreshable: node.refreshable }
     root.filterText = ""
     root.selectedIndex = 0
     root.cursorActive = false
@@ -4068,40 +4126,15 @@ Item {
             return
           }
 
-          if (root.workflowActive && event.key === Qt.Key_R && (event.modifiers & Qt.ControlModifier)) {
-            root.refreshWorkflowSurface()
-            event.accepted = true
-          } else if (!root.dmenuActive && event.key === Qt.Key_Comma && (event.modifiers & Qt.ControlModifier)) {
-            root.openSettings()
+          if (root.handleFooterShortcut(event)) {
             event.accepted = true
           } else if (root.workflowInputActive
               && ((event.key === Qt.Key_V && (event.modifiers & Qt.ControlModifier))
                 || (event.key === Qt.Key_Insert && (event.modifiers & Qt.ShiftModifier)))) {
             if (!pasteProc.running) pasteProc.running = true
             event.accepted = true
-          } else if (!root.workflowActive && root.selectedDynamicSearchEntry && event.key === Qt.Key_K && (event.modifiers & Qt.ControlModifier)) {
-            root.openDynamicSearchActions()
-            event.accepted = true
-          } else if (root.workflowActive && !root.fileBrowserActive && event.key === Qt.Key_K && (event.modifiers & Qt.ControlModifier)) {
-            root.openWorkflowActions()
-            event.accepted = true
           } else if (root.fileBrowserActive && !root.directoryPickerActive && !root.actionPanelActive && event.key === Qt.Key_H && (event.modifiers & Qt.ControlModifier)) {
             root.toggleHiddenFiles()
-            event.accepted = true
-          } else if (root.fileBrowserActive && !root.directoryPickerActive && !root.actionPanelActive && event.key === Qt.Key_K && (event.modifiers & Qt.ControlModifier)) {
-            root.openActionPanel()
-            event.accepted = true
-          } else if (root.fileBrowserActive && !root.directoryPickerActive && !root.actionPanelActive && event.key === Qt.Key_C && (event.modifiers & Qt.ControlModifier)) {
-            root.copySelectedFilePath()
-            event.accepted = true
-          } else if (root.workflowActive && root.selectedWorkflowStarAction && event.key === Qt.Key_S && (event.modifiers & Qt.ControlModifier)) {
-            root.toggleSelectedWorkflowStar()
-            event.accepted = true
-          } else if (!root.workflowActive && root.selectedDynamicStarAction && event.key === Qt.Key_S && (event.modifiers & Qt.ControlModifier)) {
-            root.toggleSelectedDynamicStar()
-            event.accepted = true
-          } else if (!root.dmenuActive && !root.workflowActive && event.key === Qt.Key_S && (event.modifiers & Qt.ControlModifier)) {
-            root.toggleSelectedStar()
             event.accepted = true
           } else if (event.key === Qt.Key_Delete) {
             root.requestDeleteSelected()
@@ -5081,7 +5114,7 @@ Item {
                   color: root.foreground
                   opacity: 0.68
                   font.family: root.fontFamily
-                  font.pixelSize: root.menuSecondaryFontSize
+                  font.pixelSize: root.actionBarLabelFontSize
                   anchors.verticalCenter: parent.verticalCenter
                 }
 

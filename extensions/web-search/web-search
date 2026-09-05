@@ -13,7 +13,7 @@ def menu(home:Path)->None:
         global_search=engine["id"] not in excluded
         toggle={"id":"toggle-global-search","label":"Remove from global search" if global_search else "Add to global search","description":"Keep this engine in the Web Search menu","icon":"󰅖" if global_search else "󰐕","command":[EXE,"toggle-global-search",PROVIDER,engine["id"]]}
         star={"id":"toggle-star","label":"Unstar" if engine["id"] in starred else "Star","icon":"★","command":[EXE,"toggle-star",PROVIDER,engine["id"]]}
-        items.append({"id":"search-"+engine["id"],"label":engine["name"],"description":"Global search" if global_search else "Web Search menu","icon":"󰍉","aliases":[engine["id"]],"globalSearch":global_search,"starred":engine["id"] in starred,"starAction":"toggle-star","trailingIcon":"󰖟" if global_search else "","input":{"prompt":"Search "+engine["name"],"maxLength":4096,"command":[str(Path(__file__).resolve()),"open",engine["id"],"{input}"],"closeOnSuccess":True},"actions":[star,toggle]})
+        items.append({"id":"search-"+engine["id"],"label":engine["name"],"description":"Global search" if global_search else "Web Search menu","icon":"󰍉","primaryActionLabel":"Search","aliases":[engine["id"]],"globalSearch":global_search,"starred":engine["id"] in starred,"starAction":"toggle-star","trailingIcon":"󰖟" if global_search else "","input":{"prompt":"Search "+engine["name"],"maxLength":4096,"command":[str(Path(__file__).resolve()),"open",engine["id"],"{input}"],"closeOnSuccess":True},"actions":[star,toggle]})
     print(json.dumps({"items":items},ensure_ascii=False))
 def open_search(home:Path,ident:str,query:str)->None:
     engine=next((item for item in pc.load_config(PROVIDER,home)["engines"] if item["id"]==ident),None)

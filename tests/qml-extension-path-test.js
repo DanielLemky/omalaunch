@@ -99,10 +99,14 @@ assert(qml.includes('id: dynamicMenuKillTimer')
 'dynamic menu timeout and output cancellation escalate SIGTERM only for the same provider child')
 const submenuProviderBody = qml.slice(qml.indexOf('id: submenuProc'), qml.indexOf('id: documentTimeout'))
 assert(qml.includes('function refreshWorkflowSurface()')
-  && qml.includes('event.key === Qt.Key_R && (event.modifiers & Qt.ControlModifier)')
+  && qml.includes('MenuModel.footerActionIdForShortcut(key, modifiers)')
+  && qml.includes('if (id === "refresh") root.refreshWorkflowSurface()')
+  && qml.includes('root.workflowNode.refreshable === true')
+  && qml.includes('root.workflowNode.refreshable == null && root.workflowExtension.refreshable')
+  && qml.includes('refreshable: node.refreshable')
   && qml.includes('documentProc.command = command.slice()')
   && qml.includes('submenuProc.command = command.slice()'),
-'Ctrl+R refreshes active dynamic lists and detail documents through their saved direct commands')
+'Ctrl+R refreshes only opted-in dynamic lists and detail documents through their saved direct commands')
 assert(qml.includes('function enterSubmenu(node)')
   && qml.includes('MenuModel.normalizeDynamicMenuOutput(submenuProc.collected)')
   && qml.includes('root.enterSubmenu(dynamicSearchEntry.node)'),
@@ -200,10 +204,11 @@ assert(qml.includes('root.enterDynamicMenu(extension, true)')
   && qml.includes('dynamicMenuProc.selectionNodeId = retainCurrentRows')
   && qml.includes('Number(displayModel.get(selectedDisplayIndex).action) === selectedWorkflowNodeIndex'),
 'dynamic menu mutations retain visible rows and selection until the refreshed provider snapshot is ready')
-assert(qml.includes('root.workflowActive && root.selectedWorkflowStarAction && event.key === Qt.Key_S')
+assert(qml.includes('MenuModel.footerActionIdForShortcut(key, modifiers)')
+  && qml.includes('if (root.workflowActive) root.toggleSelectedWorkflowStar()')
   && qml.includes('root.dispatchWorkflowNode(action, "", false, true)'),
 'workflow rows with a declared star action support Ctrl+S through the background action lifecycle')
-assert(qml.includes('!root.workflowActive && root.selectedDynamicStarAction && event.key === Qt.Key_S')
+assert(qml.includes('else if (root.selectedDynamicStarAction) root.toggleSelectedDynamicStar()')
   && qml.includes('root.dispatchBackgroundAction(extension, action, "")')
   && qml.includes('id: backgroundActionProc')
   && !qml.slice(qml.indexOf('function toggleSelectedDynamicStar()'), qml.indexOf('function openDynamicSearchActions()')).includes('root.workflowActive = true'),
@@ -281,11 +286,21 @@ assert(qml.includes('property int baseRowHeight: Math.max(Style.space(28), Math.
 assert(qml.includes('property string menuItemFontClass: "title"')
   && qml.includes('? catalog.omalaunchConfig.menuItemFontClass : "title"'),
 'menu items use the title theme class when no font override is configured')
-assert(qml.includes('event.key === Qt.Key_Comma && (event.modifiers & Qt.ControlModifier)')
+assert(qml.includes('primaryActionLabel: MenuModel.selectedPrimaryActionLabel({')
+  && qml.includes('workflowInputActive: root.workflowInputActive')
+  && qml.includes('selectedWorkflowNode: root.selectedWorkflowNode')
+  && qml.includes('selectedDynamicSearchNode: root.selectedDynamicSearchEntry'),
+'input stages, workflow rows, and global results provide their primary footer labels')
+assert(qml.includes('function footerActionAvailable(id)')
+  && qml.includes('function triggerFooterAction(id)')
+  && qml.includes('function handleFooterShortcut(event)')
+  && qml.includes('MenuModel.footerActionIdForShortcut(key, modifiers)')
+  && qml.includes('root.handleFooterShortcut(event)')
   && qml.includes('root.openRoute("settings")')
+  && qml.includes('canSettings: !root.dmenuActive && !root.workflowActive && !root.fileBrowserActive')
   && qml.includes('label: "Omalaunch Settings"')
   && qml.includes('label: "Font Size"'),
-'Ctrl+Comma opens the built-in Omalaunch font settings menu')
+'footer registry dispatch keeps Ctrl+Comma global Settings behavior')
 assert(qml.includes('function settingsPageActive()')
   && qml.includes('var settingsSearchScoped = root.settingsPageActive()')
   && qml.includes('settingsSearchScoped ? entry.parent !== active : !root.isDescendantOf(entry.id, active)')
@@ -308,7 +323,9 @@ assert(qml.includes('settingsProc.command = [root.configHelper, "set-font-class"
   && qml.includes('row.action === root.menuItemFontClass ? "✓" : row.icon'),
 'font settings save through the bounded helper and mark the active class')
 assert((qml.match(/font\.pixelSize: root\.menuItemFontSize/g) || []).length === 6
-  && (qml.match(/font\.pixelSize: root\.menuSecondaryFontSize/g) || []).length === 9
+  && (qml.match(/font\.pixelSize: root\.menuSecondaryFontSize/g) || []).length === 8
+  && qml.includes('readonly property int actionBarLabelFontSize: menuCaptionFontSize')
+  && qml.includes('font.pixelSize: root.actionBarLabelFontSize')
   && qml.includes('font.pixelSize: root.menuCaptionFontSize')
   && qml.includes('property int headerHeight: Math.max(Style.space(28), Math.round(Style.space(34) * menuItemScale))')
   && qml.includes('property int actionBarHeight: Math.max(Style.space(26), Math.round(Style.space(36) * menuItemScale))'),

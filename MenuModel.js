@@ -646,6 +646,7 @@ function normalizeWorkflowNode(raw, state, depth) {
     id: id,
     kind: kind,
     label: label,
+    primaryActionLabel: boundedWorkflowText(raw.primaryActionLabel, 32).trim(),
     starredLabel: boundedWorkflowText(raw.starredLabel, 256),
     description: boundedWorkflowText(raw.description, 512),
     aliases: aliases,
@@ -672,6 +673,7 @@ function normalizeWorkflowNode(raw, state, depth) {
     submenuCommand: submenuCommands ? submenuCommands.command : null,
     submenuRefreshCommand: submenuCommands ? submenuCommands.refreshCommand : null,
     refreshExtensions: raw.refreshExtensions === true,
+    refreshable: typeof raw.refreshable === "boolean" ? raw.refreshable : null,
     closeOnDispatch: raw.closeOnDispatch === true,
     closeOnSuccess: raw.closeOnSuccess === true,
     nextBackSteps: 0,
@@ -688,6 +690,7 @@ function normalizeWorkflowNode(raw, state, depth) {
       || (raw.capture !== undefined && !node.capture)
       || (raw.starred !== undefined && typeof raw.starred !== "boolean")
       || (raw.globalSearch !== undefined && typeof raw.globalSearch !== "boolean")
+      || (raw.refreshable !== undefined && typeof raw.refreshable !== "boolean")
       || (raw.closeOnDispatch !== undefined && typeof raw.closeOnDispatch !== "boolean")) return null
   node.maxLength = Math.max(1, Math.min(MAX_WORKFLOW_TEXT, maxLength))
   node.nextBackSteps = Math.max(0, Math.min(MAX_WORKFLOW_DEPTH, nextBackSteps))
@@ -1147,6 +1150,8 @@ function normalizeExtension(raw) {
   var command = stringArray(raw.command)
   if (!id || !label || ["prefix", "query", "files", "workflow", "menu"].indexOf(mode) < 0) return null
   if (mode !== "workflow" && command.length === 0) return null
+  if (mode !== "menu" && raw.refreshable !== undefined) return null
+  if (raw.refreshable !== undefined && typeof raw.refreshable !== "boolean") return null
 
   var priority = finiteExtensionNumber(raw.priority, 0)
   if (priority === null) return null
@@ -1167,6 +1172,7 @@ function normalizeExtension(raw) {
     source: String(raw._source || ""),
     globalSearch: mode === "menu" && raw.globalSearch === true,
     globalSearchCommand: stringArray(raw.globalSearchCommand),
+    refreshable: raw.refreshable === true,
     requires: stringArray(raw.requires),
     missingRequires: stringArray(raw._missingRequires)
   }
@@ -1857,51 +1863,82 @@ function guardScript(items) {
   return guards ? guardPrelude(guards) + guards : ""
 }
 
+// This registry is the single source for footer order, displayed shortcuts,
+// keyboard lookup, and compact-layout priority. IDs are stable host actions.
+var FOOTER_ACTION_DEFINITIONS = [
+  { id: "primary", shortcut: "Enter", key: "Enter", modifiers: "", order: 10, compactPriority: 1000 },
+  { id: "refresh", shortcut: "Ctrl R", key: "R", modifiers: "Ctrl", order: 20, compactPriority: 100 },
+  { id: "copy", shortcut: "Ctrl C", key: "C", modifiers: "Ctrl", order: 30, compactPriority: 20 },
+  { id: "star", shortcut: "Ctrl S", key: "S", modifiers: "Ctrl", order: 40, compactPriority: 40 },
+  { id: "actions", shortcut: "Ctrl K", key: "K", modifiers: "Ctrl", order: 50, compactPriority: 300 },
+  { id: "settings", shortcut: "Ctrl ,", key: ",", modifiers: "Ctrl", order: 60, compactPriority: 200 }
+]
+
+function footerActionDefinitions() {
+  return FOOTER_ACTION_DEFINITIONS.map(function(definition) { return Object.assign({}, definition) })
+}
+
+function footerActionIdForShortcut(key, modifiers) {
+  for (var i = 0; i < FOOTER_ACTION_DEFINITIONS.length; i++) {
+    var definition = FOOTER_ACTION_DEFINITIONS[i]
+    if (definition.key === key && definition.modifiers === modifiers) return definition.id
+  }
+  return ""
+}
+
+function footerActionDefinition(id) {
+  for (var i = 0; i < FOOTER_ACTION_DEFINITIONS.length; i++)
+    if (FOOTER_ACTION_DEFINITIONS[i].id === id) return FOOTER_ACTION_DEFINITIONS[i]
+  return null
+}
+
+function selectedPrimaryActionLabel(state) {
+  var value = state || ({})
+  if (value.workflowInputActive && value.workflowNode) return value.workflowNode.primaryActionLabel || ""
+  if (value.selectedWorkflowNode) return value.selectedWorkflowNode.primaryActionLabel || ""
+  if (value.selectedDynamicSearchNode) return value.selectedDynamicSearchNode.primaryActionLabel || ""
+  return ""
+}
+
 // Keep the footer limited to actions that the current launcher state accepts.
-// The same labels are used in QML and unit tests, so shortcut help does not
-// drift away from the keyboard handler.
 function actionBarHints(state) {
   var value = state || ({})
+  var labels = {}
+  if (value.dmenuInput) labels.primary = "Submit"
+  else if (value.workflowInputActive) labels.primary = value.primaryActionLabel || "Continue"
+  else if (value.hasSelection) labels.primary = value.primaryActionLabel || (value.actionPanelActive ? "Run"
+    : (value.directoryPickerActive || value.dmenuActive ? "Select"
+      : (value.workflowActive ? "Continue" : "Open")))
+
+  if (value.canRefresh) labels.refresh = "Refresh"
+  var fileActionsAvailable = value.fileBrowserActive && value.hasSelection
+    && !value.directoryPickerActive && !value.actionPanelActive
+  if (fileActionsAvailable) labels.copy = "Copy Path"
+  if (value.canStar) labels.star = value.starred ? "Unstar" : "Star"
+  if (value.canContextActions || fileActionsAvailable) labels.actions = "Actions"
+  if (value.canSettings) labels.settings = "Settings"
+
   var hints = []
-
-  if (value.dmenuInput) hints.push({ label: "Submit", shortcut: "Enter" })
-  else if (value.workflowInputActive) hints.push({ label: "Continue", shortcut: "Enter" })
-  else if (value.hasSelection) {
-    var primary = value.actionPanelActive ? "Run"
-      : (value.directoryPickerActive || value.dmenuActive ? "Select"
-        : (value.workflowActive ? "Continue" : "Open"))
-    hints.push({ label: primary, shortcut: "Enter" })
+  for (var i = 0; i < FOOTER_ACTION_DEFINITIONS.length; i++) {
+    var definition = FOOTER_ACTION_DEFINITIONS[i]
+    if (labels[definition.id]) hints.push(Object.assign({}, definition, { label: labels[definition.id] }))
   }
-
-  if (value.canContextActions)
-    hints.push({ label: "Actions", shortcut: "Ctrl K" })
-  if (value.canRefresh)
-    hints.push({ label: "Refresh", shortcut: "Ctrl R" })
-  if (value.fileBrowserActive && value.hasSelection && !value.directoryPickerActive && !value.actionPanelActive) {
-    if (!value.canContextActions) hints.push({ label: "Actions", shortcut: "Ctrl K" })
-    hints.push({ label: "Copy Path", shortcut: "Ctrl C" })
-  }
-  if (value.canStar) hints.push({ label: value.starred ? "Unstar" : "Star", shortcut: "Ctrl S" })
-
   return hints
 }
 
-// On narrow cards, retain the primary action and the action-panel shortcut.
-// Hidden hints remain active keyboard commands; this function only controls
-// footer help text.
+// Hidden hints remain active keyboard commands; this function controls help text.
 function compactActionBarHints(hints) {
   var values = Array.isArray(hints) ? hints : []
   if (values.length <= 2) return values.slice()
   var compact = values.length > 0 ? [values[0]] : []
   var fallback = null
   for (var i = 1; i < values.length; i++) {
-    if (values[i].label === "Actions") {
-      compact.push(values[i])
-      return compact
-    }
-    if (!fallback && values[i].label === "Refresh") fallback = values[i]
+    var definition = footerActionDefinition(values[i].id)
+    var priority = definition ? definition.compactPriority : 0
+    if (!fallback || priority > fallback.priority)
+      fallback = { hint: values[i], priority: priority }
   }
-  if (fallback) compact.push(fallback)
+  if (fallback) compact.push(fallback.hint)
   return compact
 }
 
@@ -1998,6 +2035,9 @@ if (typeof module !== "undefined") {
     fileFavoriteItem: fileFavoriteItem,
     matchesFileFavoriteQuery: matchesFileFavoriteQuery,
     displayRow: displayRow,
+    footerActionDefinitions: footerActionDefinitions,
+    footerActionIdForShortcut: footerActionIdForShortcut,
+    selectedPrimaryActionLabel: selectedPrimaryActionLabel,
     actionBarHints: actionBarHints,
     compactActionBarHints: compactActionBarHints
   }

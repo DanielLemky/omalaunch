@@ -18,7 +18,7 @@ def menu(home):
           {"id":"open","label":"Open","icon":"󰏌","command":command,"closeOnSuccess":True},
           {"id":"delete","label":"Delete","icon":"󰆴","confirm":f'Delete “{link["name"]}”?',"confirmLabel":"Delete","command":[EXE,"delete",PROVIDER,link["id"]]}
         ]
-        items.append({"id":"link-"+link["id"],"label":link["name"],"description":link["url"],"icon":"󰌹","starred":link["starred"],"starAction":"star","command":command,"closeOnSuccess":True,"actions":actions})
+        items.append({"id":"link-"+link["id"],"label":link["name"],"description":link["url"],"icon":"󰌹","primaryActionLabel":"Open","starred":link["starred"],"starAction":"star","command":command,"closeOnSuccess":True,"actions":actions})
     print(json.dumps({"items":items},ensure_ascii=False))
 def main():
     home=Path(os.environ.get("HOME",str(Path.home())))
