@@ -371,7 +371,7 @@ Item {
       workflowInputActive: root.workflowInputActive,
       workflowNode: root.workflowNode,
       selectedWorkflowNode: root.selectedWorkflowNode,
-      selectedDynamicSearchNode: root.selectedDynamicSearchEntry
+      selectedDynamicSearchNode: root.selectedDynamicSearchEntry ? root.selectedDynamicSearchEntry.node : null
     }),
     dmenuActive: root.dmenuActive,
     dmenuInput: root.dmenuActive && root.mode === "input",
