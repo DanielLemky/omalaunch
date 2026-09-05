@@ -161,7 +161,7 @@ def file_identity(value: os.stat_result) -> tuple[int, int, int, int]:
 
 def read_existing(path: Path) -> tuple[str, tuple[int, int, int, int] | None]:
     try:
-        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     except FileNotFoundError:
         return "{}\n", None
     with os.fdopen(descriptor, "rb") as source:

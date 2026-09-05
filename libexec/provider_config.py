@@ -212,7 +212,7 @@ def ensure_config(provider:str,home:Path)->Path:
     path.parent.mkdir(parents=True,exist_ok=True,mode=0o700)
     os.chmod(path.parent,0o700)
     try:
-        fd=os.open(path,os.O_RDONLY|os.O_NOFOLLOW)
+        fd=os.open(path,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK)
     except FileNotFoundError:
         value=editable_config_default(provider); validate_config(provider,value)
         data=(json.dumps(value,ensure_ascii=False,indent=2,allow_nan=False)+"\n").encode()

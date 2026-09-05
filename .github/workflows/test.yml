@@ -49,6 +49,9 @@ jobs:
       - name: Validate provider storage schemas
         run: python tests/provider-config-schema-test.py
 
+      - name: Reject special configuration files without blocking
+        run: python tests/config-special-file-test.py
+
       - name: Run provider storage runtime tests
         run: python tests/provider-config-runtime-test.py
 
