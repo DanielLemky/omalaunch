@@ -37,6 +37,9 @@ jobs:
       - name: Run footer Settings fallback tests
         run: node tests/footer-settings-fallback-test.js
 
+      - name: Run Settings overlay navigation tests
+        run: tests/settings-overlay-navigation-test.js
+
       - name: Run Quickshell live-query process harness when available
         run: bash tests/live-query-process-integration-test.sh
 
@@ -45,6 +48,9 @@ jobs:
 
       - name: Validate provider storage schemas
         run: python tests/provider-config-schema-test.py
+
+      - name: Reject special configuration files without blocking
+        run: python tests/config-special-file-test.py
 
       - name: Run provider storage runtime tests
         run: python tests/provider-config-runtime-test.py

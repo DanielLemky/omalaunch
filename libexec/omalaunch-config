@@ -13,6 +13,8 @@ import tempfile
 
 FONT_CLASSES = ("caption", "bodySmall", "body", "subtitle", "title", "heading", "display", "displayLarge")
 MAX_BYTES = 64 * 1024
+ROOT = Path(__file__).resolve().parents[1]
+AGENT_LAUNCHER = ROOT / "libexec/omalaunch-launch-agent"
 
 
 def tokens(text: str):
@@ -159,13 +161,14 @@ def file_identity(value: os.stat_result) -> tuple[int, int, int, int]:
 
 def read_existing(path: Path) -> tuple[str, tuple[int, int, int, int] | None]:
     try:
-        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     except FileNotFoundError:
         return "{}\n", None
     with os.fdopen(descriptor, "rb") as source:
         before = os.fstat(source.fileno())
         if not stat.S_ISREG(before.st_mode):
             raise ValueError("configuration must be a regular file")
+        os.fchmod(source.fileno(), 0o600)
         raw = source.read(MAX_BYTES + 1)
         after = os.fstat(source.fileno())
     if file_identity(before) != file_identity(after):
@@ -201,11 +204,14 @@ def atomic_write(path: Path, data: str, expected: tuple[int, int, int, int] | No
 
 
 def main(argv: list[str]) -> int:
-    if len(argv) != 3 or argv[1] != "set-font-class" or argv[2] not in FONT_CLASSES:
-        print(f"usage: {Path(argv[0]).name} set-font-class {{{','.join(FONT_CLASSES)}}}", file=sys.stderr)
+    command = argv[1] if len(argv) == 2 else ""
+    font_class = argv[2] if len(argv) == 3 and argv[1] == "set-font-class" else ""
+    if command not in ("open-config", "edit-config-agent") and font_class not in FONT_CLASSES:
+        print(f"usage: {Path(argv[0]).name} open-config|edit-config-agent|set-font-class {{{','.join(FONT_CLASSES)}}}", file=sys.stderr)
         return 2
     path = Path(os.environ.get("HOME", str(Path.home()))) / ".config/omarchy/omalaunch/config.jsonc"
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    os.chmod(path.parent, 0o700)
     lock_path = path.with_name(path.name + ".lock")
     descriptor = os.open(lock_path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
     try:
@@ -213,9 +219,22 @@ def main(argv: list[str]) -> int:
         with os.fdopen(descriptor) as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
             text, expected = read_existing(path)
-            atomic_write(path, update_text(text, argv[2]), expected)
+            if font_class:
+                atomic_write(path, update_text(text, font_class), expected)
+            elif expected is None:
+                atomic_write(path, "{}\n", expected)
+            else:
+                pass
     except (OSError, UnicodeError, ValueError, json.JSONDecodeError) as error:
         print(f"{Path(argv[0]).name}: {error}", file=sys.stderr); return 1
+    if command == "open-config":
+        os.execvp("omarchy-launch-editor", ["omarchy-launch-editor", str(path)])
+    if command == "edit-config-agent":
+        prompt = (f"Help the user edit the Omalaunch configuration at {path}. Review {ROOT / 'README.md'} and "
+                  f"{ROOT / 'EXTENSIONS.md'} before you make changes. Summarize the settings the user can change, "
+                  "and then ask what they want to change. Do not change the configuration until the user provides "
+                  "direction. Preserve JSONC syntax and change only the requested settings.")
+        os.execv(str(AGENT_LAUNCHER), [str(AGENT_LAUNCHER), "--dir", str(path.parent), "--prompt", prompt])
     return 0
 
 

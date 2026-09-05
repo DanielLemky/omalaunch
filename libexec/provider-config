@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-import json, os, secrets, sys
+import json, os, secrets, shutil, sys
 from pathlib import Path
 sys.path.insert(0,str(Path(__file__).parent))
 import provider_config as pc
+ROOT=Path(__file__).resolve().parents[1]
+AGENT_LAUNCHER=ROOT/"libexec/omalaunch-launch-agent"
 
 def fail(e:object)->None:
     print("provider-config: "+str(e),file=sys.stderr); raise SystemExit(1)
@@ -25,6 +27,34 @@ def main(a:list[str])->None:
         print(json.dumps({"configs":values,"diagnostics":diagnostics[:64]},ensure_ascii=False)); return
     if len(a)<2: fail("missing provider")
     command,provider=a[:2]
+    metadata=pc.CONFIG_METADATA.get(provider)
+    if command=="configuration-menu" and len(a)==3:
+        requested_by=a[2]
+        if metadata is None: fail("provider has no configuration menu")
+        if requested_by!=provider: fail("configuration provider identity does not match the active extension")
+        executable=str(Path(__file__).resolve())
+        def action(ident,label,icon,tools):
+            if all(shutil.which(name) for name in tools):
+                return {"id":ident,"label":label,"icon":icon,"command":[executable,ident,provider],"closeOnDispatch":True}
+            detail="Unavailable: install "+" and ".join(name for name in tools if not shutil.which(name))
+            return {"id":ident,"label":label+" (unavailable)","description":detail,"icon":icon,
+                    "command":[executable,"unavailable-action",detail]}
+        print(json.dumps({"items":[
+            action("open-config","Open config file","󰈙",("omarchy-launch-editor",)),
+            action("edit-config-agent","Edit with agent","󰚩",("omarchy-default-agent","omarchy-agent")),
+        ]},ensure_ascii=False)); return
+    if command=="unavailable-action" and len(a)==2: fail(provider)
+    if command in ("open-config","edit-config-agent") and len(a)==2:
+        if metadata is None: fail("provider has no configuration menu")
+        path=pc.ensure_config(provider,home)
+        if command=="open-config": os.execvp("omarchy-launch-editor",["omarchy-launch-editor",str(path)])
+        label=metadata["label"]
+        schema=ROOT/"schemas/provider-config"/(provider+f'.v{metadata["schemaVersion"]}.schema.json')
+        prompt=(f"Help the user edit the Omalaunch {label} configuration at {path}. "
+                f"Review the configuration schema at {schema} now, summarize the settings the user can change, "
+                "and then ask what they want to change. Do not change the configuration until the user provides "
+                "direction. Preserve JSONC syntax and change only the requested settings.")
+        os.execv(str(AGENT_LAUNCHER),[str(AGENT_LAUNCHER),"--dir",str(path.parent),"--prompt",prompt])
     if command=="read": print(json.dumps(pc.load(provider,home),ensure_ascii=False)); return
     def toggle(data,key):
         values=data["favorites"]

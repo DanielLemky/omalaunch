@@ -181,7 +181,7 @@ A validated terminal leaf command whose executable is `xdg-terminal-exec` or `om
 
 ## Actionable dynamic-menu extension
 
-Dynamic-menu extensions let a trusted external plugin calculate a short menu when the user opens its shortcut. Omalaunch owns footer action IDs, fixed shortcuts, order, compact priority, visibility, and keyboard dispatch. Extensions only declare capabilities such as `primaryActionLabel`, `refreshable`, `starAction`, and `actions`; they cannot assign conflicting footer shortcuts. The provider is a direct argument-array command:
+Dynamic-menu extensions let a trusted external plugin calculate a short menu when the user opens its shortcut. Omalaunch owns footer action IDs, fixed shortcuts, order, compact priority, visibility, and keyboard dispatch. Extensions only declare capabilities such as `primaryActionLabel`, `refreshable`, `starAction`, `actions`, and `configuration`; they cannot assign conflicting footer shortcuts. The provider is a direct argument-array command:
 
 ```json
 {
@@ -412,6 +412,7 @@ The highest-priority matching live-query extension runs. Live queries debounce f
 - `priority`: Selection priority; defaults to `0`.
 - `requires`: Executable names that must be available on `PATH`.
 - `command`: Argument array. Prefix mode supports `{prompt}`; query mode supports `{query}`; menu providers support `{extensionDir}`.
+- `configuration`: Optional menu-mode metadata with a registered bundled `provider`. Omalaunch then supplies the Settings · Ctrl+, footer shortcut and standard editor and agent actions.
 - `refreshable`: Default manual Ctrl+R behavior for the extension's menus and documents. It defaults to `false`; individual dynamic nodes can override it.
 
 Commands are argument arrays. Omalaunch substitutes placeholders and shell-quotes action arguments. Do not embed pipes, redirects, or other shell syntax.
@@ -441,6 +442,6 @@ Select a provider by extension `id` in `config.jsonc`. The key is the capability
 
 Provider settings are separate from capability selection. User-edited JSONC is under `~/.config/omarchy/omalaunch/extensions/`; machine-managed JSON state is under `${XDG_STATE_HOME:-~/.local/state}/omarchy/omalaunch/extensions/`. Both use the exact provider ID as the filename. A replacement provider never inherits, merges, or shares either namespace. UI mutations write only state and never rewrite JSONC comments or formatting.
 
-The exact structures, supported versions, defaults, limits, identities, path rules, and separate configuration and state schemas are in [PROVIDER-CONFIGURATION.md](PROVIDER-CONFIGURATION.md). Apps and Extensions have no user configuration file. Files has only `includeGitIgnored` in configuration. Web Search defines its engine IDs, names, URL templates, and extension-wide `rankByUsage` setting in configuration; menu actions store global-search exclusions in state without removing engines from the Web Search menu. Quicklinks has only `rankByUsage`, which defaults to true and applies only to the exact bundled provider ID. Quicklinks uses state as the authoritative editable location for each link's `openWith` assignment and does not import external or unreleased Quicklinks data.
+Quicklinks and Web Search expose **Settings · Ctrl+,** in their footer. The shortcut opens a configuration view with **Open config file** and **Edit with agent**. Either action creates the provider's private default JSONC file when it is missing. The exact structures, supported versions, defaults, limits, identities, path rules, and separate configuration and state schemas are in [PROVIDER-CONFIGURATION.md](PROVIDER-CONFIGURATION.md). Apps and Extensions have no user configuration file. Files has only `includeGitIgnored` in configuration. Web Search defines its engine IDs, names, URL templates, and extension-wide `rankByUsage` setting in configuration; menu actions store global-search exclusions in state without removing engines from the Web Search menu. Quicklinks has only `rankByUsage`, which defaults to true and applies only to the exact bundled provider ID. Quicklinks uses state as the authoritative editable location for each link's `openWith` assignment and does not import external or unreleased Quicklinks data.
 
 The bundled `omalaunch.quicklinks` extension is URL-only. It supports add, name and URL edits, delete, URL copy, default or configured browser-profile opening, filtering, global search, and extension-owned stars. It does not use favicons, file paths, or profile-editing UI.

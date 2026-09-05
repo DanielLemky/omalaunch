@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
+import json
 import os
 from pathlib import Path
 import runpy
 import stat
 import subprocess
+import sys
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -18,6 +20,10 @@ def run(home: Path, value: str):
 
 def check(condition, message):
     if not condition: raise AssertionError(message)
+
+
+def executable(path: Path, content: str):
+    path.write_text(content); path.chmod(0o755)
 
 
 with tempfile.TemporaryDirectory() as temporary:
@@ -89,6 +95,27 @@ with tempfile.TemporaryDirectory() as temporary:
     result = run(root, "body")
     check(result.returncode == 1 and target.read_text() == '{"version":1}',
           "symbolic-link configuration is rejected without reading or changing its target")
+
+with tempfile.TemporaryDirectory() as temporary:
+    root = Path(temporary); empty_path = root / "bin"; empty_path.mkdir()
+    env = {**os.environ, "HOME": str(root), "PATH": str(empty_path)}
+    editor = subprocess.run([sys.executable, COMMAND, "open-config"], env=env, text=True, capture_output=True)
+    agent = subprocess.run([sys.executable, COMMAND, "edit-config-agent"], env=env, text=True, capture_output=True)
+    check(editor.returncode != 0 and agent.returncode != 0, "missing editor and agent tools report action failures")
+
+with tempfile.TemporaryDirectory() as temporary:
+    root = Path(temporary); bin_dir = root / "bin"; bin_dir.mkdir(); record = root / "agent.json"
+    (bin_dir / "python3").symlink_to(sys.executable)
+    executable(bin_dir / "omarchy-default-agent", "#!/bin/sh\nprintf 'pi\\n'\n")
+    executable(bin_dir / "omarchy-agent", "#!/usr/bin/env python3\nimport json,os,sys\nopen(os.environ['RECORD'],'w').write(json.dumps({'cwd':os.getcwd(),'args':sys.argv[1:]}))\n")
+    env = {**os.environ, "HOME": str(root), "PATH": str(bin_dir), "RECORD": str(record)}
+    result = subprocess.run([sys.executable, COMMAND, "edit-config-agent"], env=env, text=True, capture_output=True)
+    launch = json.loads(record.read_text())
+    config_dir = root / ".config/omarchy/omalaunch"
+    prompt = launch["args"][1]
+    check(result.returncode == 0 and launch["cwd"] == str(config_dir), "settings agent starts in the configuration directory")
+    check(str(ROOT / "README.md") in prompt and str(ROOT / "EXTENSIONS.md") in prompt, "settings agent prompt uses absolute documentation paths")
+    check(stat.S_IMODE(config_dir.stat().st_mode) == 0o700, "settings configuration directory is private")
 
 with tempfile.TemporaryDirectory() as temporary:
     root = Path(temporary)

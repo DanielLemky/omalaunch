@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Strict provider configuration readers and locked provider state writers."""
 from __future__ import annotations
-import fcntl, json, math, os, re, tempfile, urllib.parse
+import fcntl, json, math, os, re, stat, tempfile, urllib.parse
 from pathlib import Path
 from typing import Any, Callable
 
@@ -9,6 +9,10 @@ MAX_BYTES=64*1024; MAX_DEPTH=8; MAX_ITEMS=256; MAX_SAFE=9007199254740991
 CONTROL=re.compile(r"[\x00-\x1f\x7f]"); LINK_ID=re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 PROVIDERS=("omalaunch.apps","omalaunch.files","omalaunch.quicklinks","omalaunch.web-search","omalaunch.extensions")
 CONFIG_PROVIDERS=("omalaunch.files","omalaunch.quicklinks","omalaunch.web-search")
+CONFIG_METADATA={
+    "omalaunch.quicklinks":{"label":"Quicklinks","schemaVersion":1},
+    "omalaunch.web-search":{"label":"Web Search","schemaVersion":2},
+}
 DEFAULT_SEARCH_ENGINES=[
     {"id":"google","name":"Google","url":"https://www.google.com/search?q={query}"},
     {"id":"duckduckgo","name":"DuckDuckGo","url":"https://duckduckgo.com/?q={query}"},
@@ -199,6 +203,29 @@ def config_path(provider:str,home:Path)->Path: return home/".config/omarchy/omal
 def state_root(home:Path,state_home:Path|None=None)->Path:
     return (state_home or Path(os.environ.get("XDG_STATE_HOME",home/".local/state")))/"omarchy/omalaunch/extensions"
 def state_path(provider:str,home:Path,state_home:Path|None=None)->Path: return state_root(home,state_home)/(provider+".json")
+def editable_config_default(provider:str)->dict[str,Any]:
+    if provider=="omalaunch.web-search": return {"version":2,"rankByUsage":True,"engines":{}}
+    return config_default(provider)
+def ensure_config(provider:str,home:Path)->Path:
+    if provider not in CONFIG_PROVIDERS: raise ValueError("provider has no user configuration")
+    path=config_path(provider,home)
+    path.parent.mkdir(parents=True,exist_ok=True,mode=0o700)
+    os.chmod(path.parent,0o700)
+    try:
+        fd=os.open(path,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK)
+    except FileNotFoundError:
+        value=editable_config_default(provider); validate_config(provider,value)
+        data=(json.dumps(value,ensure_ascii=False,indent=2,allow_nan=False)+"\n").encode()
+        if len(data)>MAX_BYTES: raise ValueError("result exceeds 64 KiB")
+        try: fd=os.open(path,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
+        except FileExistsError: return ensure_config(provider,home)
+        with os.fdopen(fd,"wb") as output:
+            output.write(data); output.flush(); os.fsync(output.fileno())
+        return path
+    with os.fdopen(fd,"rb") as source:
+        if not stat.S_ISREG(os.fstat(source.fileno()).st_mode): raise ValueError("configuration must be a regular file")
+        os.fchmod(source.fileno(),0o600)
+    return path
 def load_config(provider:str,home:Path)->dict[str,Any]:
     path=config_path(provider,home)
     return config_default(provider) if not path.exists() else validate_config(provider,read_json(path,jsonc=True))

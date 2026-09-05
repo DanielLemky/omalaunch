@@ -79,7 +79,7 @@ time 2026-11-15 8pm new york to london
 
 ## Web Search
 
-Open **Web Search**, select a search engine, enter a query, and press Enter. Omalaunch opens the encoded search in your default browser. Each engine can be added to or removed from global search while it remains available in the Web Search menu. Press Ctrl+S to star an engine on the launcher's starting view. Add, replace, or remove engines in `~/.config/omarchy/omalaunch/extensions/omalaunch.web-search.jsonc`; see [PROVIDER-CONFIGURATION.md](PROVIDER-CONFIGURATION.md).
+Open **Web Search**, select a search engine, enter a query, and press Enter. Omalaunch opens the encoded search in your default browser. Each engine can be added to or removed from global search while it remains available in the Web Search menu. Press Ctrl+S to star an engine on the launcher's starting view. Press Ctrl+, in Web Search to create and edit `~/.config/omarchy/omalaunch/extensions/omalaunch.web-search.jsonc` with the default editor or coding agent. Add, replace, or remove engines there; see [PROVIDER-CONFIGURATION.md](PROVIDER-CONFIGURATION.md).
 
 ## Files
 
@@ -174,7 +174,7 @@ Omalaunch core settings live in the dedicated `~/.config/omarchy/omalaunch/confi
 
 Press `Ctrl+,` in Omalaunch to open **Omalaunch Settings**. The **Font Size** menu provides Compact, Small, Default, Large, and Extra Large theme-aware presets. Selecting a preset removes an explicit `menuItemFontSize` override so the chosen theme class can take effect.
 
-Bundled provider settings use provider-ID JSONC files under the configuration directory. Interactive data uses provider-ID JSON state under `${XDG_STATE_HOME:-~/.local/state}`. Replacement providers do not inherit either namespace. See [PROVIDER-CONFIGURATION.md](PROVIDER-CONFIGURATION.md) for the separate configuration and state schemas, supported versions, and migration rules. Quicklinks does not import external or unreleased data.
+Quicklinks and Web Search show a **Settings · Ctrl+,** footer action that can create and open their JSONC file with the default editor or coding agent. Bundled provider settings use provider-ID JSONC files under the configuration directory. Interactive data uses provider-ID JSON state under `${XDG_STATE_HOME:-~/.local/state}`. Replacement providers do not inherit either namespace. See [PROVIDER-CONFIGURATION.md](PROVIDER-CONFIGURATION.md) for the separate configuration and state schemas, supported versions, and migration rules. Quicklinks does not import external or unreleased data.
 
 If a preferred provider is missing or unavailable, Omalaunch reports a diagnostic and uses its normal provider selection rules.
 

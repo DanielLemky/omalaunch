@@ -1150,8 +1150,19 @@ function normalizeExtension(raw) {
   var command = stringArray(raw.command)
   if (!id || !label || ["prefix", "query", "files", "workflow", "menu"].indexOf(mode) < 0) return null
   if (mode !== "workflow" && command.length === 0) return null
-  if (mode !== "menu" && raw.refreshable !== undefined) return null
+  if (mode !== "menu" && (raw.configuration !== undefined || raw.refreshable !== undefined)) return null
   if (raw.refreshable !== undefined && typeof raw.refreshable !== "boolean") return null
+  var configurationProvider = ""
+  if (raw.configuration !== undefined) {
+    if (!raw.configuration || typeof raw.configuration !== "object" || Array.isArray(raw.configuration)
+        || Object.keys(raw.configuration).length !== 1
+        || typeof raw.configuration.provider !== "string" || !raw.configuration.provider.trim()) return null
+    configurationProvider = raw.configuration.provider.trim()
+    // Configuration belongs to the exact provider. A capability replacement
+    // must not open or edit a bundled provider's files.
+    if (configurationProvider !== id
+        || ["omalaunch.quicklinks", "omalaunch.web-search"].indexOf(configurationProvider) < 0) return null
+  }
 
   var priority = finiteExtensionNumber(raw.priority, 0)
   if (priority === null) return null
@@ -1172,6 +1183,7 @@ function normalizeExtension(raw) {
     source: String(raw._source || ""),
     globalSearch: mode === "menu" && raw.globalSearch === true,
     globalSearchCommand: stringArray(raw.globalSearchCommand),
+    configurationProvider: configurationProvider,
     refreshable: raw.refreshable === true,
     requires: stringArray(raw.requires),
     missingRequires: stringArray(raw._missingRequires)
@@ -1916,7 +1928,7 @@ function actionBarHints(state) {
   if (fileActionsAvailable) labels.copy = "Copy Path"
   if (value.canStar) labels.star = value.starred ? "Unstar" : "Star"
   if (value.canContextActions || fileActionsAvailable) labels.actions = "Actions"
-  if (value.canSettings) labels.settings = "Settings"
+  if (value.canConfigure || value.canSettings) labels.settings = "Settings"
 
   var hints = []
   for (var i = 0; i < FOOTER_ACTION_DEFINITIONS.length; i++) {
