@@ -316,6 +316,7 @@ Item {
   readonly property real menuItemScale: menuItemFontSize / Style.font.body
   readonly property int menuSecondaryFontSize: Math.max(1, Math.round(Style.font.bodySmall * menuItemScale))
   readonly property int menuCaptionFontSize: Math.max(1, Math.round(Style.font.caption * menuItemScale))
+  readonly property int actionBarLabelFontSize: menuCaptionFontSize
   readonly property int menuItemIconSize: Math.max(Style.space(10), Math.min(Style.space(32),
     Math.round(menuItemFontSize * 1.25)))
   property int baseRowHeight: Math.max(Style.space(28), Math.round(Style.space(44) * menuItemScale))
@@ -478,6 +479,7 @@ Item {
   }
 
   function handleFooterShortcut(event) {
+    if (event.modifiers & (Qt.AltModifier | Qt.ShiftModifier | Qt.MetaModifier)) return false
     var key = event.key === Qt.Key_Return || event.key === Qt.Key_Enter
       ? "Enter" : String.fromCharCode(event.key).toUpperCase()
     var modifiers = event.modifiers & Qt.ControlModifier ? "Ctrl" : ""
@@ -5112,7 +5114,7 @@ Item {
                   color: root.foreground
                   opacity: 0.68
                   font.family: root.fontFamily
-                  font.pixelSize: root.menuSecondaryFontSize
+                  font.pixelSize: root.actionBarLabelFontSize
                   anchors.verticalCenter: parent.verticalCenter
                 }
 

@@ -323,7 +323,9 @@ assert(qml.includes('settingsProc.command = [root.configHelper, "set-font-class"
   && qml.includes('row.action === root.menuItemFontClass ? "✓" : row.icon'),
 'font settings save through the bounded helper and mark the active class')
 assert((qml.match(/font\.pixelSize: root\.menuItemFontSize/g) || []).length === 6
-  && (qml.match(/font\.pixelSize: root\.menuSecondaryFontSize/g) || []).length === 9
+  && (qml.match(/font\.pixelSize: root\.menuSecondaryFontSize/g) || []).length === 8
+  && qml.includes('readonly property int actionBarLabelFontSize: menuCaptionFontSize')
+  && qml.includes('font.pixelSize: root.actionBarLabelFontSize')
   && qml.includes('font.pixelSize: root.menuCaptionFontSize')
   && qml.includes('property int headerHeight: Math.max(Style.space(28), Math.round(Style.space(34) * menuItemScale))')
   && qml.includes('property int actionBarHeight: Math.max(Style.space(26), Math.round(Style.space(36) * menuItemScale))'),
