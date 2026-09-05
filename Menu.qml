@@ -6,6 +6,7 @@ import QtQuick
 import qs.Commons
 import qs.Ui
 import "MenuModel.js" as MenuModel
+import "MenuLayout.js" as MenuLayout
 import "MenuMarkdown.js" as MenuMarkdown
 import "extensions/currency" as CurrencyExtension
 
@@ -325,6 +326,7 @@ Item {
   property int rowSpacing: Math.max(Style.space(1), Math.round(Style.spacing.xs * menuItemScale))
   property int dividerHeight: Style.space(17)
   readonly property int emptyStateHeight: Math.max(Style.space(108), Math.round(Style.space(132) * menuItemScale))
+  readonly property int imagePreviewMinRowsHeight: Style.space(340)
   property bool searchDivider: false
   property int layoutSerial: 0
   property int cardWidth: Math.min(root.dmenuActive
@@ -332,12 +334,14 @@ Item {
     : Style.space(root.imagePreviewActive ? 900 : (root.documentActive ? 760 : 600)), panel.width - Style.gapsOut * 2)
   readonly property bool emptyRoot: !root.dmenuActive && !root.workflowActive
     && root.activeMenu === "root" && !root.filterText && displayModel.count === 0
-  property int visibleRowsHeight: root.emptyRoot || root.workflowInputActive ? 0
+  readonly property int naturalRowsHeight: root.emptyRoot || root.workflowInputActive ? 0
     : (root.documentActive ? Math.min(Style.space(520), Math.max(Style.space(260), panel.height - panel.pinnedTop
       - Style.gapsOut - root.contentMargin - root.actionBarBottomPadding - root.headerHeight
       - root.actionBarHeight - root.contentSpacing * 2))
     : (root.dmenuActive ? dmenuRowListHeight(layoutSerial, displayModel.count, filterText)
       : rowListHeight(layoutSerial, displayModel.count, filterText, searchDivider)))
+  property int visibleRowsHeight: MenuLayout.imagePreviewRowsHeight(root.imagePreviewActive,
+    root.naturalRowsHeight, root.imagePreviewMinRowsHeight, root.availableRowsHeight())
   readonly property bool workflowFilterMenuActive: root.workflowActive && root.workflowNode && root.workflowNode.kind === "menu"
   property int workflowHintHeight: (root.workflowInputActive || root.workflowFilterMenuActive)
     ? Math.max(Style.space(12), Math.round(Style.space(18) * menuItemScale)) : 0
