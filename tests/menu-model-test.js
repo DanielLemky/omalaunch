@@ -678,6 +678,17 @@ assert(fileActionHints.map(hint => hint.id).join(',') === 'primary,copy,star,act
 assert(fileActionHints.map(hint => `${hint.label}:${hint.shortcut}`).join(',')
   === 'Open:Enter,Copy Path:Ctrl C,Star:Ctrl S,Actions:Ctrl K',
   'the action bar lists every available file shortcut in registry order')
+const individualFileActionHints = menu.actionBarHints({
+  fileBrowserActive: true, fileSelectionType: 'file', hasSelection: true
+})
+assert(individualFileActionHints.some(hint => hint.id === 'copy' && hint.label === 'Copy' && hint.shortcut === 'Ctrl C'),
+  'the individual-file action bar offers Copy instead of Copy Path')
+const parentFileHints = menu.actionBarHints({
+  fileBrowserActive: true, fileSelectionType: 'directory', hasSelection: true,
+  fileActionsAvailable: false, primaryActionLabel: 'Go up'
+})
+assert(parentFileHints.map(hint => hint.id).join(',') === 'primary' && parentFileHints[0].label === 'Go up',
+  'the parent navigation row offers only its primary action')
 assert(menu.actionBarHints({ hasSelection: true, workflowActive: true, primaryActionLabel: dynamicMenu.items[0].primaryActionLabel })[0].label === 'Open',
   'dynamic rows can replace the default Continue footer label')
 assert(menu.selectedPrimaryActionLabel({ workflowInputActive: true, workflowNode: { primaryActionLabel: 'Create' } }) === 'Create',
@@ -726,6 +737,24 @@ assert(menu.compactActionBarHints(starredActionHints).map(hint => hint.label).jo
 const resetOpenState = menu.openStateReset({ workflowActive: true, fileBrowserActive: true })
 assert(resetOpenState.workflowActive === false && resetOpenState.workflowNode === null && resetOpenState.workflowStack.length === 0, 'new opens reset workflow state')
 assert(resetOpenState.fileBrowserActive === false && resetOpenState.directoryPickerActive === false && resetOpenState.fileBrowserExtension === null, 'new opens reset file browser and directory picker state')
+assert(menu.fileEscapeAction({ actionPanelActive: true, hasFilter: true, path: '/home/test/docs', home: '/home/test' }) === 'close-actions',
+  'Escape closes Files actions before it changes their saved search')
+assert(menu.fileEscapeAction({ hasFilter: true, path: '/home/test/docs', home: '/home/test' }) === 'clear-search',
+  'Escape clears a Files search before it navigates')
+assert(menu.fileEscapeAction({ path: '/home/test/docs', home: '/home/test' }) === 'parent',
+  'Escape below home navigates to the parent directory')
+assert(menu.fileEscapeAction({ path: '/home/test', home: '/home/test' }) === 'leave-files'
+  && menu.fileEscapeAction({ path: '/', home: '/home/test' }) === 'leave-files',
+  'Escape leaves Files at home and at the filesystem root')
+assert(menu.fileEscapeAction({ path: '/home', home: '/home/test' }) === 'parent',
+  'Escape continues parent navigation above home')
+assert(menu.fileEscapeAction({ path: '/', home: '/home/test', directoryPickerActive: true }) === 'leave-picker',
+  'Escape at the directory-picker root returns to its workflow')
+assert(menu.isHomeOrAncestorPath('/home/test', '/home/test')
+  && menu.isHomeOrAncestorPath('/home', '/home/test')
+  && !menu.isHomeOrAncestorPath('/home/test/docs', '/home/test')
+  && !menu.isHomeOrAncestorPath('/', '/home/test'),
+  'parent directory rows appear only at home and its non-root ancestors')
 assert(resetOpenState.focusedExtension === null && resetOpenState.actionPanelActive === false && resetOpenState.resultExtension === null, 'new opens reset focused and action-panel state')
 
 const bundledMissingQalc = menu.parseExtensions(JSON.stringify([{

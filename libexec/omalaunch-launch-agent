@@ -18,10 +18,10 @@ def fail(message: str) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--dir", required=True, dest="directory")
-    parser.add_argument("--prompt", required=True)
+    parser.add_argument("--prompt")
     args = parser.parse_args()
 
-    if not args.prompt.strip():
+    if args.prompt is not None and not args.prompt.strip():
         fail("--prompt must not be empty")
     expanded = os.path.expandvars(os.path.expanduser(args.directory))
     directory = Path(expanded)
@@ -41,7 +41,9 @@ def main() -> int:
 
     try:
         os.chdir(directory)
-        os.execvp("omarchy-agent", ["omarchy-agent", "--prompt", args.prompt])
+        command = ["omarchy-agent"]
+        if args.prompt is not None: command.extend(["--prompt", args.prompt])
+        os.execvp("omarchy-agent", command)
     except OSError as error:
         fail(f"cannot open the default agent: {error}")
 

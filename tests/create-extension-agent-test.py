@@ -112,3 +112,22 @@ with tempfile.TemporaryDirectory() as temporary:
     check(result.returncode != 0
           and (home / ".config/omarchy/plugins" / f"{getpass.getuser()}.no-agent").is_dir(),
           "the shared launcher reports an unset default agent after workspace preparation")
+
+with tempfile.TemporaryDirectory() as temporary:
+    base = Path(temporary)
+    bin_dir = base / "bin"
+    workspace = base / "workspace"
+    record = base / "agent.json"
+    bin_dir.mkdir(); workspace.mkdir()
+    executable(bin_dir / "omarchy-default-agent", "#!/bin/sh\nprintf 'pi\\n'\n")
+    executable(bin_dir / "omarchy-agent", f'''#!/usr/bin/env python3
+import json, os, sys
+from pathlib import Path
+Path({str(record)!r}).write_text(json.dumps({{"cwd": os.getcwd(), "args": sys.argv[1:]}}))
+''')
+    env = dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}")
+    result = subprocess.run([str(ROOT / "libexec/omalaunch-launch-agent"), "--dir", str(workspace)],
+                            env=env, capture_output=True, text=True)
+    started = json.loads(record.read_text())
+    check(result.returncode == 0 and started == {"cwd": str(workspace), "args": []},
+          "the shared launcher can start an agent without an initial prompt")

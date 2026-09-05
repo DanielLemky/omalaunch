@@ -1904,8 +1904,28 @@ function footerActionDefinition(id) {
   return null
 }
 
+// Keep the footer limited to actions that the current launcher state accepts.
+function fileEscapeAction(state) {
+  var value = state || ({})
+  if (value.actionPanelActive) return "close-actions"
+  if (value.hasFilter) return "clear-search"
+  var path = normalizeFavoritePath(value.path)
+  var home = normalizeFavoritePath(value.home)
+  if (path === "/" || (home && path === home))
+    return value.directoryPickerActive ? "leave-picker" : "leave-files"
+  return path ? "parent" : "leave-files"
+}
+
+function isHomeOrAncestorPath(path, home) {
+  var value = normalizeFavoritePath(path)
+  var homePath = normalizeFavoritePath(home)
+  return !!value && value !== "/" && !!homePath
+    && (value === homePath || homePath.indexOf(value + "/") === 0)
+}
+
 function selectedPrimaryActionLabel(state) {
   var value = state || ({})
+  if (value.selectedFileNavigation) return "Go up"
   if (value.workflowInputActive && value.workflowNode) return value.workflowNode.primaryActionLabel || ""
   if (value.selectedWorkflowNode) return value.selectedWorkflowNode.primaryActionLabel || ""
   if (value.selectedDynamicSearchNode) return value.selectedDynamicSearchNode.primaryActionLabel || ""
@@ -1924,8 +1944,9 @@ function actionBarHints(state) {
 
   if (value.canRefresh) labels.refresh = "Refresh"
   var fileActionsAvailable = value.fileBrowserActive && value.hasSelection
+    && value.fileActionsAvailable !== false
     && !value.directoryPickerActive && !value.actionPanelActive
-  if (fileActionsAvailable) labels.copy = "Copy Path"
+  if (fileActionsAvailable) labels.copy = value.fileSelectionType === "file" ? "Copy" : "Copy Path"
   if (value.canStar) labels.star = value.starred ? "Unstar" : "Star"
   if (value.canContextActions || fileActionsAvailable) labels.actions = "Actions"
   if (value.canConfigure || value.canSettings) labels.settings = "Settings"
@@ -2046,6 +2067,8 @@ if (typeof module !== "undefined") {
     fileFavoriteLabel: fileFavoriteLabel,
     fileFavoriteItem: fileFavoriteItem,
     matchesFileFavoriteQuery: matchesFileFavoriteQuery,
+    fileEscapeAction: fileEscapeAction,
+    isHomeOrAncestorPath: isHomeOrAncestorPath,
     displayRow: displayRow,
     footerActionDefinitions: footerActionDefinitions,
     footerActionIdForShortcut: footerActionIdForShortcut,
