@@ -181,7 +181,7 @@ A validated terminal leaf command whose executable is `xdg-terminal-exec` or `om
 
 ## Actionable dynamic-menu extension
 
-Dynamic-menu extensions let a trusted external plugin calculate a short menu when the user opens its shortcut. The provider is a direct argument-array command:
+Dynamic-menu extensions let a trusted external plugin calculate a short menu when the user opens its shortcut. Omalaunch owns footer action IDs, fixed shortcuts, order, compact priority, visibility, and keyboard dispatch. Extensions only declare capabilities such as `primaryActionLabel`, `refreshable`, `starAction`, and `actions`; they cannot assign conflicting footer shortcuts. The provider is a direct argument-array command:
 
 ```json
 {
@@ -212,7 +212,7 @@ A basic row runs `command` directly:
 }
 ```
 
-Every row requires a unique, nonempty `id` and a nonempty `label`. An ordinary row also requires a nonempty argument-array `command`. A row can set a short `badge` string for a host-rendered trailing count or status pill; badge text is limited to 16 characters. Set `badgeTone` to `neutral`, `success`, `danger`, `warning`, or `info` for semantic host styling; invalid or omitted tones use `neutral`. A row can set `trailingText` for an always-visible date or other short metadata; it is limited to 64 characters. Presentation strings and command arguments are bounded. Omalaunch does not invoke a shell and does not expand command text. `{extensionDir}` and form `{input}` values are substituted as complete literal arguments. Set `closeOnSuccess: true` for commands that should close Omalaunch after they exit successfully. Set `closeOnDispatch: true` only for commands that launch an independent editor, terminal, or application and should close Omalaunch immediately without waiting for that process to exit. Other successful menu commands reload the provider so mutations appear immediately.
+Every row requires a unique, nonempty `id` and a nonempty `label`. Set `primaryActionLabel` to replace the default **Continue** footer label while that row is selected; for example, use `Open` for a link or `Search` for a search-engine input. Set `refreshable` to `true` or `false` on a submenu or document row to override the extension default for that surface. An ordinary row also requires a nonempty argument-array `command`. A row can set a short `badge` string for a host-rendered trailing count or status pill; badge text is limited to 16 characters. Set `badgeTone` to `neutral`, `success`, `danger`, `warning`, or `info` for semantic host styling; invalid or omitted tones use `neutral`. A row can set `trailingText` for an always-visible date or other short metadata; it is limited to 64 characters. Presentation strings and command arguments are bounded. Omalaunch does not invoke a shell and does not expand command text. `{extensionDir}` and form `{input}` values are substituted as complete literal arguments. Set `closeOnSuccess: true` for commands that should close Omalaunch after they exit successfully. Set `closeOnDispatch: true` only for commands that launch an independent editor, terminal, or application and should close Omalaunch immediately without waiting for that process to exit. Other successful menu commands reload the provider so mutations appear immediately.
 
 A row can load another host-rendered menu on demand instead of running a primary action:
 
@@ -227,7 +227,9 @@ A row can load another host-rendered menu on demand instead of running a primary
 }
 ```
 
-The submenu command uses the row context and returns the same bounded dynamic-menu JSON format as the root provider. Nested rows can open more submenus or detail documents. Press Ctrl+R in a dynamic menu, submenu, or detail document to run its provider again without leaving the current navigation path. A `submenu` or `document` can declare an optional `refreshCommand` beside `command`. Initial activation runs `command`; Ctrl+R runs `refreshCommand`. This lets a provider use cached data for navigation while keeping refresh explicitly live. Without `refreshCommand`, both operations use `command`. Omalaunch runs a submenu provider only after activation. It receives no stdin, has a five-second timeout, and has a 256 KiB limit on each output stream. Leaving the submenu, closing the launcher, replacing its session, or changing its provider invalidates the request. Cancellation sends SIGTERM and then sends SIGKILL to the same direct child after a 500 ms grace period. Submenu commands run directly as argument arrays and support the row context plus `{extensionDir}` placeholders.
+The submenu command uses the row context and returns the same bounded dynamic-menu JSON format as the root provider. Nested rows can open more submenus or detail documents. Manual refresh is an explicit compatibility option. The extension-level `refreshable` field defaults to `false`; therefore, existing menus that omit it do not show or accept Ctrl+R. Set `refreshable: true` on the menu extension to enable refresh for its root and for descendant submenus or documents that do not specify an override. A dynamic node can set `refreshable: true` or `refreshable: false` to override the extension default for that node. An omitted node value inherits the extension value. This node override does not change siblings or descendants, which use their own value or the extension default.
+
+On a refreshable dynamic menu, submenu, or detail document, Ctrl+R runs its provider again without leaving the current navigation path. A `submenu` or `document` can declare an optional `refreshCommand` beside `command`. Initial activation runs `command`; Ctrl+R runs `refreshCommand`. This lets a provider use cached data for navigation while keeping refresh explicitly live. Without `refreshCommand`, both operations use `command`. Omalaunch runs a submenu provider only after activation. It receives no stdin, has a five-second timeout, and has a 256 KiB limit on each output stream. Leaving the submenu, closing the launcher, replacing its session, or changing its provider invalidates the request. Cancellation sends SIGTERM and then sends SIGKILL to the same direct child after a 500 ms grace period. Submenu commands run directly as argument arrays and support the row context plus `{extensionDir}` placeholders.
 
 A row cannot declare both `submenu` and `document`. Recursive use remains bounded by the existing eight-level workflow navigation limit in the normalized provider data and by user-driven navigation history in the host.
 
@@ -410,6 +412,7 @@ The highest-priority matching live-query extension runs. Live queries debounce f
 - `priority`: Selection priority; defaults to `0`.
 - `requires`: Executable names that must be available on `PATH`.
 - `command`: Argument array. Prefix mode supports `{prompt}`; query mode supports `{query}`; menu providers support `{extensionDir}`.
+- `refreshable`: Default manual Ctrl+R behavior for the extension's menus and documents. It defaults to `false`; individual dynamic nodes can override it.
 
 Commands are argument arrays. Omalaunch substitutes placeholders and shell-quotes action arguments. Do not embed pipes, redirects, or other shell syntax.
 
