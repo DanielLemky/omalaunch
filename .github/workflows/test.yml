@@ -39,6 +39,11 @@ jobs:
 
       - name: Run Settings overlay navigation tests
         run: tests/settings-overlay-navigation-test.js
+      - name: Run Files action panel tests
+        run: node tests/files-action-panel-test.js
+
+      - name: Run Files parent navigation tests
+        run: node tests/file-parent-navigation-test.js
 
       - name: Run Quickshell live-query process harness when available
         run: bash tests/live-query-process-integration-test.sh

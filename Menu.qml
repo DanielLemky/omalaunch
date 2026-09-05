@@ -7,6 +7,7 @@ import qs.Commons
 import qs.Ui
 import "MenuModel.js" as MenuModel
 import "MenuLayout.js" as MenuLayout
+import "MenuFiles.js" as MenuFiles
 import "MenuMarkdown.js" as MenuMarkdown
 import "extensions/currency" as CurrencyExtension
 
@@ -198,6 +199,7 @@ Item {
   readonly property string extensionLoaderHelper: root.pluginPath + "/libexec/load-extensions.py"
   readonly property string configHelper: root.pluginPath + "/libexec/omalaunch-config"
   readonly property string providerConfigHelper: root.pluginPath + "/libexec/provider-config"
+  readonly property string agentLauncher: root.pluginPath + "/libexec/omalaunch-launch-agent"
   readonly property string fileIndexInstanceId: Date.now() + "-" + Math.floor(Math.random() * 1000000000)
   readonly property string fileIndexPathPrefix: Quickshell.env("XDG_RUNTIME_DIR")
     ? Quickshell.env("XDG_RUNTIME_DIR") + "/omalaunch-file-index-" + root.fileIndexInstanceId
@@ -212,12 +214,15 @@ Item {
   property string fileCopyFeedbackPath: ""
   property string fileCopyFeedback: ""
   property bool actionPanelActive: false
+  property bool agentToolsAvailable: false
   property string settingsFeedback: ""
   property var actionPanelFile: null
   readonly property var selectedFileRow: root.fileBrowserActive && !root.actionPanelActive && root.cursorActive
     && root.selectedIndex >= 0 && root.selectedIndex < displayModel.count
     ? displayModel.get(root.selectedIndex) : null
   readonly property string selectedFilePath: root.selectedFileRow ? String(root.selectedFileRow.action || "") : ""
+  readonly property bool selectedFileNavigation: !!root.selectedFileRow
+    && root.selectedFileRow.itemId === "file.navigation.parent"
   readonly property bool imagePreviewActive: MenuModel.isImagePath(root.selectedFilePath)
   readonly property var selectedWorkflowNode: root.workflowActive && !root.fileBrowserActive
     && root.workflowNode && root.workflowNode.kind === "menu" && root.cursorActive
@@ -344,7 +349,8 @@ Item {
       : rowListHeight(layoutSerial, displayModel.count, filterText, searchDivider)))
   property int visibleRowsHeight: MenuLayout.imagePreviewRowsHeight(root.imagePreviewActive,
     root.naturalRowsHeight, root.imagePreviewMinRowsHeight, root.availableRowsHeight())
-  readonly property bool workflowFilterMenuActive: root.workflowActive && root.workflowNode && root.workflowNode.kind === "menu"
+  readonly property bool filterMenuHintActive: root.actionPanelActive
+    || (root.workflowActive && root.workflowNode && root.workflowNode.kind === "menu")
   readonly property bool canConfigureExtension: root.workflowActive && root.workflowExtension
     && root.workflowExtension.mode === "menu" && root.workflowNode && root.workflowNode.id === "root"
     && root.workflowExtension.configurationProvider === root.workflowExtension.id
@@ -353,7 +359,7 @@ Item {
     && (root.workflowNode.refreshable === true
       || (root.workflowNode.refreshable == null && root.workflowExtension.refreshable))
     && (root.workflowNode.id === "root" || root.workflowNode.reloadCommand)
-  property int workflowHintHeight: (root.workflowInputActive || root.workflowFilterMenuActive)
+  property int workflowHintHeight: (root.workflowInputActive || root.filterMenuHintActive)
     ? Math.max(Style.space(12), Math.round(Style.space(18) * menuItemScale)) : 0
   property int cardHeight: Math.min(contentMargin + actionBarBottomPadding + headerHeight + actionBarHeight + contentSpacing
     + (visibleRowsHeight > 0 ? contentSpacing + visibleRowsHeight : 0)
@@ -361,6 +367,7 @@ Item {
 
   readonly property var actionBarHints: MenuModel.actionBarHints({
     primaryActionLabel: MenuModel.selectedPrimaryActionLabel({
+      selectedFileNavigation: root.selectedFileNavigation,
       workflowInputActive: root.workflowInputActive,
       workflowNode: root.workflowNode,
       selectedWorkflowNode: root.selectedWorkflowNode,
@@ -371,6 +378,8 @@ Item {
     workflowActive: root.workflowActive,
     workflowInputActive: root.workflowInputActive,
     fileBrowserActive: root.fileBrowserActive,
+    fileSelectionType: root.selectedFileRow && root.selectedFileRow.itemId.indexOf("file.item.") === 0
+      ? "file" : "directory",
     directoryPickerActive: root.directoryPickerActive,
     actionPanelActive: root.actionPanelActive,
     canRefresh: root.canRefreshWorkflow,
@@ -382,7 +391,9 @@ Item {
       || (root.selectedDynamicSearchEntry && root.selectedDynamicSearchEntry.node.actions.length > 0),
     focusedExtension: !!root.focusedExtension,
     hasSelection: displayModel.count > 0 && root.cursorActive,
-    canStar: (!root.dmenuActive && !root.workflowActive && !root.actionPanelActive) || !!root.selectedWorkflowStarAction || !!root.selectedDynamicStarAction
+    fileActionsAvailable: !root.selectedFileNavigation,
+    canStar: !root.selectedFileNavigation
+      && ((!root.dmenuActive && !root.workflowActive && !root.actionPanelActive) || !!root.selectedWorkflowStarAction || !!root.selectedDynamicStarAction)
       && displayModel.count > 0 && root.cursorActive && root.selectedIndex >= 0
       && root.selectedIndex < displayModel.count
       && (root.fileBrowserActive || (displayModel.get(root.selectedIndex).itemId !== "omarchy"
@@ -477,7 +488,7 @@ Item {
       if (!root.workflowActive && root.selectedDynamicSearchEntry) root.openDynamicSearchActions()
       else if (root.workflowActive && !root.fileBrowserActive) root.openWorkflowActions()
       else if (root.fileBrowserActive) root.openActionPanel()
-    } else if (id === "copy") root.copySelectedFilePath()
+    } else if (id === "copy") root.copySelectedFile()
     else if (id === "star") {
       if (root.workflowActive) root.toggleSelectedWorkflowStar()
       else if (root.selectedDynamicStarAction) root.toggleSelectedDynamicStar()
@@ -1500,6 +1511,14 @@ Item {
     return slash <= 0 ? "/" : value.substring(0, slash)
   }
 
+  function navigateFileBrowserParent() {
+    root.fileBrowserPath = root.parentPath(root.fileBrowserPath)
+    root.filterText = ""
+    root.fileEntries = []
+    root.selectedIndex = 0
+    root.scheduleFileScan()
+  }
+
   function removeFileIndex(path) {
     if (path) Quickshell.execDetached(["rm", "-f", "--", path])
   }
@@ -1584,6 +1603,21 @@ Item {
       })
       displayModel.append(root.displayRow(selectItem, root.fileBrowserPath, -1))
     }
+    var homePath = Quickshell.env("HOME")
+    if (MenuModel.isHomeOrAncestorPath(root.fileBrowserPath, homePath)) {
+      var parentItem = root.normalizeItem("file.navigation.parent", {
+        icon: "󱧰",
+        label: "Parent directory",
+        description: root.parentPath(root.fileBrowserPath),
+        action: root.parentPath(root.fileBrowserPath)
+      })
+      var parentQuery = MenuModel.prepareSearchQuery(root.filterText.trim())
+      if (!parentQuery || MenuModel.matchesQuery(parentItem, parentQuery, true)) {
+        var parentRow = root.displayRow(parentItem, parentItem.description, -2)
+        parentRow.starred = false
+        displayModel.append(parentRow)
+      }
+    }
     for (var i = 0; i < root.fileEntries.length; i++) {
       var entry = root.fileEntries[i]
       var isDirectory = entry.type === "directory"
@@ -1608,60 +1642,52 @@ Item {
   function rebuildActionPanel() {
     displayModel.clear()
     if (!root.actionPanelFile || !root.fileBrowserExtension) return
-    var actions = root.actionPanelFile.type === "directory"
-      ? [
-          { id: "open-files", icon: "󰉋", label: "Open in Files" },
-          { id: "open-terminal", icon: "", label: "Open in terminal" }
-        ]
-      : [{ id: "open", icon: "󰈔", label: "Open" }]
-    actions = actions.concat([
-      {
-        id: "toggle-star",
-        icon: "★",
-        label: root.isFileFavoriteStarred(root.actionPanelFile.path, root.actionPanelFile.type)
-          ? "Unstar" : "Star"
-      },
-      { id: "copy-path", icon: "󰆏", label: "Copy path" },
-      { id: "copy-file", icon: "󰆏", label: "Copy file to clipboard" }
-    ])
+    var actions = MenuFiles.actionDefinitions(root.actionPanelFile.type,
+      root.isFileFavoriteStarred(root.actionPanelFile.path, root.actionPanelFile.type),
+      root.agentToolsAvailable)
+    var actionQuery = MenuModel.prepareSearchQuery(root.filterText.trim())
     for (var i = 0; i < actions.length; i++) {
       var action = actions[i]
       var item = root.normalizeItem("file.action." + action.id, {
         icon: action.icon,
         label: action.label,
-        description: root.actionPanelFile.path,
+        description: "",
         action: action.id
       })
+      if (actionQuery && !MenuModel.matchesQuery(item, actionQuery, true)) continue
       var row = root.displayRow(item, root.actionPanelFile.path, i)
       row.starred = false
       displayModel.append(row)
     }
     root.layoutSerial += 1
     root.selectedIndex = 0
-    root.cursorActive = true
-    Qt.callLater(function() { root.revealCursor() })
+    root.cursorActive = displayModel.count > 0
+    Qt.callLater(function() { if (displayModel.count > 0) root.revealCursor() })
   }
 
   function openActionPanel() {
     if (!root.fileBrowserActive || root.selectedIndex < 0 || root.selectedIndex >= displayModel.count) return
     var row = displayModel.get(root.selectedIndex)
-    if (!row || row.itemId.indexOf("file.") !== 0 || row.itemId.indexOf("file.action.") === 0) return
+    if (!row || (row.itemId.indexOf("file.item.") !== 0 && row.itemId.indexOf("file.directory.") !== 0)) return
     root.actionPanelFile = {
       index: root.selectedIndex,
       itemId: row.itemId,
       path: row.action,
       name: row.label,
-      type: row.itemId.indexOf("file.directory.") === 0 ? "directory" : "file"
+      type: row.itemId.indexOf("file.directory.") === 0 ? "directory" : "file",
+      filter: root.filterText
     }
+    root.filterText = ""
     root.actionPanelActive = true
     root.rebuildActionPanel()
   }
 
   function closeActionPanel() {
-    var previousIndex = root.actionPanelFile ? root.actionPanelFile.index : 0
+    var restored = MenuFiles.restoredBrowserState(root.actionPanelFile)
     root.actionPanelActive = false
     root.actionPanelFile = null
-    root.selectedIndex = previousIndex
+    root.filterText = restored.filter
+    root.selectedIndex = restored.index
     root.rebuildFileDisplay()
   }
 
@@ -1673,25 +1699,25 @@ Item {
     fileCopyProc.running = true
   }
 
-  function copySelectedFilePath() {
+  function copySelectedFile() {
     if (!root.fileBrowserActive || root.selectedIndex < 0 || root.selectedIndex >= displayModel.count) return
     var row = displayModel.get(root.selectedIndex)
-    if (!row || !root.fileBrowserExtension) return
-    root.startFileCopy(row.action, root.fileBrowserExtension.copyCommand, "Copied path")
+    if (!row || !root.fileBrowserExtension
+        || (row.itemId.indexOf("file.item.") !== 0 && row.itemId.indexOf("file.directory.") !== 0)) return
+    var isFile = row.itemId.indexOf("file.item.") === 0
+    root.startFileCopy(row.action,
+      isFile ? root.fileBrowserExtension.copyFileCommand : root.fileBrowserExtension.copyCommand,
+      isFile ? "Copied file" : "Copied path")
   }
 
   function activateFileAction(action) {
     if (!root.actionPanelFile || !root.fileBrowserExtension) return
     var path = root.actionPanelFile.path
     if (action === "toggle-star") {
-      var selectedItemId = root.actionPanelFile.itemId
-      var selectedType = root.actionPanelFile.type
-      var previousIndex = root.actionPanelFile.index
-      root.actionPanelActive = false
-      root.actionPanelFile = null
-      root.selectedIndex = previousIndex
-      root.pendingStarSelectionId = selectedItemId
-      root.toggleFileFavorite(path, selectedType)
+      var restored = MenuFiles.restoredBrowserState(root.actionPanelFile)
+      root.closeActionPanel()
+      root.pendingStarSelectionId = restored.itemId
+      root.toggleFileFavorite(restored.path, restored.type)
       return
     }
     if (action === "copy-path" || action === "copy-file") {
@@ -1702,10 +1728,18 @@ Item {
       return
     }
 
+    var actionDirectory = root.actionPanelFile.type === "directory" ? path : root.parentPath(path)
     var commandToRun = action === "open-terminal"
       ? root.fileBrowserExtension.terminalCommand
-      : (action === "open-files" ? root.fileBrowserExtension.directoryCommand : root.fileBrowserExtension.command)
-    var shellAction = root.shellCommand(commandToRun, { path: path })
+      : (action === "open-files" || action === "show-files"
+        ? root.fileBrowserExtension.directoryCommand
+        : (action === "start-agent"
+          ? [root.agentLauncher, "--dir", "{directory}"]
+          : root.fileBrowserExtension.command))
+    var shellAction = root.shellCommand(commandToRun, {
+      path: action === "show-files" ? actionDirectory : path,
+      directory: actionDirectory
+    })
     root.actionPanelActive = false
     root.fileBrowserActive = false
     root.resetFileIndex()
@@ -2552,7 +2586,14 @@ Item {
   }
 
   function setFilter(nextFilter) {
-    if (root.actionPanelActive) return
+    if (root.actionPanelActive) {
+      root.filterText = nextFilter
+      root.selectedIndex = 0
+      root.cursorActive = true
+      root.disarmPointer()
+      root.rebuildActionPanel()
+      return
+    }
     if (root.workflowActive && root.workflowNode && root.workflowNode.kind === "input")
       nextFilter = String(nextFilter || "").substring(0, root.workflowNode.maxLength)
     root.filterText = nextFilter
@@ -2749,6 +2790,10 @@ Item {
     }
     if (root.directoryPickerActive && row.itemId === "workflow.directory.select") {
       root.selectWorkflowDirectory(row.action)
+      return
+    }
+    if (root.fileBrowserActive && row.itemId === "file.navigation.parent") {
+      root.navigateFileBrowserParent()
       return
     }
     if (root.fileBrowserActive && row.itemId.indexOf("file.") === 0) {
@@ -3060,6 +3105,16 @@ Item {
       root.fileCopyFeedbackPath = ""
       root.fileCopyFeedback = ""
       if (root.fileBrowserActive) root.rebuildFileDisplay()
+    }
+  }
+
+  Process {
+    id: agentToolsCheckProc
+    command: ["python", "-c", "import shutil,sys; sys.exit(0 if shutil.which('omarchy-agent') and shutil.which('omarchy-default-agent') else 1)"]
+    running: true
+    onExited: function(exitCode) {
+      root.agentToolsAvailable = exitCode === 0
+      if (root.actionPanelActive) root.rebuildActionPanel()
     }
   }
 
@@ -4216,13 +4271,23 @@ Item {
           } else if (event.key === Qt.Key_Delete) {
             root.requestDeleteSelected()
             event.accepted = true
-          } else if (event.key === Qt.Key_Escape) {
-            if (root.actionPanelActive) root.closeActionPanel()
-            else if (root.workflowInputActive) root.workflowBack()
+          } else if (event.key === Qt.Key_Escape && event.modifiers === Qt.NoModifier) {
+            if (root.fileBrowserActive) {
+              var fileEscape = MenuModel.fileEscapeAction({
+                actionPanelActive: root.actionPanelActive,
+                hasFilter: !!root.filterText,
+                path: root.fileBrowserPath,
+                home: Quickshell.env("HOME"),
+                directoryPickerActive: root.directoryPickerActive
+              })
+              if (fileEscape === "close-actions") root.closeActionPanel()
+              else if (fileEscape === "clear-search") root.setFilter("")
+              else if (fileEscape === "parent") root.navigateFileBrowserParent()
+              else if (fileEscape === "leave-picker") root.workflowBack()
+              else root.leaveFileBrowser()
+            } else if (root.workflowInputActive) root.workflowBack()
             else if (root.focusedExtension) root.leaveFocusedExtension()
             else if (root.filterText) root.setFilter("")
-            else if (root.directoryPickerActive) root.workflowBack()
-            else if (root.fileBrowserActive) root.leaveFileBrowser()
             else if (root.workflowActive) root.workflowBack()
             else if (root.activeMenu !== "root") root.goBack()
             else root.cancel()
@@ -4245,17 +4310,14 @@ Item {
           } else if (!root.documentActive && Util.editsFilter(event, root.filterText)) {
             root.setFilter(Util.editedFilter(event, root.filterText))
             event.accepted = true
-          } else if ((event.key === Qt.Key_Backspace || event.key === Qt.Key_Left) && !root.filterText) {
+          } else if (event.key === Qt.Key_Left && !root.filterText) {
             if (root.actionPanelActive) root.closeActionPanel()
             else if (root.fileBrowserActive) {
               if (root.fileBrowserPath === "/") {
                 if (root.directoryPickerActive) root.workflowBack()
                 else root.leaveFileBrowser()
               } else {
-                root.fileBrowserPath = root.parentPath(root.fileBrowserPath)
-                root.fileEntries = []
-                root.selectedIndex = 0
-                root.scheduleFileScan()
+                root.navigateFileBrowserParent()
               }
             } else if (root.workflowActive) root.workflowBack()
             else if (root.focusedExtension) root.leaveFocusedExtension()
@@ -4274,12 +4336,7 @@ Item {
             root.select(6)
             event.accepted = true
           } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Right) {
-            if (root.workflowInputActive) root.submitWorkflowInput()
-            else if (root.dmenuActive) {
-              if (root.mode === "input") root.applyDmenuSelection(root.filterText)
-              else if (displayModel.count > 0) root.activateIndex(root.cursorActive ? root.selectedIndex : 0)
-            } else if (root.cursorActive) root.activateIndex(root.selectedIndex)
-            else if (displayModel.count > 0) root.cursorActive = true
+            if (!root.triggerFooterAction("primary") && displayModel.count > 0) root.cursorActive = true
             event.accepted = true
           } else if (!root.documentActive && event.text && event.text.length === 1 && event.text.charCodeAt(0) >= 32 && event.text.charCodeAt(0) !== 127 && (event.modifiers === Qt.NoModifier || event.modifiers === Qt.ShiftModifier)) {
             root.setFilter(root.filterText + event.text)
@@ -4390,7 +4447,7 @@ Item {
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
             text: root.actionPanelActive
-              ? ("Actions for " + ((root.actionPanelFile && root.actionPanelFile.name) || "file"))
+              ? root.filterText
               : root.fileBrowserActive
                 ? (root.fileBrowserPath + (root.filterText ? "  ›  " + root.filterText : ""))
               : root.documentActive
@@ -4426,12 +4483,14 @@ Item {
         Text {
           width: parent.width
           height: root.workflowHintHeight
-          visible: root.workflowInputActive || root.workflowFilterMenuActive
+          visible: root.workflowInputActive || root.filterMenuHintActive
           text: root.workflowInputActive
             ? root.workflowText(root.workflowNode ? (root.workflowNode.prompt || root.workflowNode.label) : "")
-            : root.workflowText(root.workflowNode
-                ? root.workflowNode.label
-                : (root.workflowExtension ? root.workflowExtension.label : "Select an item"))
+            : (root.actionPanelActive
+              ? ((root.actionPanelFile && root.actionPanelFile.name) || "File")
+              : root.workflowText(root.workflowNode
+                  ? root.workflowNode.label
+                  : (root.workflowExtension ? root.workflowExtension.label : "Select an item")))
           color: root.foreground
           opacity: 0.58
           font.family: root.fontFamily
