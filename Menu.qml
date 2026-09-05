@@ -1,6 +1,7 @@
 import Quickshell
 import Quickshell.Io
 import Quickshell.Wayland
+import Quickshell.Hyprland
 import QtQuick
 import qs.Commons
 import qs.Ui
@@ -10,6 +11,20 @@ import "extensions/currency" as CurrencyExtension
 
 Item {
   id: root
+  property var openingScreen: null
+
+  function selectOpeningScreen() {
+    if (root.opened) return
+    var name = Hyprland.focusedMonitor ? Hyprland.focusedMonitor.name : ""
+    var screens = Quickshell.screens
+    for (var i = 0; i < screens.length; i++) {
+      if (screens[i].name === name) {
+        root.openingScreen = screens[i]
+        return
+      }
+    }
+    root.openingScreen = screens.length ? screens[0] : null
+  }
 
   // Injected by omarchy-shell when this plugin is summoned.
   property string omarchyPath: Quickshell.env("OMARCHY_PATH")
@@ -2795,6 +2810,7 @@ Item {
     cursorActive = true
     root.disarmPointer()
     root.evaluateGuards(false)
+    root.selectOpeningScreen()
     opened = true
     rebuildDisplay()
     invalidateVolatileProvider(activeMenu)
@@ -2841,6 +2857,7 @@ Item {
     selectedIndex = 0
     cursorActive = mode !== "input"
     root.disarmPointer()
+    root.selectOpeningScreen()
     opened = true
     rebuildDisplay()
 
@@ -3991,6 +4008,7 @@ Item {
 
   PanelWindow {
     id: panel
+    screen: root.openingScreen
     visible: root.opened && root.rowsLoaded
     anchors { top: true; bottom: true; left: true; right: true }
     color: "transparent"
