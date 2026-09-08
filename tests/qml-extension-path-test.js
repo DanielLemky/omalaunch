@@ -9,6 +9,19 @@ function assert(condition, message) {
 const qml = fs.readFileSync(path.join(__dirname, '..', 'Menu.qml'), 'utf8')
 const favoritesQml = fs.readFileSync(path.join(__dirname, '..', 'LauncherFavorites.qml'), 'utf8')
 
+const pluginPathExpression = qml.match(/readonly property string pluginPath: (.+)/)[1]
+for (const directory of ['/home/test/plugins/omalaunch', '/tmp/launcher with spaces/#100%']) {
+  const resolved = require('url').pathToFileURL(directory + '/').href
+  const actual = require('vm').runInNewContext(pluginPathExpression, {
+    Qt: { resolvedUrl: relative => {
+      if (relative !== '.') throw new Error('expected the component directory')
+      return resolved
+    } },
+    root: { manifest: { id: 'quantumfire.omalaunch' } }
+  })
+  assert(actual === directory, `helper paths resolve without private manifest fields: ${directory}`)
+}
+
 assert(favoritesQml.includes('Quickshell.env("XDG_STATE_HOME") || (Quickshell.env("HOME") + "/.local/state")')
   && favoritesQml.includes('root.stateHome + "/omarchy/starred-launcher-items.json"'),
 'legacy favorite compatibility reads the same XDG state root as startup migration')
