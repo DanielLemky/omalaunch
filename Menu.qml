@@ -597,7 +597,7 @@ Item {
   }
 
   function item(id) {
-    return root.items[id] || null
+    return root.items && Object.prototype.hasOwnProperty.call(root.items, String(id)) ? root.items[id] : null
   }
 
   // ------------------------------------------------------------------
@@ -622,7 +622,7 @@ Item {
     for (var i = 0; i < command.length; i++) {
       var argument = String(command[i])
       for (var key in replacements)
-        argument = argument.replace(new RegExp("\\{" + key + "\\}", "g"), String(replacements[key]))
+        argument = argument.replace(new RegExp("\\{" + key + "\\}", "g"), (function(value) { return function() { return value } })(String(replacements[key])))
       parts.push(argument)
     }
     return parts

@@ -86,13 +86,13 @@ function mergeMenuSources(defaultItems, userItems) {
     for (var i = 0; i < src.length; i++) {
       var entry = src[i]
       if (!entry || !entry.id) continue
-      if (!nextItems[entry.id]) nextOrder.push(entry.id)
-      var prior = nextItems[entry.id] || {}
+      if (!keyIn(nextItems, entry.id)) nextOrder.push(entry.id)
+      var prior = keyIn(nextItems, entry.id) ? nextItems[entry.id] : {}
       var merged = {}
       for (var k in prior) merged[k] = prior[k]
       for (var k2 in entry) merged[k2] = entry[k2]
       merged.id = entry.id
-      nextItems[entry.id] = merged
+      putKey(nextItems, entry.id, merged)
     }
   }
 
@@ -127,19 +127,19 @@ function mergeAppRows(items, itemOrder, appRows) {
 
   for (var i = 0; i < order.length; i++) {
     var id = order[i]
-    var existing = source[id]
+    var existing = keyIn(source, id) ? source[id] : null
     // Orphans (an id with no item) are dropped rather than carried forward,
     // so a single lost write cannot compound into a duplicate row.
     if (!existing || existing.kind === "app") continue
-    nextItems[id] = existing
+    putKey(nextItems, id, existing)
     nextOrder.push(id)
   }
 
   for (var j = 0; j < rows.length; j++) {
     var row = rows[j]
-    if (!row || !row.id || nextItems[row.id]) continue
+    if (!row || !row.id || keyIn(nextItems, row.id)) continue
     row.order = nextOrder.length
-    nextItems[row.id] = row
+    putKey(nextItems, row.id, row)
     nextOrder.push(row.id)
   }
 
@@ -159,18 +159,18 @@ function swapProviderRows(items, itemOrder, menuId, rows) {
 
   for (var i = 0; i < order.length; i++) {
     var id = order[i]
-    var existing = source[id]
+    var existing = keyIn(source, id) ? source[id] : null
     if (!existing || existing.providerMenu === menuId) continue
-    nextItems[id] = existing
+    putKey(nextItems, id, existing)
     nextOrder.push(id)
   }
 
   for (var j = 0; j < incoming.length; j++) {
     var row = incoming[j]
-    if (!row || !row.id || nextItems[row.id]) continue
+    if (!row || !row.id || keyIn(nextItems, row.id)) continue
     row.providerMenu = menuId
     row.order = nextOrder.length
-    nextItems[row.id] = row
+    putKey(nextItems, row.id, row)
     nextOrder.push(row.id)
   }
 
@@ -178,7 +178,7 @@ function swapProviderRows(items, itemOrder, menuId, rows) {
 }
 
 function item(items, id) {
-  return items && items[id] ? items[id] : null
+  return keyIn(items, id) ? items[id] : null
 }
 
 // Structural IDs are supplied by menu authors. Prefix them before using plain
@@ -186,6 +186,20 @@ function item(items, id) {
 // collide with Object.prototype.
 function structuralKey(value) {
   return "$" + String(value || "")
+}
+
+// Plain objects serve as id -> row maps in the merges below. Guard both reads
+// and writes so hostile ids such as __proto__, constructor, or toString cannot
+// collide with Object.prototype: assigning an object to __proto__ re-points the
+// map's prototype, primitive writes are silently ignored, and prototype members
+// otherwise read as "already present". Keys are written as ordinary own
+// enumerable data properties, which shadow inherited accessors on lookup.
+function keyIn(map, id) {
+  return map !== null && typeof map === "object" && Object.prototype.hasOwnProperty.call(map, String(id))
+}
+function putKey(map, id, value) {
+  Object.defineProperty(map, String(id), { value: value, writable: true, enumerable: true, configurable: true })
+  return map
 }
 
 // Routes may name a real id (`system`, `setup.power`) or an alias declared in

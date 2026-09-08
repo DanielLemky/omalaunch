@@ -999,3 +999,48 @@ const missingProviderCatalog = menu.parseExtensionCatalog(JSON.stringify({
 }))
 assert(missingProviderCatalog.extensions[0].id === 'fallback' && missingProviderCatalog.diagnostics.some(value => value.indexOf("is missing; normal provider resolution was used") >= 0),
   'a missing configured provider falls back with a diagnostic')
+
+// Hostile object-property names must stay ordinary merge keys: __proto__ must
+// not re-point the map's prototype, prototype members must not read as
+// "already present", and duplicates must be dropped exactly once.
+const hostileDefaultItems = [
+  { id: 'constructor', kind: 'menu', label: 'Constructor' },
+  { id: '__proto__', kind: 'menu', label: 'Proto' },
+  { id: 'toString', kind: 'menu', label: 'String' }
+]
+const hostileUserItems = [
+  { id: 'constructor', kind: 'menu', label: 'Constructor (custom)' },
+  { id: '__proto__', kind: 'menu', label: 'Proto (custom)' },
+  { id: 'root', kind: 'menu', label: 'Custom root' }
+]
+let hostileMerged = menu.mergeMenuSources(hostileDefaultItems, hostileUserItems)
+const hostileOrder = hostileMerged.itemOrder
+assert(hostileOrder.filter(id => id === 'constructor').length === 1, 'prototype-object names merge to a single row')
+assert(hostileOrder.filter(id => id === '__proto__').length === 1, '__proto__ merges to a single row')
+assert(hostileMerged.items['constructor'].label === 'Constructor (custom)', 'prototype-object names receive user overrides')
+assert(hostileMerged.items['toString'].label === 'String', 'prototype members do not block first-seen original names')
+assert(Object.getOwnPropertyDescriptor(hostileMerged.items, '__proto__') !== undefined, '__proto__ becomes an ordinary own key')
+assert(menu.item(hostileMerged.items, '__proto__') !== null, '__proto__ reads back through item()')
+const hostileRealmProto = Object.getPrototypeOf(menu.mergeMenuSources([], []).items)
+assert(Object.getPrototypeOf(hostileMerged.items) === hostileRealmProto, 'merging hostile names does not re-point the map prototype')
+assert(menu.item(hostileMerged.items, 'hasOwnProperty') === null, 'item() ignores inherited prototype members')
+
+let hostileApps = menu.mergeAppRows(hostileMerged.items, hostileMerged.itemOrder, [
+  { id: 'apps.__proto__', kind: 'app', label: 'App proto' },
+  { id: 'apps.constructor', kind: 'app', label: 'App constructor' },
+  { id: 'constructor', kind: 'menu', label: 'Dup' }
+])
+assert(hostileApps.items['apps.__proto__'].kind === 'app' && hostileApps.items['apps.constructor'].kind === 'app', 'app scans keep hostile object-property names')
+assert(hostileApps.itemOrder.filter(id => id === 'apps.__proto__').length === 1, 'hostile app rows are listed once')
+assert(hostileApps.items['constructor'].label === 'Constructor (custom)', 'mergeAppRows preserves hostile non-app rows')
+
+let hostileSwapped = menu.swapProviderRows(hostileApps.items, hostileApps.itemOrder, 'hostile-menu', [
+  { id: 'constructor.child', kind: 'action', label: 'Child' },
+  { id: '__proto__.child', kind: 'action', label: 'Proto child' }
+])
+assert(hostileSwapped.itemOrder.indexOf('constructor.child') >= 0 && hostileSwapped.itemOrder.indexOf('__proto__.child') >= 0,
+  'provider swaps retain rows whose ids collide with object properties')
+assert(menu.item(hostileSwapped.items, '__proto__.child').kind === 'action', 'hostile provider rows are retrievable through item()')
+
+const hostileRoot = menu.mergeMenuSources([{ id: 'root', kind: 'menu', label: 'Go' }], [])
+assert(menu.item(hostileRoot.items, 'root') === hostileRoot.items.root, 'item() resolves real ids through own keys')

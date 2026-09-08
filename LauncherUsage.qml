@@ -13,6 +13,14 @@ Item {
 
   signal changed()
 
+  function keyIn(map, id) {
+    return Object.prototype.hasOwnProperty.call(map, String(id))
+  }
+  function storeId(map, id, value) {
+    Object.defineProperty(map, String(id), { value: value, writable: true, enumerable: true, configurable: true })
+    return map
+  }
+
   function load(rawText) {
     var next = ({})
     try {
@@ -22,7 +30,7 @@ Item {
         var record = source[id]
         var count = Math.max(0, Number(record && record.count) || 0)
         var lastUsedAt = Math.max(0, Number(record && record.lastUsedAt) || 0)
-        if (id && count > 0) next[id] = { count: count, lastUsedAt: lastUsedAt }
+        if (id && count > 0 && keyIn(source, id)) storeId(next, id, { count: count, lastUsedAt: lastUsedAt })
       }
     } catch (e) {
       next = ({})
@@ -50,11 +58,11 @@ Item {
     var id = String(itemId || "")
     if (!root.loaded || !id) return
     var next = Object.assign({}, root.records)
-    var previous = next[id] || ({})
-    next[id] = {
+    var previous = keyIn(next, id) ? next[id] : ({})
+    storeId(next, id, {
       count: Math.max(0, Number(previous.count) || 0) + 1,
       lastUsedAt: Date.now()
-    }
+    })
     root.records = next
     root.save(next)
     root.changed()
