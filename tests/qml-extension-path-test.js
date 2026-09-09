@@ -249,10 +249,16 @@ assert(qml.includes('if (rootExtension.available && rootExtension.mode !== "menu
   && qml.includes('dynamicMenuProc.usageItemId = retainCurrentRows ? "" : MenuModel.extensionRootId(extension)'),
 'dynamic provider roots defer usage until an initial user load succeeds while static extension behavior remains unchanged')
 assert(qml.includes('var dynamicUsageId = dynamicSearchEntry.node.submenuCommand || dynamicSearchEntry.node.documentCommand')
-  && qml.includes('? dynamicSearchEntry.item.id')
+  && qml.includes('? MenuModel.dynamicMenuNavigationUsageItemId(dynamicUsageExtension, dynamicSearchEntry.node)')
   && qml.includes('dynamicSearchRow.usageCount = usage.count(dynamicUsageId)')
   && qml.includes('dynamicSearchRow.lastUsedAt = usage.lastUsedAt(dynamicUsageId)'),
-'dynamic search ranking reads the same identity that successful action or navigation records')
+'dynamic search ranking reads the same provider-owned identity that successful action or navigation records')
+const dynamicNavigationUsageBody = qml.slice(qml.indexOf('function dynamicNavigationUsageItemId(extension, node)'),
+  qml.indexOf('function enterDynamicMenu(extension, retainRows)'))
+assert(dynamicNavigationUsageBody.includes('MenuModel.dynamicMenuNavigationUsageItemId(extension, node)')
+  && !dynamicNavigationUsageBody.includes('dynamicMenuSearchEntry')
+  && !dynamicNavigationUsageBody.includes('workflowNode'),
+'navigation usage identity does not depend on global-search inclusion or snapshot availability')
 const submenuExit = qml.slice(qml.indexOf('id: submenuProc'), qml.indexOf('id: documentTimeout'))
 const documentExit = qml.slice(qml.indexOf('id: documentProc'), qml.indexOf('id: dynamicMenuTimeout'))
 const dynamicRootExit = qml.slice(qml.indexOf('id: dynamicMenuProc'), qml.indexOf('id: workflowActionTimeout'))

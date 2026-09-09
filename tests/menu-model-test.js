@@ -321,9 +321,19 @@ assert(!menu.matchesQuery(dynamicSearchItems[0], menu.prepareSearchQuery('quickl
 assert(menu.matchesQuery(dynamicSearchItems[1], menu.prepareSearchQuery('quicklink'), true), 'dynamic rows still match provider words in visible labels')
 assert(menu.dynamicMenuSearchIdentity(dynamicSearchItems[0].id).capability === 'quicklinks', 'dynamic search identities retain stable extension capability')
 assert(menu.dynamicMenuItemId('quicklinks', 'open') === dynamicSearchItems[0].id, 'dynamic usage uses the stable synthetic search identity')
-assert(menu.dynamicMenuNavigationUsageItemId(dynamicMenuExtensions[0], dynamicMenu.items[0], true) === dynamicSearchItems[0].id, 'searchable navigation uses its exact dynamic search identity')
-assert(menu.dynamicMenuNavigationUsageItemId(dynamicMenuExtensions[0], { id: 'nested' }, false) === menu.dynamicMenuItemId(dynamicMenuExtensions[0].id, 'nested'), 'nested navigation uses a stable provider identity')
-assert(menu.dynamicMenuNavigationUsageItemId(null, dynamicMenu.items[0], true) === '', 'navigation usage rejects missing providers')
+const quicklinksNavigationUsageId = menu.dynamicMenuItemId(dynamicMenuExtensions[0].id, dynamicMenu.items[0].id)
+assert(menu.dynamicMenuNavigationUsageItemId(dynamicMenuExtensions[0], dynamicMenu.items[0]) === quicklinksNavigationUsageId,
+  'searchable navigation uses a provider-owned identity instead of its capability routing identity')
+assert(menu.dynamicMenuNavigationUsageItemId(dynamicMenuExtensions[0], { id: 'nested' }) === menu.dynamicMenuItemId(dynamicMenuExtensions[0].id, 'nested'),
+  'nested navigation uses the same provider-owned identity without a search snapshot')
+assert(menu.dynamicMenuNavigationUsageItemId(null, dynamicMenu.items[0]) === '', 'navigation usage rejects missing providers')
+assert(menu.dynamicMenuNavigationUsageItemId({ ...dynamicMenuExtensions[0], id: 'replacement.quicklinks', capability: 'quicklinks' }, dynamicMenu.items[0])
+  === menu.dynamicMenuItemId('replacement.quicklinks', 'open'),
+  'replacement navigation does not inherit the replaced provider usage history')
+assert(menu.dynamicMenuNavigationUsageItemId({ ...dynamicMenuExtensions[0], id: 'omalaunch.quicklinks', config: { rankByUsage: false } }, dynamicMenu.items[0]) === '',
+  'bundled Quicklinks disables submenu and document navigation ranking')
+assert(menu.dynamicMenuNavigationUsageItemId({ ...dynamicMenuExtensions[0], id: 'omalaunch.web-search', config: { rankByUsage: false } }, dynamicMenu.items[0]) === '',
+  'bundled Web Search disables submenu and document navigation ranking')
 const quicklinksUsageId = menu.dynamicMenuItemId(dynamicMenuExtensions[0].id, dynamicMenu.items[0].id)
 assert(menu.dynamicMenuUsageItemId(dynamicMenuExtensions[0], dynamicMenu.items[0]) === quicklinksUsageId, 'provider-menu primary launches map to a provider-owned usage identity')
 assert(menu.dynamicMenuUsageItemId(dynamicMenuExtensions[0], dynamicMenu.items[0].actions.find(action => action.id === 'open')) === quicklinksUsageId, 'contextual Open maps to its primary provider-owned usage identity')

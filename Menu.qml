@@ -935,12 +935,7 @@ Item {
   }
 
   function dynamicNavigationUsageItemId(extension, node) {
-    if (!extension || !node) return ""
-    var searchId = MenuModel.dynamicMenuItemId(extension.capability, node.id)
-    var entry = root.workflowNode && root.workflowNode.id === "root"
-      ? root.dynamicMenuSearchEntry(searchId) : null
-    return MenuModel.dynamicMenuNavigationUsageItemId(extension, node,
-      entry && entry.extensionId === extension.id)
+    return MenuModel.dynamicMenuNavigationUsageItemId(extension, node)
   }
 
   function enterDynamicMenu(extension, retainRows) {
@@ -2322,7 +2317,7 @@ Item {
           dynamicSearchRow.matchPriority = MenuModel.searchMatchPriority(dynamicSearchEntry.item, preparedQuery)
           var dynamicUsageExtension = root.extensionById(dynamicSearchEntry.extensionId)
           var dynamicUsageId = dynamicSearchEntry.node.submenuCommand || dynamicSearchEntry.node.documentCommand
-            ? dynamicSearchEntry.item.id
+            ? MenuModel.dynamicMenuNavigationUsageItemId(dynamicUsageExtension, dynamicSearchEntry.node)
             : MenuModel.dynamicMenuUsageItemId(dynamicUsageExtension, dynamicSearchEntry.node)
           dynamicSearchRow.usageCount = usage.count(dynamicUsageId)
           dynamicSearchRow.lastUsedAt = usage.lastUsedAt(dynamicUsageId)
