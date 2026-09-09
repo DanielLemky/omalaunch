@@ -1346,6 +1346,7 @@ function normalizeExtension(raw) {
     command: command,
     priority: priority,
     bundled: raw._bundled === true,
+    pluginId: String(raw._pluginId || ""),
     sourceDir: String(raw._sourceDir || ""),
     source: String(raw._source || ""),
     globalSearch: mode === "menu" && raw.globalSearch === true,

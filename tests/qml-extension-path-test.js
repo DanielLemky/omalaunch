@@ -294,6 +294,11 @@ assert(qml.includes('workflowRow.starred = workflowChild.starred')
   && qml.includes('if (!starredDynamicEntry.node.starred && !temporaryTopLevel) continue')
   && qml.includes('starredDynamicRow.starred = starredDynamicEntry.node.starred'),
 'manual stars and temporary provider rows appear independently on the top-level launcher view')
+assert(qml.includes('readonly property bool canRemoveSelectedExtension: root.selectedExtensionRoot')
+  && qml.includes('if (root.canRemoveSelectedExtension) root.openExtensionActions()')
+  && qml.includes('["omarchy", "plugin", "remove", extension.pluginId, "--yes"]'),
+'external extension roots expose a Ctrl+K removal action for their owning plugin')
+
 assert(qml.includes('var extensionsDirectory = root.item("extensions")')
   && qml.includes('MenuModel.matchesQuery(extensionsDirectory, preparedQuery, true)'),
 'fixed Extensions directory remains explicit in top-level global search during dynamic snapshot rebuilds')

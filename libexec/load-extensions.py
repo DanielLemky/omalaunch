@@ -107,7 +107,8 @@ class CatalogBuilder:
                 self.diagnostics[-1] = notice[:self.limits.diagnostic_chars]
             self.diagnostic_limit_reported = True
 
-    def append(self, raw: Any, *, bundled: bool, source_dir: Path, source: str) -> None:
+    def append(self, raw: Any, *, bundled: bool, source_dir: Path, source: str,
+               plugin_id: str = "") -> None:
         values = raw if isinstance(raw, list) else [raw]
         if len(values) > self.limits.definitions_per_source:
             self.diagnostic(
@@ -124,7 +125,8 @@ class CatalogBuilder:
                 return
             try:
                 validate_json_depth(value, self.limits.json_nesting_depth)
-                annotated = annotate(value, bundled=bundled, source_dir=source_dir, source=source)
+                annotated = annotate(value, bundled=bundled, source_dir=source_dir, source=source,
+                                     plugin_id=plugin_id)
                 validate_json_depth(annotated, self.limits.json_nesting_depth)
                 encoded_size = len(self.encoded(annotated)) + (1 if self.catalog else 0)
             except (RecursionError, ValueError) as error:
@@ -402,11 +404,13 @@ def read_json(path: Path, *, size_limit: int | None = None,
         raise ValueError("JSON file handling exceeded Python's recursion limit") from error
 
 
-def annotate(raw: Any, *, bundled: bool, source_dir: Path, source: str) -> Any:
+def annotate(raw: Any, *, bundled: bool, source_dir: Path, source: str,
+             plugin_id: str = "") -> Any:
     value = dict(raw) if isinstance(raw, dict) else {"_invalidDefinition": raw}
     value["_bundled"] = bundled
     value["_sourceDir"] = str(source_dir)
     value["_source"] = source
+    value["_pluginId"] = plugin_id
     requirements = value.get("requires", [])
     value["_missingRequires"] = [
         item for item in requirements
@@ -541,7 +545,8 @@ def load_catalog(plugin_path: Path, omarchy_path: Path, home: Path, limits: Limi
     builder = CatalogBuilder(limits)
     static_bytes = 0
 
-    def load_static(extension_file: Path, *, bundled: bool, source_dir: Path, source: str) -> None:
+    def load_static(extension_file: Path, *, bundled: bool, source_dir: Path, source: str,
+                    plugin_id: str = "") -> None:
         nonlocal static_bytes
         try:
             size = extension_file.stat().st_size
@@ -556,7 +561,8 @@ def load_catalog(plugin_path: Path, omarchy_path: Path, home: Path, limits: Limi
         static_bytes += size
         try:
             builder.append(read_json(extension_file, maximum_depth=limits.json_nesting_depth),
-                           bundled=bundled, source_dir=source_dir, source=source)
+                           bundled=bundled, source_dir=source_dir, source=source,
+                           plugin_id=plugin_id)
         except (OSError, RecursionError, ValueError, UnicodeDecodeError) as error:
             builder.diagnostic(f"Could not load {source}: {error}")
 
@@ -683,7 +689,7 @@ def load_catalog(plugin_path: Path, omarchy_path: Path, home: Path, limits: Limi
                 builder.diagnostic(f"Plugin {plugin_id} extension path is missing or unsafe: {entry!r}")
                 continue
             load_static(extension_file, bundled=False, source_dir=extension_file.parent,
-                        source=f"plugin {plugin_id} file {entry}")
+                        source=f"plugin {plugin_id} file {entry}", plugin_id=plugin_id)
 
         providers = omalaunch.get("extensionProviders", [])
         if not isinstance(providers, list):
@@ -735,7 +741,8 @@ def load_catalog(plugin_path: Path, omarchy_path: Path, home: Path, limits: Limi
             if not isinstance(definitions, (dict, list)):
                 builder.diagnostic(f"Extension provider {source} must emit one extension object or an array of extension objects")
                 continue
-            builder.append(definitions, bundled=False, source_dir=plugin_dir, source=source)
+            builder.append(definitions, bundled=False, source_dir=plugin_dir, source=source,
+                           plugin_id=plugin_id)
 
     # Provider selection is needed to resolve legacy capability favorites.
     # Run migrations after the complete extension catalog is known, but before

@@ -216,6 +216,9 @@ assert(replacementRootItem.description === 'Open fixture calculator', 'extension
 assert(menu.extensionRootActivation(menu.parseExtensions(JSON.stringify([replacementFixture]))[0]) === 'input', 'query-only extension roots select focused input')
 assert(menu.extensionRootInput(menu.parseExtensions(JSON.stringify([replacementFixture]))[0]) === '', 'query-only extension roots start with empty functional input')
 assert(replacementRootItem.aliases.includes('calculator') && replacementRootItem.aliases.includes('fixture-calculator'), 'extension roots are globally searchable by stable capability and provider id')
+const removableExtension = menu.normalizeExtension({ ...replacementFixture, _pluginId: 'example.fixture-plugin' })
+assert(removableExtension.pluginId === 'example.fixture-plugin' && !removableExtension.bundled,
+  'external extensions retain their owning plugin identity for removal')
 assert(menu.matchesQuery(replacementRootItem, menu.prepareSearchQuery('calculator'), true), 'extension roots participate in global search')
 const unavailableRootExtension = menu.parseExtensions(JSON.stringify([{ ...replacementFixture, _missingRequires: ['fixture-calc'] }]))[0]
 const unavailableRootItem = menu.extensionRootItem(unavailableRootExtension)

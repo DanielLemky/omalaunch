@@ -23,7 +23,7 @@ Activating a shortcut enters the interface appropriate to its mode:
 - `workflow` opens its first host-rendered workflow stage.
 - `menu` runs its provider and opens the returned host-rendered action menu.
 
-Unavailable extensions remain listed with their missing dependency detail. Only dependencies in Omalaunch's own trusted setup allow-list offer an installation confirmation; other unavailable shortcuts cannot dispatch a command.
+Press Ctrl+K on an external extension in the **Extensions** directory to open its action menu, then select **Remove Extension** to remove its owning Omarchy plugin after confirmation. Bundled extensions do not offer removal. Unavailable extensions remain listed with their missing dependency detail. Only dependencies in Omalaunch's own trusted setup allow-list offer an installation confirmation; other unavailable shortcuts cannot dispatch a command.
 
 ## External plugin manifest
 

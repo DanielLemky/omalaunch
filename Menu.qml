@@ -248,6 +248,11 @@ Item {
     ? root.dynamicMenuSearchEntry(displayModel.get(root.selectedIndex).itemId) : null
   readonly property var selectedDynamicStarAction: root.selectedDynamicSearchEntry
     ? root.workflowStarAction(root.selectedDynamicSearchEntry.node) : null
+  readonly property var selectedExtensionRoot: !root.workflowActive && root.activeMenu === "extensions"
+    && root.cursorActive && root.selectedIndex >= 0 && root.selectedIndex < displayModel.count
+    ? root.extensionForRootId(displayModel.get(root.selectedIndex).itemId) : null
+  readonly property bool canRemoveSelectedExtension: root.selectedExtensionRoot
+    && !root.selectedExtensionRoot.bundled && !!root.selectedExtensionRoot.pluginId
   readonly property int previewPaneWidth: Math.round((root.cardWidth
     - card.contentLeftInset - card.contentRightInset - root.contentSpacing) / 2)
 
@@ -407,7 +412,7 @@ Item {
     canConfigure: root.canConfigureExtension,
     canSettings: !root.dmenuActive && !root.workflowActive && !root.fileBrowserActive
       && root.activeMenu === "root",
-    canContextActions: root.selectedWorkflowHasActions
+    canContextActions: root.canRemoveSelectedExtension || root.selectedWorkflowHasActions
       || (root.documentActive && root.activeDocument && root.activeDocument.actions.length > 0)
       || (root.selectedDynamicSearchEntry && root.selectedDynamicSearchEntry.node.actions.length > 0),
     focusedExtension: !!root.focusedExtension,
@@ -506,7 +511,8 @@ Item {
       else root.openSettings()
     }
     else if (id === "actions") {
-      if (!root.workflowActive && root.selectedDynamicSearchEntry) root.openDynamicSearchActions()
+      if (root.canRemoveSelectedExtension) root.openExtensionActions()
+      else if (!root.workflowActive && root.selectedDynamicSearchEntry) root.openDynamicSearchActions()
       else if (root.workflowActive && !root.fileBrowserActive) root.openWorkflowActions()
       else if (root.fileBrowserActive) root.openActionPanel()
     } else if (id === "copy") root.copySelectedFile()
@@ -1035,6 +1041,34 @@ Item {
     }
     root.submenuLoading = false
     submenuProc.usageItemId = ""
+  }
+
+  function openExtensionActions() {
+    var extension = root.selectedExtensionRoot
+    if (!extension || extension.bundled || !extension.pluginId) return
+    root.workflowActive = true
+    root.workflowExtension = extension
+    root.workflowContext = ({ extensionDir: extension.sourceDir })
+    root.workflowStack = []
+    root.workflowNode = {
+      id: "root",
+      kind: "menu",
+      label: extension.label,
+      items: [{
+        id: "remove-extension",
+        kind: "confirm",
+        label: "Remove Extension",
+        confirm: "Remove " + extension.label + "?",
+        confirmLabel: "Remove",
+        command: ["omarchy", "plugin", "remove", extension.pluginId, "--yes"],
+        refreshExtensions: true,
+        closeOnSuccess: true
+      }]
+    }
+    root.filterText = ""
+    root.selectedIndex = 0
+    root.cursorActive = true
+    root.rebuildDisplay()
   }
 
   function openExtensionConfiguration() {
