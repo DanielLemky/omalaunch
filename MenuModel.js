@@ -1093,6 +1093,13 @@ function dynamicMenuSearchIdentity(itemId) {
   } catch (e) { return null }
 }
 
+function dynamicMenuNavigationUsageItemId(extension, node, hasSearchIdentity) {
+  if (!extension || extension.mode !== "menu" || !node || !node.id) return ""
+  // Root-level rows can also exist in global search. Use that exact ranked
+  // identity. Nested rows stay isolated to the provider that supplied them.
+  return dynamicMenuItemId(hasSearchIdentity ? extension.capability : extension.id, node.id)
+}
+
 function dynamicMenuUsageItemId(extension, node) {
   if (!extension || extension.mode !== "menu" || !node || !node.usageItemId) return ""
   if ((extension.id === "omalaunch.quicklinks" || extension.id === "omalaunch.web-search")
@@ -2018,6 +2025,7 @@ if (typeof module !== "undefined") {
     dynamicMenuSearchItems: dynamicMenuSearchItems,
     dynamicMenuItemId: dynamicMenuItemId,
     dynamicMenuSearchIdentity: dynamicMenuSearchIdentity,
+    dynamicMenuNavigationUsageItemId: dynamicMenuNavigationUsageItemId,
     dynamicMenuUsageItemId: dynamicMenuUsageItemId,
     workflowInterpolate: workflowInterpolate,
     workflowInitialInput: workflowInitialInput,
