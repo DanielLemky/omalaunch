@@ -150,6 +150,8 @@ Item {
   readonly property int extensionQueryTerminationGraceMs: 500
   property bool fileBrowserActive: false
   property bool directoryPickerActive: false
+  property bool filePickerActive: false
+  readonly property bool workflowPickerActive: directoryPickerActive || filePickerActive
   property var fileBrowserExtension: null
   property string fileBrowserPath: ""
   property var fileEntries: []
@@ -176,6 +178,11 @@ Item {
   readonly property var activeDocument: root.documentActive ? root.workflowNode.document : null
   property var workflowConfirmNode: null
   property bool workflowConfirmOpen: false
+  property bool workflowResultOpen: false
+  property string workflowResultMessage: ""
+  property bool workflowResultSucceeded: false
+  property string workflowResultTitle: ""
+  property var workflowPendingSuccess: null
   property int dynamicMenuGeneration: 0
   readonly property int dynamicMenuTimeoutMs: 5000
   readonly property int dynamicMenuTerminationGraceMs: 500
@@ -226,7 +233,9 @@ Item {
   readonly property string selectedFilePath: root.selectedFileRow ? String(root.selectedFileRow.action || "") : ""
   readonly property bool selectedFileNavigation: !!root.selectedFileRow
     && root.selectedFileRow.itemId === "file.navigation.parent"
-  readonly property bool imagePreviewActive: MenuModel.isImagePath(root.selectedFilePath)
+  readonly property bool confirmationContentActive: root.workflowResultOpen || root.workflowConfirmOpen
+    || root.deleteConfirmOpen || root.dependencyConfirmOpen
+  readonly property bool imagePreviewActive: !root.confirmationContentActive && MenuModel.isImagePath(root.selectedFilePath)
   readonly property var selectedWorkflowNode: root.workflowActive && !root.fileBrowserActive
     && root.workflowNode && root.workflowNode.kind === "menu" && root.cursorActive
     && root.selectedIndex >= 0 && root.selectedIndex < displayModel.count
@@ -300,9 +309,6 @@ Item {
   }
 
   property color background: Color.menu.background
-  // Menu theme surfaces can include alpha. Confirmation cards must be opaque
-  // because they are rendered over the menu card and its rows.
-  readonly property color dialogBackground: Qt.rgba(background.r, background.g, background.b, 1)
   property color foreground: Color.menu.text
   property color border: Color.menu.border
   property var borderSpec: Border.surfaceSpec("menu", "border", border, Math.max(1, Style.space(2)))
@@ -365,7 +371,13 @@ Item {
     && (root.workflowNode.id === "root" || root.workflowNode.reloadCommand)
   property int workflowHintHeight: (root.workflowInputActive || root.filterMenuHintActive)
     ? Math.max(Style.space(12), Math.round(Style.space(18) * menuItemScale)) : 0
-  property int cardHeight: Math.min(contentMargin + actionBarBottomPadding + headerHeight + actionBarHeight + contentSpacing
+  readonly property real confirmationContentHeight: root.workflowResultOpen ? workflowResult.implicitHeight
+    : root.workflowConfirmOpen ? workflowConfirm.implicitHeight
+    : root.deleteConfirmOpen ? deleteConfirm.implicitHeight
+    : dependencyConfirm.implicitHeight
+  property int cardHeight: root.confirmationContentActive
+    ? Math.ceil(root.confirmationContentHeight + card.contentTopInset + card.contentBottomInset)
+    : Math.min(contentMargin + actionBarBottomPadding + headerHeight + actionBarHeight + contentSpacing
     + (visibleRowsHeight > 0 ? contentSpacing + visibleRowsHeight : 0)
     + (workflowHintHeight > 0 ? contentSpacing + workflowHintHeight : 0), panel.height - Style.gapsOut * 2)
 
@@ -384,7 +396,7 @@ Item {
     fileBrowserActive: root.fileBrowserActive,
     fileSelectionType: root.selectedFileRow && root.selectedFileRow.itemId.indexOf("file.item.") === 0
       ? "file" : "directory",
-    directoryPickerActive: root.directoryPickerActive,
+    directoryPickerActive: root.workflowPickerActive,
     actionPanelActive: root.actionPanelActive,
     canRefresh: root.canRefreshWorkflow,
     canConfigure: root.canConfigureExtension,
@@ -1184,6 +1196,7 @@ Item {
     root.resetFileIndex()
     root.fileBrowserActive = false
     root.directoryPickerActive = false
+    root.filePickerActive = false
     root.fileBrowserExtension = null
     root.workflowActive = false
     root.workflowExtension = null
@@ -1211,6 +1224,7 @@ Item {
     root.resetFileIndex()
     root.fileBrowserActive = false
     root.directoryPickerActive = false
+    root.filePickerActive = false
     root.fileBrowserExtension = null
     root.workflowNode = node
     root.workflowContext = root.workflowNodeContext(node, context)
@@ -1218,7 +1232,8 @@ Item {
       ? MenuModel.workflowInitialInput(node, root.workflowValues()) : ""
     root.selectedIndex = 0
     root.cursorActive = node.kind !== "input"
-    if (node.kind === "directoryPicker") root.enterDirectoryPicker(root.workflowContext.path || "")
+    if (node.kind === "directoryPicker" || node.kind === "filePicker")
+      root.enterWorkflowPicker(node.kind, root.workflowContext.path || "")
     else root.rebuildDisplay()
   }
 
@@ -1230,6 +1245,7 @@ Item {
     root.resetFileIndex()
     root.fileBrowserActive = false
     root.directoryPickerActive = false
+    root.filePickerActive = false
     root.fileBrowserExtension = null
     if (root.workflowStack.length === 0) {
       root.leaveWorkflow()
@@ -1322,7 +1338,11 @@ Item {
 
   function boundedBackgroundDiagnostic(value) {
     var text = String(value || "").replace(/[\r\n\0]/g, " ")
-    return text.substring(0, root.backgroundDiagnosticTextLimit)
+    return MenuModel.boundedUtf8Prefix(text, root.backgroundDiagnosticTextLimit).text
+  }
+
+  function boundedDiagnostic(value, maxBytes) {
+    return MenuModel.boundedUtf8Prefix(String(value || "").replace(/\s+/g, " ").trim(), maxBytes).text
   }
 
   function dispatchBackgroundAction(extension, node, input) {
@@ -1381,6 +1401,12 @@ Item {
     workflowActionProc.nextNode = node.next
     workflowActionProc.nextContext = transition.context
     workflowActionProc.refreshExtensions = node.refreshExtensions
+    workflowActionProc.successMessage = root.workflowText(node.successMessage || "")
+    workflowActionProc.successTitle = root.workflowText(node.successTitle || "Completed")
+    workflowActionProc.failureTitle = root.workflowText(node.failureTitle || "Could not complete")
+    workflowActionProc.stderrText = ""
+    workflowActionProc.stderrBytes = 0
+    workflowActionProc.stderrOverflow = false
     workflowActionProc.refreshDynamicMenu = root.workflowExtension.mode === "menu" && !node.next && !node.refreshExtensions && !node.closeOnSuccess
     workflowActionProc.nextBackSteps = node.nextBackSteps
     workflowActionProc.closeAfter = node.closeOnSuccess || (root.workflowExtension.mode !== "menu" && !node.next)
@@ -1391,9 +1417,11 @@ Item {
     workflowActionTimeout.restart()
   }
 
-  function enterDirectoryPicker(startPath) {
+  function enterWorkflowPicker(kind, startPath) {
+    if (kind !== "directoryPicker" && kind !== "filePicker") return
     root.fileBrowserShowHidden = false
-    root.directoryPickerActive = true
+    root.directoryPickerActive = kind === "directoryPicker"
+    root.filePickerActive = kind === "filePicker"
     root.fileBrowserActive = true
     root.fileBrowserExtension = root.activeFilesExtension()
     var requestedPath = MenuModel.normalizeFavoritePath(startPath)
@@ -1405,10 +1433,18 @@ Item {
     root.scheduleFileScan()
   }
 
-  function selectWorkflowDirectory(path) {
-    if (!root.directoryPickerActive || !root.workflowNode || !root.workflowNode.next) return
-    var transition = MenuModel.workflowDirectoryTransition(root.workflowNode, path, root.workflowContext)
+  function selectWorkflowPath(path) {
+    if (!root.workflowPickerActive || !root.workflowNode || !root.workflowNode.next) return
+    var transition = root.filePickerActive
+      ? MenuModel.workflowFileTransition(root.workflowNode, path, root.workflowContext)
+      : MenuModel.workflowDirectoryTransition(root.workflowNode, path, root.workflowContext)
     if (!transition) return
+    if (transition.node.kind === "confirm") {
+      root.workflowContext = transition.context
+      root.workflowConfirmNode = transition.node
+      root.workflowConfirmOpen = true
+      return
+    }
     root.workflowStack = root.workflowStack.concat([{ node: root.workflowNode, context: transition.context }])
     root.showWorkflowNode(transition.node, transition.context, false)
   }
@@ -1429,6 +1465,9 @@ Item {
   }
 
   function invalidateWorkflowAction(reason) {
+    root.workflowPendingSuccess = null
+    root.workflowResultOpen = false
+    root.workflowResultMessage = ""
     if (workflowActionProc.stopping) return
     if (workflowActionProc.generation <= 0 && !workflowActionProc.running) return
     root.workflowGeneration += 1
@@ -1451,6 +1490,36 @@ Item {
       workflowActionProc.running = false
       workflowActionKillTimer.restart()
     }
+  }
+
+  function applyWorkflowSuccess(continuation) {
+    if (!continuation) return
+    if (continuation.usageItemId) usage.record(continuation.usageItemId)
+    if (continuation.returnToRoot) {
+      root.workflowActive = false; root.workflowExtension = null; root.workflowNode = null
+      root.workflowContext = ({}); root.workflowStack = []; root.filterText = ""
+      root.preloadDynamicMenuSearch(); root.rebuildDisplay(); return
+    }
+    if (root.workflowExtension && root.workflowExtension.mode === "menu") root.preloadDynamicMenuSearch()
+    if (continuation.refreshExtensions) root.loadExtensions(true)
+    if (continuation.refreshDynamicMenu) {
+      var extension = root.workflowExtension
+      root.enterDynamicMenu(extension, true)
+    }
+    else if (continuation.closeAfter) root.cancel()
+    else if (continuation.nextNode) {
+      if (continuation.nextBackSteps > 0) {
+        var removeCount = continuation.nextBackSteps - 1
+        root.workflowStack = root.workflowStack.slice(0, Math.max(0, root.workflowStack.length - removeCount))
+        root.showWorkflowNode(continuation.nextNode, continuation.nextContext, false)
+      } else root.showWorkflowNode(continuation.nextNode, continuation.nextContext, true)
+    }
+  }
+
+  function dismissWorkflowResult() {
+    var continuation = root.workflowResultSucceeded ? root.workflowPendingSuccess : null
+    root.workflowPendingSuccess = null; root.workflowResultOpen = false; root.workflowResultMessage = ""
+    if (continuation) root.applyWorkflowSuccess(continuation)
   }
 
   function closeWorkflowAfterDispatch() {
@@ -1527,6 +1596,7 @@ Item {
     root.actionPanelFile = null
     root.fileBrowserActive = false
     root.directoryPickerActive = false
+    root.filePickerActive = false
     root.fileBrowserExtension = null
     root.fileBrowserPath = ""
     root.fileEntries = []
@@ -1660,7 +1730,7 @@ Item {
         action: entry.path
       })
       var row = root.displayRow(item, item.description, i)
-      row.starred = !root.directoryPickerActive && root.isFileFavoriteStarred(entry.path, entry.type)
+      row.starred = !root.workflowPickerActive && root.isFileFavoriteStarred(entry.path, entry.type)
       displayModel.append(row)
     }
     root.layoutSerial += 1
@@ -1696,7 +1766,8 @@ Item {
   }
 
   function openActionPanel() {
-    if (!root.fileBrowserActive || root.selectedIndex < 0 || root.selectedIndex >= displayModel.count) return
+    if (!root.fileBrowserActive || root.workflowPickerActive
+        || root.selectedIndex < 0 || root.selectedIndex >= displayModel.count) return
     var row = displayModel.get(root.selectedIndex)
     if (!row || (row.itemId.indexOf("file.item.") !== 0 && row.itemId.indexOf("file.directory.") !== 0)) return
     root.actionPanelFile = {
@@ -1730,7 +1801,8 @@ Item {
   }
 
   function copySelectedFile() {
-    if (!root.fileBrowserActive || root.selectedIndex < 0 || root.selectedIndex >= displayModel.count) return
+    if (!root.fileBrowserActive || root.workflowPickerActive
+        || root.selectedIndex < 0 || root.selectedIndex >= displayModel.count) return
     var row = displayModel.get(root.selectedIndex)
     if (!row || !root.fileBrowserExtension
         || (row.itemId.indexOf("file.item.") !== 0 && row.itemId.indexOf("file.directory.") !== 0)) return
@@ -2679,6 +2751,8 @@ Item {
     root.fileBrowserShowHidden = false
     root.workflowConfirmOpen = false
     root.workflowConfirmNode = null
+    root.workflowResultOpen = false
+    root.workflowResultMessage = ""
     root.deleteConfirmOpen = false
     root.deleteTarget = null
     root.dependencyConfirmOpen = false
@@ -2839,7 +2913,7 @@ Item {
       return
     }
     if (root.directoryPickerActive && row.itemId === "workflow.directory.select") {
-      root.selectWorkflowDirectory(row.action)
+      root.selectWorkflowPath(row.action)
       return
     }
     if (root.fileBrowserActive && row.itemId === "file.navigation.parent") {
@@ -2853,6 +2927,8 @@ Item {
         root.fileEntries = []
         root.selectedIndex = 0
         root.scheduleFileScan()
+      } else if (root.filePickerActive) {
+        root.selectWorkflowPath(row.action)
       } else {
         var openCommand = root.shellCommand(root.fileBrowserExtension.command, { path: row.action })
         root.fileBrowserActive = false
@@ -2918,6 +2994,7 @@ Item {
     if (!row || row.itemId === "omarchy" || row.itemId === "extensions"
         || row.itemId === "extension.result" || row.itemId === "extension.result.pending" || !favorites.loaded) return
     if (root.fileBrowserActive) {
+      if (root.workflowPickerActive) return
       var fileType = row.itemId.indexOf("file.directory.") === 0 ? "directory"
         : (row.itemId.indexOf("file.item.") === 0 ? "file" : "")
       if (!fileType) return
@@ -2936,14 +3013,12 @@ Item {
     var row = displayModel.get(root.selectedIndex)
     if (!row || row.kind !== "app") return
     root.deleteTarget = { appId: row.appId, label: row.label }
-    deleteConfirm.selectedIndex = 1
     root.deleteConfirmOpen = true
   }
 
   function cancelDelete() {
     root.deleteConfirmOpen = false
     root.deleteTarget = null
-    deleteConfirm.selectedIndex = 1
     root.disarmPointer()
     Qt.callLater(function() { keyCatcher.forceActiveFocus() })
   }
@@ -2993,6 +3068,8 @@ Item {
     root.dmenuPrompt = ""
     root.dmenuOptions = []
     root.dmenuRows = []
+    root.workflowResultOpen = false
+    root.workflowResultMessage = ""
     root.navStack = []
     root.filterText = ""
     root.opened = false
@@ -3005,6 +3082,8 @@ Item {
     root.invalidateDynamicMenu()
     root.workflowConfirmOpen = false
     root.workflowConfirmNode = null
+    root.workflowResultOpen = false
+    root.workflowResultMessage = ""
     root.routePendingForMenuSources = false
     if (root.dmenuActive) root.finishRequest(null)
     root.resetFileIndex()
@@ -3012,6 +3091,7 @@ Item {
     root.actionPanelFile = null
     root.fileBrowserActive = false
     root.directoryPickerActive = false
+    root.filePickerActive = false
     root.fileBrowserExtension = null
     root.workflowActive = false
     root.workflowExtension = null
@@ -3429,7 +3509,7 @@ Item {
         if (root.fileBrowserActive) {
           var refreshedFiles = root.filesExtensionForCapability(fileCapability) || root.extensionById(fileId)
           if (refreshedFiles && refreshedFiles.available && refreshedFiles.mode === "files") root.fileBrowserExtension = refreshedFiles
-          else if (root.directoryPickerActive && root.workflowActive) root.workflowBack()
+          else if (root.workflowPickerActive && root.workflowActive) root.workflowBack()
           else root.leaveFileBrowser(false)
         }
         if (catalog.complete) root.extensionsLoadedAt = Date.now()
@@ -3938,6 +4018,30 @@ Item {
     property bool closeAfter: false
     property bool returnToRoot: false
     property string usageItemId: ""
+    property string successMessage: ""
+    property string successTitle: ""
+    property string failureTitle: ""
+    property string stderrText: ""
+    property int stderrBytes: 0
+    property bool stderrOverflow: false
+    stderr: SplitParser {
+      onRead: function(data) {
+        if (workflowActionProc.stderrOverflow) return
+        var remaining = root.dynamicMenuOutputBytes - workflowActionProc.stderrBytes
+        var chunk = MenuModel.boundedUtf8Prefix(data, remaining)
+        if (chunk.bytes > 0) {
+          workflowActionProc.stderrText += chunk.text
+          workflowActionProc.stderrBytes += chunk.bytes
+        }
+        if (!chunk.complete || workflowActionProc.stderrBytes >= root.dynamicMenuOutputBytes) {
+          workflowActionProc.stderrOverflow = true
+          workflowActionProc.signal(15)
+          return
+        }
+        workflowActionProc.stderrText += "\n"
+        workflowActionProc.stderrBytes += 1
+      }
+    }
     onExited: function(exitCode) {
       console.warn("Omalaunch action exit: " + exitCode + " command=" + JSON.stringify(workflowActionProc.command))
       workflowActionTimeout.stop()
@@ -3947,36 +4051,31 @@ Item {
       if (!MenuModel.workflowActionIsCurrent(workflowActionProc.generation, root.workflowGeneration,
           root.workflowActive, workflowActionProc.extensionCapability, root.workflowExtension)) return
       workflowActionProc.generation = 0
-      if (exitCode !== 0) { workflowActionProc.returnToRoot = false; workflowActionProc.usageItemId = ""; return }
-      var usageItemId = workflowActionProc.usageItemId
-      workflowActionProc.usageItemId = ""
-      if (usageItemId) usage.record(usageItemId)
-      if (workflowActionProc.returnToRoot) {
+      if (exitCode !== 0) {
+        root.workflowPendingSuccess = null
         workflowActionProc.returnToRoot = false
-        root.workflowActive = false
-        root.workflowExtension = null
-        root.workflowNode = null
-        root.workflowContext = ({})
-        root.workflowStack = []
-        root.filterText = ""
-        root.preloadDynamicMenuSearch()
-        root.rebuildDisplay()
+        workflowActionProc.usageItemId = ""
+        root.workflowResultTitle = workflowActionProc.failureTitle
+        root.workflowResultSucceeded = false
+        root.workflowResultMessage = root.boundedDiagnostic(workflowActionProc.stderrText || "Action failed", 512)
+        root.workflowResultOpen = true
         return
       }
-      if (root.workflowExtension.mode === "menu") root.preloadDynamicMenuSearch()
-      if (workflowActionProc.refreshExtensions) root.loadExtensions(true)
-      if (workflowActionProc.refreshDynamicMenu) {
-        var extension = root.workflowExtension
-        root.enterDynamicMenu(extension, true)
-      } else if (workflowActionProc.closeAfter) {
-        root.cancel()
-      } else if (workflowActionProc.nextNode) {
-        if (workflowActionProc.nextBackSteps > 0) {
-          var removeCount = workflowActionProc.nextBackSteps - 1
-          root.workflowStack = root.workflowStack.slice(0, Math.max(0, root.workflowStack.length - removeCount))
-          root.showWorkflowNode(workflowActionProc.nextNode, workflowActionProc.nextContext, false)
-        } else root.showWorkflowNode(workflowActionProc.nextNode, workflowActionProc.nextContext, true)
+      var continuation = { usageItemId: workflowActionProc.usageItemId,
+        returnToRoot: workflowActionProc.returnToRoot, refreshExtensions: workflowActionProc.refreshExtensions,
+        refreshDynamicMenu: workflowActionProc.refreshDynamicMenu, closeAfter: workflowActionProc.closeAfter,
+        nextNode: workflowActionProc.nextNode, nextContext: workflowActionProc.nextContext,
+        nextBackSteps: workflowActionProc.nextBackSteps }
+      workflowActionProc.usageItemId = ""; workflowActionProc.returnToRoot = false
+      if (workflowActionProc.successMessage) {
+        root.workflowPendingSuccess = continuation
+        root.workflowResultTitle = workflowActionProc.successTitle
+        root.workflowResultSucceeded = true
+        root.workflowResultMessage = workflowActionProc.successMessage
+        root.workflowResultOpen = true
+        return
       }
+      root.applyWorkflowSuccess(continuation)
     }
   }
 
@@ -4350,12 +4449,15 @@ Item {
       Item {
         id: keyCatcher
         anchors.fill: parent
-        z: (root.workflowConfirmOpen || root.deleteConfirmOpen || root.dependencyConfirmOpen) ? 20 : 0
+        z: (root.workflowResultOpen || root.workflowConfirmOpen || root.deleteConfirmOpen || root.dependencyConfirmOpen) ? 20 : 0
         focus: true
 
         Keys.priority: Keys.BeforeItem
         Keys.onPressed: function(event) {
-          if (root.workflowConfirmOpen) {
+          if (root.workflowResultOpen) {
+            if (workflowResult.handleKey(event)) event.accepted = true
+            return
+          } else if (root.workflowConfirmOpen) {
             if (workflowConfirm.handleKey(event)) event.accepted = true
             return
           }
@@ -4375,7 +4477,7 @@ Item {
                 || (event.key === Qt.Key_Insert && (event.modifiers & Qt.ShiftModifier)))) {
             if (!pasteProc.running) pasteProc.running = true
             event.accepted = true
-          } else if (root.fileBrowserActive && !root.directoryPickerActive && !root.actionPanelActive && event.key === Qt.Key_H && (event.modifiers & Qt.ControlModifier)) {
+          } else if (root.fileBrowserActive && !root.actionPanelActive && event.key === Qt.Key_H && (event.modifiers & Qt.ControlModifier)) {
             root.toggleHiddenFiles()
             event.accepted = true
           } else if (event.key === Qt.Key_Delete) {
@@ -4388,7 +4490,7 @@ Item {
                 hasFilter: !!root.filterText,
                 path: root.fileBrowserPath,
                 home: Quickshell.env("HOME"),
-                directoryPickerActive: root.directoryPickerActive
+                directoryPickerActive: root.workflowPickerActive
               })
               if (fileEscape === "close-actions") root.closeActionPanel()
               else if (fileEscape === "clear-search") root.setFilter("")
@@ -4425,7 +4527,7 @@ Item {
             if (root.actionPanelActive) root.closeActionPanel()
             else if (root.fileBrowserActive) {
               if (root.fileBrowserPath === "/") {
-                if (root.directoryPickerActive) root.workflowBack()
+                if (root.workflowPickerActive) root.workflowBack()
                 else root.leaveFileBrowser()
               } else {
                 root.navigateFileBrowserParent()
@@ -4455,21 +4557,35 @@ Item {
           }
         }
 
-        ConfirmDialog {
+        ConfirmationMenu {
           id: workflowConfirm
           anchors.fill: parent
+          maximumHeight: Math.max(1, panel.height - Style.gapsOut * 2 - card.contentTopInset - card.contentBottomInset)
+          anchors.topMargin: card.contentTopInset
+          anchors.rightMargin: card.contentRightInset
+          anchors.bottomMargin: card.contentBottomInset
+          anchors.leftMargin: card.contentLeftInset
           opened: root.workflowConfirmOpen
           z: 10
-          message: root.workflowConfirmNode ? (root.workflowConfirmNode.confirm || "Do you want to run " + root.workflowConfirmNode.label + "?") : ""
-          confirmText: root.workflowConfirmNode ? root.workflowConfirmNode.confirmLabel : "Run"
-          background: root.dialogBackground
+          heading: root.workflowConfirmNode ? "Confirm: " + root.workflowText(root.workflowConfirmNode.confirmTitle || root.workflowConfirmNode.label) : "Confirm"
+          message: root.workflowConfirmNode ? root.workflowText(root.workflowConfirmNode.confirm || "Do you want to run " + root.workflowConfirmNode.label + "?") : ""
+          actionText: root.workflowConfirmNode ? root.workflowConfirmNode.confirmLabel : "Run"
+          actionFirst: root.workflowConfirmNode ? root.workflowConfirmNode.confirmActionFirst : false
+          defaultChoice: root.workflowConfirmNode ? root.workflowConfirmNode.confirmDefault : "cancel"
+          actionTone: root.workflowConfirmNode ? root.workflowConfirmNode.confirmTone : "neutral"
+          actionIcon: root.workflowConfirmNode ? root.workflowConfirmNode.confirmIcon : ""
           foreground: root.foreground
-          scrim: root.scrim
           selectedBackground: root.selectedBackground
           selectedText: root.selectedText
+          selectedBorderSpec: root.selectedBorderSpec
           fontFamily: root.fontFamily
           cornerRadius: root.cornerRadius
-          onOpenedChanged: if (opened) { selectedIndex = 1; keyCatcher.forceActiveFocus() }
+          itemFontSize: root.menuItemFontSize
+          secondaryFontSize: root.menuSecondaryFontSize
+          rowHeight: root.baseRowHeight
+          headerHeight: root.headerHeight
+          contentSpacing: root.contentSpacing
+          onOpenedChanged: if (opened) keyCatcher.forceActiveFocus()
           onCanceled: { root.workflowConfirmOpen = false; root.workflowConfirmNode = null }
           onConfirmed: {
             var node = root.workflowConfirmNode
@@ -4479,53 +4595,107 @@ Item {
           }
         }
 
-        ConfirmDialog {
-          id: deleteConfirm
-
+        ConfirmationMenu {
+          id: workflowResult
           anchors.fill: parent
-          opened: root.deleteConfirmOpen
-          z: 10
-          message: "Do you want to uninstall " + ((root.deleteTarget && root.deleteTarget.label) || "") + "?"
-          confirmText: "Uninstall"
-          background: root.dialogBackground
+          maximumHeight: Math.max(1, panel.height - Style.gapsOut * 2 - card.contentTopInset - card.contentBottomInset)
+          anchors.topMargin: card.contentTopInset
+          anchors.rightMargin: card.contentRightInset
+          anchors.bottomMargin: card.contentBottomInset
+          anchors.leftMargin: card.contentLeftInset
+          opened: root.workflowResultOpen
+          z: 11
+          resultOnly: true
+          heading: root.workflowResultTitle
+          headingIcon: root.workflowResultSucceeded ? "󰄬" : "󰅖"
+          headingColor: root.workflowResultSucceeded ? Color.accent : Color.urgent
+          messageOpacity: 1.0
+          message: root.workflowResultMessage
+          actionText: "OK"
           foreground: root.foreground
-          scrim: root.scrim
           selectedBackground: root.selectedBackground
           selectedText: root.selectedText
+          selectedBorderSpec: root.selectedBorderSpec
           fontFamily: root.fontFamily
           cornerRadius: root.cornerRadius
-          onOpenedChanged: if (opened) { selectedIndex = 1; keyCatcher.forceActiveFocus() }
+          itemFontSize: root.menuItemFontSize
+          secondaryFontSize: root.menuSecondaryFontSize
+          rowHeight: root.baseRowHeight
+          headerHeight: root.headerHeight
+          contentSpacing: root.contentSpacing
+          onOpenedChanged: if (opened) keyCatcher.forceActiveFocus()
+          onCanceled: root.dismissWorkflowResult()
+          onConfirmed: root.dismissWorkflowResult()
+        }
+
+        ConfirmationMenu {
+          id: deleteConfirm
+          anchors.fill: parent
+          anchors.topMargin: card.contentTopInset
+          anchors.rightMargin: card.contentRightInset
+          anchors.bottomMargin: card.contentBottomInset
+          anchors.leftMargin: card.contentLeftInset
+          opened: root.deleteConfirmOpen
+          z: 10
+          heading: "Uninstall application"
+          message: "Do you want to uninstall " + ((root.deleteTarget && root.deleteTarget.label) || "") + "?"
+          actionText: "Uninstall"
+          actionTone: "danger"
+          actionIcon: "󰆴"
+          foreground: root.foreground
+          selectedBackground: root.selectedBackground
+          selectedText: root.selectedText
+          selectedBorderSpec: root.selectedBorderSpec
+          fontFamily: root.fontFamily
+          cornerRadius: root.cornerRadius
+          itemFontSize: root.menuItemFontSize
+          secondaryFontSize: root.menuSecondaryFontSize
+          rowHeight: root.baseRowHeight
+          headerHeight: root.headerHeight
+          contentSpacing: root.contentSpacing
+          onOpenedChanged: if (opened) keyCatcher.forceActiveFocus()
           onCanceled: root.cancelDelete()
           onConfirmed: root.confirmDelete()
         }
 
-        ConfirmDialog {
+        ConfirmationMenu {
           id: dependencyConfirm
-
           anchors.fill: parent
+          anchors.topMargin: card.contentTopInset
+          anchors.rightMargin: card.contentRightInset
+          anchors.bottomMargin: card.contentBottomInset
+          anchors.leftMargin: card.contentLeftInset
           opened: root.dependencyConfirmOpen
           z: 11
+          heading: "Install dependency"
           message: root.dependencyTarget
             ? ("Install " + root.dependencyTarget.packageName + " for " + root.dependencyTarget.reason
               + "?\n\nCommand: " + root.dependencyTarget.installCommand.join(" ")
               + "\n\nThe command will run in a visible terminal. Reopen Omalaunch afterward to recheck.")
             : ""
-          cancelText: "Not now"
-          confirmText: "Install"
-          background: root.dialogBackground
+          cancelText: "Cancel"
+          actionText: "Install"
+          actionTone: "accent"
+          actionIcon: "󰏔"
           foreground: root.foreground
-          scrim: root.scrim
           selectedBackground: root.selectedBackground
           selectedText: root.selectedText
+          selectedBorderSpec: root.selectedBorderSpec
           fontFamily: root.fontFamily
           cornerRadius: root.cornerRadius
-          onOpenedChanged: if (opened) { selectedIndex = 1; keyCatcher.forceActiveFocus() }
+          itemFontSize: root.menuItemFontSize
+          secondaryFontSize: root.menuSecondaryFontSize
+          rowHeight: root.baseRowHeight
+          headerHeight: root.headerHeight
+          contentSpacing: root.contentSpacing
+          onOpenedChanged: if (opened) keyCatcher.forceActiveFocus()
           onCanceled: root.cancelDependencyInstall()
           onConfirmed: root.confirmDependencyInstall()
         }
       }
 
       Column {
+        visible: !root.confirmationContentActive
         anchors.fill: parent
         anchors.topMargin: card.contentTopInset
         anchors.rightMargin: card.contentRightInset

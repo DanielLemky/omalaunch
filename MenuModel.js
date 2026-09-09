@@ -540,6 +540,45 @@ function utf8ByteLength(value) {
   return bytes
 }
 
+// Return at most maxBytes of valid Unicode. The scan stops at the first
+// code point that does not fit, so a very large input is not copied or scanned
+// past the configured bound. Invalid UTF-16 surrogates become U+FFFD.
+function boundedUtf8Prefix(value, maxBytes) {
+  var text = String(value || "")
+  var limit = Math.max(0, Number(maxBytes) || 0)
+  var bytes = 0
+  var index = 0
+  var cleanStart = 0
+  var parts = []
+  while (index < text.length) {
+    var code = text.charCodeAt(index)
+    var units = 1
+    var codeBytes = 3
+    var invalid = false
+    if (code <= 0x7f) codeBytes = 1
+    else if (code <= 0x7ff) codeBytes = 2
+    else if (code >= 0xd800 && code <= 0xdbff) {
+      if (index + 1 < text.length) {
+        var low = text.charCodeAt(index + 1)
+        if (low >= 0xdc00 && low <= 0xdfff) {
+          units = 2
+          codeBytes = 4
+        } else invalid = true
+      } else invalid = true
+    } else if (code >= 0xdc00 && code <= 0xdfff) invalid = true
+    if (bytes + codeBytes > limit) break
+    if (invalid) {
+      if (cleanStart < index) parts.push(text.substring(cleanStart, index))
+      parts.push("\ufffd")
+      cleanStart = index + 1
+    }
+    bytes += codeBytes
+    index += units
+  }
+  if (cleanStart < index) parts.push(text.substring(cleanStart, index))
+  return { text: parts.join(""), bytes: bytes, complete: index === text.length }
+}
+
 function finiteExtensionNumber(value, fallback) {
   if (value === undefined || value === null || value === "") return fallback
   var number = Number(value)
@@ -555,6 +594,7 @@ function openStateReset() {
     actionPanelFile: null,
     fileBrowserActive: false,
     directoryPickerActive: false,
+    filePickerActive: false,
     fileBrowserExtension: null,
     fileBrowserPath: "",
     fileEntries: [],
@@ -574,6 +614,10 @@ function openStateReset() {
 function boundedWorkflowText(value, limit) {
   var text = String(value === undefined || value === null ? "" : value)
   return text.length <= (limit || MAX_WORKFLOW_TEXT) ? text : ""
+}
+
+function validOptionalWorkflowText(value, limit) {
+  return value === undefined || (typeof value === "string" && value.length <= limit)
 }
 
 function workflowContext(value) {
@@ -640,11 +684,27 @@ function normalizeDocumentCommand(raw) {
   return { command: command, refreshCommand: refreshCommand }
 }
 
+function prepareDynamicAction(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null
+  var copy = Object.assign({}, raw)
+  if (copy.filePicker !== undefined) {
+    if (!copy.filePicker || typeof copy.filePicker !== "object" || Array.isArray(copy.filePicker)
+        || Object.keys(copy.filePicker).some(function(key) { return key !== "next" })
+        || copy.filePicker.next === undefined
+        || copy.input !== undefined || copy.confirm !== undefined || copy.command !== undefined
+        || copy.submenu !== undefined || copy.document !== undefined) return null
+  }
+  copy.kind = copy.confirm ? "confirm" : (copy.input ? "input" : (copy.filePicker ? "filePicker" : "action"))
+  if (copy.input) copy = Object.assign({}, copy, copy.input, { kind: "input", command: copy.input.command || copy.command })
+  if (copy.filePicker) copy = Object.assign({}, copy, copy.filePicker, { kind: "filePicker" })
+  return copy
+}
+
 function normalizeWorkflowNode(raw, state, depth) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)
       || depth >= MAX_WORKFLOW_DEPTH || state.count >= MAX_WORKFLOW_NODES) return null
   var kind = String(raw.kind || "menu")
-  if (["menu", "directoryPicker", "input", "action", "confirm"].indexOf(kind) < 0) return null
+  if (["menu", "directoryPicker", "filePicker", "input", "action", "confirm"].indexOf(kind) < 0) return null
   var id = boundedWorkflowText(raw.id, 128).trim()
   var label = boundedWorkflowText(raw.label, 256).trim()
   if (!id || !label) return null
@@ -691,6 +751,14 @@ function normalizeWorkflowNode(raw, state, depth) {
     nextBackSteps: 0,
     confirm: boundedWorkflowText(raw.confirm, 512),
     confirmLabel: boundedWorkflowText(raw.confirmLabel, 64) || "Run",
+    confirmTitle: boundedWorkflowText(raw.confirmTitle, 128),
+    confirmActionFirst: raw.confirmActionFirst === true,
+    confirmDefault: raw.confirmDefault === "action" ? "action" : "cancel",
+    confirmTone: ["neutral", "accent", "danger"].indexOf(raw.confirmTone) >= 0 ? raw.confirmTone : "neutral",
+    confirmIcon: boundedWorkflowText(raw.confirmIcon, 32),
+    successMessage: boundedWorkflowText(raw.successMessage, 512),
+    successTitle: boundedWorkflowText(raw.successTitle, 128),
+    failureTitle: boundedWorkflowText(raw.failureTitle, 128),
     starAction: boundedWorkflowText(raw.starAction, 128),
     actions: []
   }
@@ -704,7 +772,15 @@ function normalizeWorkflowNode(raw, state, depth) {
       || (raw.topLevel !== undefined && typeof raw.topLevel !== "boolean")
       || (raw.globalSearch !== undefined && typeof raw.globalSearch !== "boolean")
       || (raw.refreshable !== undefined && typeof raw.refreshable !== "boolean")
-      || (raw.closeOnDispatch !== undefined && typeof raw.closeOnDispatch !== "boolean")) return null
+      || (raw.closeOnDispatch !== undefined && typeof raw.closeOnDispatch !== "boolean")
+      || (raw.confirmActionFirst !== undefined && typeof raw.confirmActionFirst !== "boolean")
+      || (raw.confirmDefault !== undefined && ["cancel", "action"].indexOf(raw.confirmDefault) < 0)
+      || (raw.confirmTone !== undefined && ["neutral", "accent", "danger"].indexOf(raw.confirmTone) < 0)
+      || (raw.confirmIcon !== undefined && typeof raw.confirmIcon !== "string")
+      || !validOptionalWorkflowText(raw.confirmTitle, 128)
+      || !validOptionalWorkflowText(raw.successMessage, 512)
+      || !validOptionalWorkflowText(raw.successTitle, 128)
+      || !validOptionalWorkflowText(raw.failureTitle, 128)) return null
   node.maxLength = Math.max(1, Math.min(MAX_WORKFLOW_TEXT, maxLength))
   node.nextBackSteps = Math.max(0, Math.min(MAX_WORKFLOW_DEPTH, nextBackSteps))
   node.defaultValue = boundedWorkflowText(raw.default, MAX_WORKFLOW_TEXT).substring(0, node.maxLength)
@@ -721,7 +797,7 @@ function normalizeWorkflowNode(raw, state, depth) {
     node.next = normalizeWorkflowNode(raw.next, state, depth + 1)
     if (!node.next) return null
   }
-  if (kind === "directoryPicker" && !node.next) return null
+  if ((kind === "directoryPicker" || kind === "filePicker") && !node.next) return null
   if (kind === "input" && node.command.length === 0 && !node.next) return null
   if (kind === "action" && node.command.length === 0 && node.documentCommand.length === 0
       && node.submenuCommand.length === 0) return null
@@ -729,10 +805,8 @@ function normalizeWorkflowNode(raw, state, depth) {
   if (Array.isArray(raw.actions) && kind !== "menu") {
     if (raw.actions.length > 16) return null
     node.actions = normalizeWorkflowChildren(raw.actions.map(function(action) {
-      var copy = Object.assign({}, action)
-      copy.kind = copy.confirm ? "confirm" : (copy.input ? "input" : "action")
-      if (copy.input) copy = Object.assign({}, copy, copy.input, { kind: "input", command: copy.input.command || copy.command })
-      delete copy.actions
+      var copy = prepareDynamicAction(action)
+      if (copy) delete copy.actions
       return copy
     }), state, depth + 1)
     if (!node.actions) return null
@@ -833,13 +907,8 @@ function normalizeDetailDocument(raw) {
   if (!Array.isArray(rawActions) || rawActions.length > 16) return null
   var actionState = { count: 0 }
   var actions = normalizeWorkflowChildren(rawActions.map(function(action) {
-    if (!action || typeof action !== "object" || Array.isArray(action)) return null
-    var copy = Object.assign({}, action)
-    copy.kind = copy.confirm ? "confirm" : (copy.input ? "input" : "action")
-    if (copy.input) copy = Object.assign({}, copy, copy.input,
-      { kind: "input", command: copy.input.command || copy.command })
-    delete copy.actions
-    delete copy.document
+    var copy = prepareDynamicAction(action)
+    if (copy) delete copy.actions
     return copy
   }), actionState, 0)
   if (!actions) return null
@@ -877,8 +946,8 @@ function workflowCommand(node, input, context) {
   return source.map(function(argument) { return workflowInterpolate(argument, replacements) })
 }
 
-function workflowDirectoryTransition(node, path, context) {
-  if (!node || node.kind !== "directoryPicker" || !node.next) return null
+function workflowPathTransition(node, path, context) {
+  if (!node || ["directoryPicker", "filePicker"].indexOf(node.kind) < 0 || !node.next) return null
   var selectedPath = normalizeFavoritePath(path)
   if (!selectedPath) return null
   var slash = selectedPath.lastIndexOf("/")
@@ -889,6 +958,14 @@ function workflowDirectoryTransition(node, path, context) {
       basename: selectedPath === "/" ? "/" : selectedPath.substring(slash + 1)
     })
   }
+}
+
+function workflowDirectoryTransition(node, path, context) {
+  return node && node.kind === "directoryPicker" ? workflowPathTransition(node, path, context) : null
+}
+
+function workflowFileTransition(node, path, context) {
+  return node && node.kind === "filePicker" ? workflowPathTransition(node, path, context) : null
 }
 
 function workflowInputTransition(node, input, context) {
@@ -1192,9 +1269,8 @@ function normalizeDynamicMenuRows(rows, allowEmpty) {
   for (var i = 0; i < rows.length; i++) {
     var row = rows[i]
     if (!row || typeof row !== "object" || Array.isArray(row)) return null
-    var copy = Object.assign({}, row)
-    copy.kind = copy.confirm ? "confirm" : (copy.input ? "input" : "action")
-    if (copy.input) copy = Object.assign({}, copy, copy.input, { kind: "input", command: copy.input.command || copy.command })
+    var copy = prepareDynamicAction(row)
+    if (!copy) return null
     prepared.push(copy)
   }
   if (allowEmpty && prepared.length === 0) return []
@@ -2112,6 +2188,7 @@ if (typeof module !== "undefined") {
     safeExtensionPattern: safeExtensionPattern,
     openStateReset: openStateReset,
     utf8ByteLength: utf8ByteLength,
+    boundedUtf8Prefix: boundedUtf8Prefix,
     normalizeWorkflow: normalizeWorkflow,
     normalizeDetailDocument: normalizeDetailDocument,
     normalizeDynamicMenuOutput: normalizeDynamicMenuOutput,
@@ -2130,6 +2207,7 @@ if (typeof module !== "undefined") {
     workflowInitialInput: workflowInitialInput,
     workflowCommand: workflowCommand,
     workflowDirectoryTransition: workflowDirectoryTransition,
+    workflowFileTransition: workflowFileTransition,
     workflowInputTransition: workflowInputTransition,
     rebindWorkflow: rebindWorkflow,
     workflowActionIsCurrent: workflowActionIsCurrent,

@@ -18,6 +18,17 @@ assert(menu.utf8ByteLength('GitHub') === 6, 'UTF-8 limits count ASCII bytes')
 assert(menu.utf8ByteLength('é') === 2, 'UTF-8 limits count multibyte characters')
 assert(menu.utf8ByteLength('󰊤') === 4, 'UTF-8 limits count surrogate pairs once')
 assert(menu.utf8ByteLength('\ud800') === 3, 'UTF-8 limits count an unpaired surrogate as replacement bytes')
+const stderrLimit = 256 * 1024
+const oneGiantLine = 'x'.repeat(stderrLimit - 4) + '😀' + 'é'.repeat(stderrLimit)
+const boundedGiantLine = menu.boundedUtf8Prefix(oneGiantLine, stderrLimit)
+assert(boundedGiantLine.bytes === stderrLimit && menu.utf8ByteLength(boundedGiantLine.text) === stderrLimit,
+  'one giant multibyte line retains no more than the exact UTF-8 byte limit')
+assert(!boundedGiantLine.complete && boundedGiantLine.text.endsWith('😀')
+  && !/[\ud800-\udbff]$/.test(boundedGiantLine.text),
+'one giant line stops after a complete astral code point without a split surrogate')
+const repairedPrefix = menu.boundedUtf8Prefix('ok\ud800z', 6)
+assert(repairedPrefix.text === 'ok�z' && menu.utf8ByteLength(repairedPrefix.text) === 6,
+  'bounded UTF-8 prefixes replace invalid surrogate input with valid Unicode')
 
 const validMenuSnapshot = menu.parseMenuJsoncSnapshot('{"items":{"root":{"label":"Root"}}}')
 assert(validMenuSnapshot.valid && validMenuSnapshot.items.length === 1, 'valid menu snapshots are identified')
@@ -308,12 +319,22 @@ const dynamicMenu = menu.normalizeDynamicMenuOutput(JSON.stringify({ items: [
   { id: 'open', label: 'Open docs', primaryActionLabel: 'Open', refreshable: true, description: 'Documentation', aliases: ['manual', 'reference'], starred: true, starAction: 'star', command: ['xdg-open', 'https://example.test'], closeOnSuccess: true, actions: [
     { id: 'star', label: 'Unstar', command: ['links', 'star', 'open', 'false'] },
     { id: 'open', label: 'Open', command: ['xdg-open', 'https://example.test'], closeOnSuccess: true },
-    { id: 'delete', label: 'Delete', confirm: 'Delete this link?', confirmLabel: 'Delete', command: ['links', 'delete', 'open'], refreshExtensions: true }
+    { id: 'delete', label: 'Delete', confirm: 'Delete this link?', confirmLabel: 'Delete', confirmActionFirst: true, confirmDefault: 'action', confirmTone: 'danger', confirmIcon: 'delete-icon', command: ['links', 'delete', 'open'], refreshExtensions: true }
   ] },
   { id: 'add', label: 'Add Quicklink', input: { prompt: 'URL', maxLength: 200, command: ['links', 'add', '{input}'] } }
 ] }))
 assert(dynamicMenu && dynamicMenu.items.length === 2, 'bounded dynamic menu output is normalized')
 assert(dynamicMenu.items[0].kind === 'action' && dynamicMenu.items[0].actions[2].kind === 'confirm', 'rows retain direct actions and contextual confirmations')
+const configuredConfirmation = dynamicMenu.items[0].actions[2]
+assert(configuredConfirmation.confirmActionFirst && configuredConfirmation.confirmDefault === 'action'
+  && configuredConfirmation.confirmTone === 'danger' && configuredConfirmation.confirmIcon === 'delete-icon',
+  'confirmations retain independent order, default, tone, and icon fields')
+for (const invalidConfirmation of [
+  { confirmActionFirst: 'yes' }, { confirmDefault: 'first' }, { confirmTone: 'loud' }, { confirmIcon: 42 }
+]) {
+  const raw = { items: [{ id: 'bad-confirm', label: 'Bad', confirm: 'Sure?', command: ['bad'], ...invalidConfirmation }] }
+  assert(menu.normalizeDynamicMenuOutput(JSON.stringify(raw)) === null, 'invalid confirmation settings reject the row')
+}
 assert(dynamicMenu.items[0].closeOnSuccess, 'launch rows can request launcher closure after successful dispatch')
 assert(dynamicMenu.items[0].starred, 'dynamic rows retain explicit starred state')
 assert(dynamicMenu.items[0].starAction === 'star', 'dynamic rows can identify a direct Ctrl+S star action')
@@ -480,6 +501,34 @@ const capturedMenu = menu.normalizeDynamicMenuOutput([{ id: 'add', label: 'Add',
 const capturedTransition = menu.workflowInputTransition(capturedMenu.items[0], 'https://example.test', {})
 assert(capturedTransition.context.target === 'https://example.test' && capturedTransition.node.id === 'name', 'input capture passes a named literal value to the next host input without persistent draft state')
 assert(menu.normalizeDynamicMenuOutput([{ id: 'bad-capture', label: 'Bad', input: { prompt: 'Bad', capture: '__proto__', command: ['true'] } }]) === null, 'input capture names reject unsafe structural keys')
+const pickerMenu = menu.normalizeDynamicMenuOutput([{ id: 'send', label: 'Send file', context: { peerId: 'machine-7' }, filePicker: {
+  next: { id: 'send-confirm', kind: 'confirm', label: 'Send file', confirm: 'Send {basename}?', command: ['helper', 'send', '{peerId}', '{path}'] }
+} }])
+assert(pickerMenu && pickerMenu.items[0].kind === 'filePicker' && pickerMenu.items[0].context.peerId === 'machine-7',
+'dynamic rows normalize the host filePicker object and retain row context')
+assert(menu.normalizeDynamicMenuOutput([{ id: 'bad-picker', label: 'Bad', filePicker: {} }]) === null,
+'filePicker rows require a next node')
+assert(menu.normalizeDynamicMenuOutput([{ id: 'bad-picker-extra', label: 'Bad', filePicker: { next: { id: 'done', kind: 'action', label: 'Done', command: ['true'] }, root: '/tmp' } }]) === null,
+'filePicker objects reject unsupported fields')
+assert(menu.normalizeDynamicMenuOutput([{ id: 'ambiguous-picker', label: 'Bad', command: ['true'], filePicker: { next: { id: 'done', kind: 'action', label: 'Done', command: ['true'] } } }]) === null,
+'filePicker rows reject conflicting primary actions')
+const pickerConflict = { id: 'pick', label: 'Pick', filePicker: { next: { id: 'done', kind: 'action', label: 'Done', command: ['true'] } }, input: {} }
+assert(menu.normalizeDynamicMenuOutput([{ id: 'row', label: 'Row', command: ['true'], actions: [pickerConflict] }]) === null,
+'contextual filePicker actions reject conflicting action forms')
+assert(menu.normalizeDetailDocument({ title: 'Doc', actions: [pickerConflict] }) === null,
+'document filePicker actions reject conflicting action forms')
+const documentPicker = menu.normalizeDetailDocument({ title: 'Doc', actions: [{ id: 'pick', label: 'Pick', filePicker: { next: { id: 'done', kind: 'action', label: 'Done', command: ['true'] } } }] })
+assert(documentPicker && documentPicker.actions[0].kind === 'filePicker', 'document actions support strict filePicker navigation')
+const resultTextAction = menu.normalizeDetailDocument({ title: 'Doc', actions: [{ id: 'save', label: 'Save', command: ['true'], confirm: 'Save?', confirmTitle: 'Confirm {name}', successMessage: 'Saved {name}', successTitle: 'Done {name}', failureTitle: 'Failed {name}' }] })
+assert(resultTextAction && resultTextAction.actions[0].confirmTitle === 'Confirm {name}'
+  && resultTextAction.actions[0].successMessage === 'Saved {name}'
+  && resultTextAction.actions[0].successTitle === 'Done {name}'
+  && resultTextAction.actions[0].failureTitle === 'Failed {name}',
+'document actions retain confirmation and result text for runtime interpolation')
+for (const [field, limit] of [['confirmTitle', 128], ['successMessage', 512], ['successTitle', 128], ['failureTitle', 128]]) {
+  const tooLong = { title: 'Doc', actions: [{ id: 'bad', label: 'Bad', command: ['true'], [field]: 'x'.repeat(limit + 1) }] }
+  assert(menu.normalizeDetailDocument(tooLong) === null, `${field} rejects text above its exact limit`)
+}
 assert(menu.normalizeDynamicMenuOutput('{bad') === null, 'malformed dynamic menu output is rejected')
 assert(menu.normalizeDynamicMenuOutput({ items: Array.from({ length: 101 }, (_, i) => ({ id: String(i), label: String(i), command: ['true'] })) }) === null, 'dynamic menu row counts are bounded')
 assert(menu.normalizeDynamicMenuOutput([{ id: 'bad', label: 'Bad', command: 'true' }]) === null, 'dynamic menu commands must be argument arrays')
@@ -590,6 +639,25 @@ assert(projectsNode.label === 'Projects' && projectsNode.items.length === 2, 'wo
 const directoryTransition = menu.workflowDirectoryTransition(projectsNode.items[1], '/tmp/Saved Project/', {})
 assert(directoryTransition.node.id === 'name' && directoryTransition.context.path === '/tmp/Saved Project' && directoryTransition.context.basename === 'Saved Project', 'directory selection transitions to naming with a basename default context')
 assert(menu.workflowInterpolate(directoryTransition.node.defaultValue, directoryTransition.context) === 'Saved Project', 'project naming defaults to the selected directory basename')
+const fileWorkflow = menu.normalizeWorkflow({ items: [{
+  id: 'choose', kind: 'filePicker', label: 'Choose file', context: { peerId: 'machine-7' }, next: {
+    id: 'send-confirm', kind: 'confirm', label: 'Send file', confirm: 'Send {basename}?',
+    command: ['helper', 'send', '{peerId}', '{path}']
+  }
+}] })
+const fileContext = Object.assign({}, {}, fileWorkflow.items[0].context)
+const fileTransition = menu.workflowFileTransition(fileWorkflow.items[0], '/tmp/report $(literal).txt', fileContext)
+assert(fileTransition && fileTransition.context.peerId === 'machine-7'
+  && fileTransition.context.path === '/tmp/report $(literal).txt'
+  && fileTransition.context.basename === 'report $(literal).txt',
+'file selection retains machine context and supplies literal path and basename values')
+assert(menu.workflowCommand(fileTransition.node, '', fileTransition.context).join('\0')
+  === ['helper', 'send', 'machine-7', '/tmp/report $(literal).txt'].join('\0'),
+'file selection substitutes path and machine context as complete literal command arguments')
+assert(menu.workflowDirectoryTransition(fileWorkflow.items[0], '/tmp/report.txt', {}) === null,
+'directory transitions reject file-picker nodes')
+assert(menu.workflowFileTransition(projectsNode.items[1], '/tmp/project', {}) === null,
+'file transitions reject directory-picker nodes')
 assert(menu.workflowInitialInput(directoryTransition.node, directoryTransition.context) === 'Saved Project', 'workflow defaults are prepared through the bounded initial-input path')
 const sessionNode = projectsNode.items[0].items[0]
 assert(menu.workflowCommand(sessionNode, '', { path: '/tmp/Saved Project' }).join('\0') === ['xdg-terminal-exec', '--dir=/tmp/Saved Project', '--', 'codex'].join('\0'), 'empty prompts launch blank interactive Codex without an empty argument')
@@ -812,7 +880,9 @@ assert(menu.compactActionBarHints(starredActionHints).map(hint => hint.label).jo
 
 const resetOpenState = menu.openStateReset({ workflowActive: true, fileBrowserActive: true })
 assert(resetOpenState.workflowActive === false && resetOpenState.workflowNode === null && resetOpenState.workflowStack.length === 0, 'new opens reset workflow state')
-assert(resetOpenState.fileBrowserActive === false && resetOpenState.directoryPickerActive === false && resetOpenState.fileBrowserExtension === null, 'new opens reset file browser and directory picker state')
+assert(resetOpenState.fileBrowserActive === false && resetOpenState.directoryPickerActive === false
+  && resetOpenState.filePickerActive === false && resetOpenState.fileBrowserExtension === null,
+  'new opens reset file browser and workflow picker state')
 assert(menu.fileEscapeAction({ actionPanelActive: true, hasFilter: true, path: '/home/test/docs', home: '/home/test' }) === 'close-actions',
   'Escape closes Files actions before it changes their saved search')
 assert(menu.fileEscapeAction({ hasFilter: true, path: '/home/test/docs', home: '/home/test' }) === 'clear-search',
@@ -824,8 +894,9 @@ assert(menu.fileEscapeAction({ path: '/home/test', home: '/home/test' }) === 'le
   'Escape leaves Files at home and at the filesystem root')
 assert(menu.fileEscapeAction({ path: '/home', home: '/home/test' }) === 'parent',
   'Escape continues parent navigation above home')
-assert(menu.fileEscapeAction({ path: '/', home: '/home/test', directoryPickerActive: true }) === 'leave-picker',
-  'Escape at the directory-picker root returns to its workflow')
+assert(menu.fileEscapeAction({ path: '/', home: '/home/test', directoryPickerActive: true }) === 'leave-picker'
+  && menu.fileEscapeAction({ path: '/home/test', home: '/home/test', directoryPickerActive: true }) === 'leave-picker',
+  'Escape at the directory-picker home or root returns to its workflow')
 assert(menu.isHomeOrAncestorPath('/home/test', '/home/test')
   && menu.isHomeOrAncestorPath('/home', '/home/test')
   && !menu.isHomeOrAncestorPath('/home/test/docs', '/home/test')
