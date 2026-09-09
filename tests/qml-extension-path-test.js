@@ -264,7 +264,7 @@ assert(qml.includes('var dynamicUsageId = dynamicSearchEntry.node.submenuCommand
   && qml.includes('dynamicSearchRow.lastUsedAt = usage.lastUsedAt(dynamicUsageId)'),
 'dynamic search ranking reads the same provider-owned identity that successful action or navigation records')
 const dynamicNavigationUsageBody = qml.slice(qml.indexOf('function dynamicNavigationUsageItemId(extension, node)'),
-  qml.indexOf('function enterDynamicMenu(extension, retainRows)'))
+  qml.indexOf('function enterDynamicMenu('))
 assert(dynamicNavigationUsageBody.includes('MenuModel.dynamicMenuNavigationUsageItemId(extension, node)')
   && !dynamicNavigationUsageBody.includes('dynamicMenuSearchEntry')
   && !dynamicNavigationUsageBody.includes('workflowNode'),
