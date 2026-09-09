@@ -639,7 +639,7 @@ assert(addExtension.length === 1 && addExtension[0].workflow.items.length === 3
   && browseMarketplace.command.join('\0') === ['xdg-open', 'https://daniellemky.github.io/omalaunch-extensions/'].join('\0')
   && browseMarketplace.closeOnDispatch === true
   && addFromGit.kind === 'input'
-  && addFromGit.label === 'Add from Git Repository'
+  && addFromGit.label === 'Install from Git Repository'
   && addFromGit.refreshExtensions === true
   && menu.workflowCommand(addFromGit, 'https://github.com/DanielLemky/quantumfire.omarchy-news', {}).join('\0')
     === ['omarchy', 'plugin', 'add', 'https://github.com/DanielLemky/quantumfire.omarchy-news', '--enable'].join('\0')

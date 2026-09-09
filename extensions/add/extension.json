@@ -23,7 +23,7 @@
       {
         "id": "add-from-git",
         "kind": "input",
-        "label": "Add from Git Repository",
+        "label": "Install from Git Repository",
         "prompt": "Git repository URL",
         "maxLength": 2048,
         "refreshExtensions": true,
