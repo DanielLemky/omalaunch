@@ -975,6 +975,14 @@ function extensionRootId(extensionOrCapability) {
   return capability ? EXTENSION_ROOT_PREFIX + JSON.stringify(capability) : ""
 }
 
+function extensionRootUsageItemId(extension) {
+  if (!extension) return ""
+  if (extension.mode !== "menu") return extensionRootId(extension)
+  if (!dynamicMenuUsageRankingEnabled(extension)) return ""
+  var providerId = String(extension.id || "").trim()
+  return providerId ? "extension.menu-root:" + JSON.stringify(providerId) : ""
+}
+
 function extensionRootCapability(itemId) {
   var value = String(itemId || "")
   if (value.indexOf(EXTENSION_ROOT_PREFIX) !== 0) return ""
@@ -2039,6 +2047,7 @@ if (typeof module !== "undefined") {
     backgroundActionIsCurrent: backgroundActionIsCurrent,
     workflowClosesOnDispatch: workflowClosesOnDispatch,
     extensionRootId: extensionRootId,
+    extensionRootUsageItemId: extensionRootUsageItemId,
     extensionRootCapability: extensionRootCapability,
     extensionRootItem: extensionRootItem,
     sortExtensionRootRows: sortExtensionRootRows,

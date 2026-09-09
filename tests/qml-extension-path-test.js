@@ -256,8 +256,13 @@ assert(qml.includes('var workflowQuery = MenuModel.prepareSearchQuery(root.filte
 'workflow menus filter provider rows while retaining original activation and action identities')
 assert(qml.includes('if (rootExtension.available && rootExtension.mode !== "menu") usage.record(row.itemId)')
   && qml.includes('dynamicMenuProc.usageItemId = retainCurrentRows || recordActivation === false')
+  && qml.includes('? "" : MenuModel.extensionRootUsageItemId(extension)')
   && workflowBack.includes('root.enterDynamicMenu(root.workflowExtension, false, false)'),
-'dynamic provider roots count only user activation; Back and refresh do not publish root usage')
+'dynamic provider roots count only successful user activation with the provider-owned ranking identity; Back and refresh do not publish root usage')
+assert(qml.includes('var searchExtensionUsageId = MenuModel.extensionRootUsageItemId(searchExtension)')
+  && qml.includes('searchExtensionRow.usageCount = usage.count(searchExtensionUsageId)')
+  && qml.includes('searchExtensionRow.lastUsedAt = usage.lastUsedAt(searchExtensionUsageId)'),
+'extension root ranking reads the same provider-owned or ordinary identity that activation records')
 assert(qml.includes('var dynamicUsageId = dynamicSearchEntry.node.submenuCommand || dynamicSearchEntry.node.documentCommand')
   && qml.includes('? MenuModel.dynamicMenuNavigationUsageItemId(dynamicUsageExtension, dynamicSearchEntry.node)')
   && qml.includes('dynamicSearchRow.usageCount = usage.count(dynamicUsageId)')

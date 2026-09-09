@@ -967,7 +967,7 @@ Item {
     dynamicMenuProc.generation = root.dynamicMenuGeneration
     dynamicMenuProc.extensionCapability = extension.capability
     dynamicMenuProc.usageItemId = retainCurrentRows || recordActivation === false
-      ? "" : MenuModel.extensionRootId(extension)
+      ? "" : MenuModel.extensionRootUsageItemId(extension)
     dynamicMenuProc.selectionNodeId = retainCurrentRows && root.selectedWorkflowNode ? root.selectedWorkflowNode.id : ""
     dynamicMenuProc.collected = ""
     dynamicMenuProc.stderrBytes = 0
@@ -2346,8 +2346,9 @@ Item {
             MenuModel.searchScore(({ extensions: root.item("extensions") }), searchExtensionItem, preparedQuery))
           searchExtensionRow.starred = favorites.isStarred(searchExtensionRow.itemId)
           searchExtensionRow.matchPriority = MenuModel.searchMatchPriority(searchExtensionItem, preparedQuery)
-          searchExtensionRow.usageCount = usage.count(searchExtensionRow.itemId)
-          searchExtensionRow.lastUsedAt = usage.lastUsedAt(searchExtensionRow.itemId)
+          var searchExtensionUsageId = MenuModel.extensionRootUsageItemId(searchExtension)
+          searchExtensionRow.usageCount = usage.count(searchExtensionUsageId)
+          searchExtensionRow.lastUsedAt = usage.lastUsedAt(searchExtensionUsageId)
           matchedExtensionRoots["$" + searchExtension.capability] = true
           rows.push(searchExtensionRow)
         }
