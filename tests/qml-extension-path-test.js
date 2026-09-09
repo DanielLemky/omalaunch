@@ -38,6 +38,11 @@ assert(resetBody.includes('if (root.dmenuActive && root.requestActive) root.fini
 assert(resetBody.includes('MenuModel.openStateReset()') && resetBody.includes('root.resetFileIndex()'),
 'menu and dmenu opens share the centralized workflow, picker, file, focus, and action-panel reset path')
 
+assert(qml.includes('label: dependencySetup.label')
+  && qml.includes('description: "Install " + dependencySetup.packageName + " · Press Enter to review"')
+  && !qml.includes('label: "Enable Calculator & Currency"'),
+  'root setup rows use the selected core-owned dependency label and package')
+
 assert(qml.includes('MenuModel.focusedPrefixMatch(root.focusedExtension, query)')
   && qml.includes('"extension.focused.prefix"'),
 'focused prefix QML path builds one dedicated action row')

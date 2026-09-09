@@ -839,14 +839,37 @@ const bundledMissingQalc = menu.parseExtensions(JSON.stringify([{
   _missingRequires: ['qalc']
 }]))[0]
 const qalcSetup = menu.dependencySetup(bundledMissingQalc)
+assert(qalcSetup.label === 'Enable Calculator & Currency', 'bundled qalc setup keeps its root presentation label')
 assert(qalcSetup.packageName === 'libqalculate', 'bundled qalc requirements map to libqalculate setup')
 assert(qalcSetup.installCommand.join(' ') === 'omarchy pkg add libqalculate', 'dependency setup exposes the exact supported install command')
 assert(menu.unavailableExtensionDetail(bundledMissingQalc).indexOf('Press Enter to install') >= 0, 'known bundled dependencies are actionable')
 assert(menu.firstSetupExtension([bundledMissingQalc]) === bundledMissingQalc, 'missing bundled dependencies produce a root setup extension')
 assert(menu.firstSetupExtension(bundledExtensions) === null, 'available bundled dependencies do not produce root setup')
-assert(menu.dependencySetup(unavailableCatalog.extensions[0]) === null, 'external extensions cannot authorize package installation')
-assert(menu.firstSetupExtension(unavailableCatalog.extensions) === null, 'external dependencies cannot produce root package setup')
+assert(menu.dependencySetup(unavailableCatalog.extensions[0]) === null, 'unknown external dependencies cannot authorize package installation')
+assert(menu.firstSetupExtension(unavailableCatalog.extensions) === null, 'unknown external dependencies cannot produce root package setup')
 assert(menu.unavailableExtensionDetail(unavailableCatalog.extensions[0]) === 'Missing dependency: missing-tool', 'unknown dependencies retain diagnostic-only messaging')
+const externalMissingGh = Object.assign({}, unavailableCatalog.extensions[0], { missingRequires: ['gh'] })
+const ghSetup = menu.dependencySetup(externalMissingGh)
+assert(ghSetup.label === 'Enable GitHub Extensions', 'external gh setup has a core-owned root presentation label')
+assert(ghSetup.packageName === 'github-cli', 'the core allow-list maps external gh requirements to github-cli')
+assert(ghSetup.installCommand.join(' ') === 'omarchy pkg add github-cli', 'external setup cannot control the trusted install command')
+assert(menu.unavailableExtensionDetail(externalMissingGh).indexOf('Press Enter to install') >= 0, 'allow-listed external dependencies are actionable')
+for (const inheritedName of ['constructor', 'toString', '__proto__']) {
+  const hostileExternal = Object.assign({}, unavailableCatalog.extensions[0], { missingRequires: [inheritedName] })
+  assert(menu.dependencySetup(hostileExternal) === null, `inherited ${inheritedName} keys cannot authorize package installation`)
+}
+const externalMissingQalc = Object.assign({}, unavailableCatalog.extensions[0], { missingRequires: ['qalc'] })
+assert(menu.dependencySetup(externalMissingQalc) === null, 'bundled-only setup entries remain unavailable to external plugins')
+const externalMultipleMissing = Object.assign({}, unavailableCatalog.extensions[0], {
+  missingRequires: ['missing-tool', 'qalc', 'gh'],
+  packageName: 'hostile-package',
+  installCommand: ['hostile-command']
+})
+assert(menu.dependencySetup(externalMultipleMissing) === ghSetup,
+  'multiple external requirements skip unknown and bundled-only entries before trusted gh setup')
+const bundledMultipleMissing = Object.assign({}, bundledMissingQalc, { missingRequires: ['missing-tool', 'qalc', 'gh'] })
+assert(menu.dependencySetup(bundledMultipleMissing) === qalcSetup,
+  'multiple bundled requirements use the first eligible core-owned setup')
 
 const searchTree = {
   setup: { id: 'setup', parent: 'root' },

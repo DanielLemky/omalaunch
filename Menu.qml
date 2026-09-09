@@ -2525,7 +2525,7 @@ Item {
           var setupItem = root.normalizeItem("dependency.setup." + setupExtension.id, {
             icon: setupExtension.icon,
             iconFont: setupExtension.iconFont,
-            label: "Enable Calculator & Currency",
+            label: dependencySetup.label,
             description: "Install " + dependencySetup.packageName + " · Press Enter to review"
           })
           rows.push(root.displayRow(setupItem, setupItem.description, -1))
