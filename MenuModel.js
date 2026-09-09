@@ -462,6 +462,7 @@ function stringArray(value) {
 var DEPENDENCY_SETUPS = {
   qalc: {
     executable: "qalc",
+    label: "Enable Calculator & Currency",
     packageName: "libqalculate",
     reason: "arithmetic, unit conversion, and currency conversion",
     installCommand: ["omarchy", "pkg", "add", "libqalculate"],
@@ -469,6 +470,7 @@ var DEPENDENCY_SETUPS = {
   },
   gh: {
     executable: "gh",
+    label: "Enable GitHub Extensions",
     packageName: "github-cli",
     reason: "GitHub extensions",
     installCommand: ["omarchy", "pkg", "add", "github-cli"]
@@ -479,8 +481,10 @@ function dependencySetup(extension) {
   if (!extension) return null
   var missing = Array.isArray(extension.missingRequires) ? extension.missingRequires : []
   for (var i = 0; i < missing.length; i++) {
-    var setup = DEPENDENCY_SETUPS[String(missing[i])]
-    if (setup && (!setup.bundledOnly || extension.bundled)) return setup
+    var executable = String(missing[i])
+    if (!Object.prototype.hasOwnProperty.call(DEPENDENCY_SETUPS, executable)) continue
+    var setup = DEPENDENCY_SETUPS[executable]
+    if (!setup.bundledOnly || extension.bundled) return setup
   }
   return null
 }
