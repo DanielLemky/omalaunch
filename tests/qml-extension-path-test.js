@@ -8,6 +8,7 @@ function assert(condition, message) {
 
 const qml = fs.readFileSync(path.join(__dirname, '..', 'Menu.qml'), 'utf8')
 const favoritesQml = fs.readFileSync(path.join(__dirname, '..', 'LauncherFavorites.qml'), 'utf8')
+const confirmationQml = fs.readFileSync(path.join(__dirname, '..', 'ConfirmationMenu.qml'), 'utf8')
 
 const pluginPathExpression = qml.match(/readonly property string pluginPath: (.+)/)[1]
 for (const directory of ['/home/test/plugins/omalaunch', '/tmp/launcher with spaces/#100%']) {
@@ -90,16 +91,21 @@ assert(qml.includes('root.invalidateExtensionQuery("launcher closed")')
   && qml.includes('root.invalidateExtensionQuery("new launcher session")')
   && qml.includes('root.scheduleExtensionQuery()'),
 'close/open and catalog/query context changes invalidate live-query generations')
-assert(qml.includes('if (root.directoryPickerActive) root.workflowBack()'),
-'directory picker Backspace at filesystem root returns through workflow history')
+assert(qml.includes('if (root.workflowPickerActive) root.workflowBack()'),
+'workflow pickers return through workflow history at the filesystem root')
 assert(qml.includes('event.key === Qt.Key_H && (event.modifiers & Qt.ControlModifier)')
   && qml.includes('root.toggleHiddenFiles()')
   && qml.includes('root.fileBrowserShowHidden ? ["--hidden"] : []'),
 'Files Ctrl+H rebuilds browsing and search with hidden entries toggled')
-const directoryPickerBody = qml.slice(qml.indexOf('function enterDirectoryPicker('), qml.indexOf('function selectWorkflowDirectory('))
-assert(directoryPickerBody.includes('root.fileBrowserShowHidden = false')
+const pickerBody = qml.slice(qml.indexOf('function enterWorkflowPicker('), qml.indexOf('function selectWorkflowPath('))
+assert(pickerBody.includes('root.fileBrowserShowHidden = false')
+  && pickerBody.includes('root.filePickerActive = kind === "filePicker"')
   && resetBody.includes('root.fileBrowserShowHidden = false'),
-'new launcher and directory-picker sessions cannot inherit hidden-file mode')
+'new launcher, directory-picker, and file-picker sessions cannot inherit hidden-file mode')
+assert(qml.includes('else if (root.filePickerActive) {\n        root.selectWorkflowPath(row.action)')
+  && qml.includes('if (!root.fileBrowserActive || root.workflowPickerActive')
+  && qml.includes('if (root.workflowPickerActive) return'),
+'file-picker files select into the workflow and picker mode blocks file actions, copy, and stars')
 
 const dynamicProviderBody = qml.slice(qml.indexOf('id: dynamicMenuProc'), qml.indexOf('id: workflowActionTimeout'))
 assert(qml.includes('else if (activation === "menu") root.enterDynamicMenu(extension)')
@@ -258,6 +264,26 @@ assert(qml.includes('MenuModel.footerActionIdForShortcut(key, modifiers)')
   && qml.includes('if (root.workflowActive) root.toggleSelectedWorkflowStar()')
   && qml.includes('root.dispatchWorkflowNode(action, "", false, true)'),
 'workflow rows with a declared star action support Ctrl+S through the background action lifecycle')
+assert(qml.includes('property var workflowPendingSuccess: null')
+  && qml.includes('root.workflowPendingSuccess = continuation')
+  && qml.includes('if (workflowActionProc.successMessage) {')
+  && qml.includes('return\n      }\n      root.applyWorkflowSuccess(continuation)')
+  && qml.includes('onConfirmed: root.dismissWorkflowResult()')
+  && qml.includes('root.workflowPendingSuccess = null'),
+'success results delay their exact continuation until OK and invalidation clears stale pending work')
+assert(qml.includes('stderr: SplitParser {')
+  && qml.includes('var chunk = MenuModel.boundedUtf8Prefix(data, remaining)')
+  && qml.includes('workflowActionProc.signal(15)')
+  && qml.includes('root.boundedDiagnostic(workflowActionProc.stderrText || "Action failed", 512)')
+  && !qml.includes('var next = workflowActionProc.stderrText + data + "\\n"')
+  && !qml.includes('workflowActionProc.stderrText.substring(0, 512)')
+  && !qml.includes('stderr: StdioCollector { waitForEnd: true; onStreamFinished: workflowActionProc.stderrText = text }'),
+'workflow action stderr bounds each chunk before concatenation and stops oversized output')
+assert(confirmationQml.includes('property real maximumHeight')
+  && confirmationQml.includes('Flickable {')
+  && confirmationQml.includes('clip: true')
+  && confirmationQml.includes('ensureChoiceVisible()'),
+'confirmation content is height bounded, scrollable, and keeps the keyboard choice visible')
 assert(qml.includes('else if (root.selectedDynamicStarAction) root.toggleSelectedDynamicStar()')
   && qml.includes('root.dispatchBackgroundAction(extension, action, "")')
   && qml.includes('id: backgroundActionProc')
@@ -310,12 +336,11 @@ assert(qml.includes('documentProc.usageItemId = ""')
 assert(qml.includes('function dispatchWorkflowNode(node, input, returnToRoot, backgroundRequested)')
   && qml.includes('workflowActionProc.refreshDynamicMenu = root.workflowExtension.mode === "menu"')
   && qml.includes('workflowActionProc.closeAfter = node.closeOnSuccess')
-  && qml.includes('if (workflowActionProc.refreshExtensions) root.loadExtensions(true)'),
+  && qml.includes('if (continuation.refreshExtensions) root.loadExtensions(true)'),
 'dynamic row mutations reuse tracked workflow actions and refresh successful state')
 const workflowExit = qml.slice(qml.indexOf('id: workflowActionProc'), qml.indexOf('id: backgroundActionTimeout'))
 assert(workflowExit.includes('if (exitCode !== 0)')
-  && workflowExit.includes('if (usageItemId) usage.record(usageItemId)')
-  && workflowExit.indexOf('if (exitCode !== 0)') < workflowExit.indexOf('usage.record(usageItemId)')
+  && qml.includes('if (continuation.usageItemId) usage.record(continuation.usageItemId)')
   && workflowExit.includes('MenuModel.workflowActionIsCurrent'),
 'dynamic usage is published only after a successful current foreground action')
 const backgroundExit = qml.slice(qml.indexOf('id: backgroundActionProc'), qml.indexOf('id: resultProc'))
@@ -439,10 +464,22 @@ assert(qml.includes('font.pixelSize: Math.max(1, Math.round(Style.font.heading *
   && qml.includes('font.pixelSize: Math.max(1, Math.round(Style.font.title * root.menuItemScale))')
   && qml.includes('spacing: Math.max(Style.space(4), Math.round(Style.space(7) * root.menuItemScale))'),
 'empty-result icon, message, and spacing scale with the configured item font size')
-assert(qml.includes('readonly property color dialogBackground: Qt.rgba(background.r, background.g, background.b, 1)')
-  && (qml.match(/background: root\.dialogBackground/g) || []).length === 3,
-'confirmation cards use one theme-compatible opaque surface')
-assert(qml.includes('z: (root.workflowConfirmOpen || root.deleteConfirmOpen || root.dependencyConfirmOpen) ? 20 : 0')
-  && (qml.match(/onOpenedChanged: if \(opened\) \{ selectedIndex = 1; keyCatcher\.forceActiveFocus\(\) \}/g) || []).length === 3
-  && qml.includes('workflowConfirm.handleKey(event)'),
-'confirmation dialogs retain focus, reset the safe button, and route keyboard input')
+assert(qml.includes('visible: !root.confirmationContentActive')
+  && qml.includes('readonly property bool imagePreviewActive: !root.confirmationContentActive')
+  && (qml.match(/anchors\.leftMargin: card\.contentLeftInset/g) || []).length >= 5
+  && !confirmationQml.includes('scrim')
+  && !confirmationQml.includes('BorderSurface {\n    id: surface'),
+'confirmation content replaces the normal host content without a card, scrim, or preview')
+assert(qml.includes('z: (root.workflowResultOpen || root.workflowConfirmOpen || root.deleteConfirmOpen || root.dependencyConfirmOpen) ? 20 : 0')
+  && (qml.match(/onOpenedChanged: if \(opened\) keyCatcher\.forceActiveFocus\(\)/g) || []).length === 4
+  && qml.includes('workflowResult.handleKey(event)')
+  && qml.includes('workflowConfirm.handleKey(event)')
+  && confirmationQml.includes('if (opened) { selectedIndex = defaultIndex(); Qt.callLater(ensureChoiceVisible) }')
+  && confirmationQml.includes('if (event.key === Qt.Key_Escape) canceled()')
+  && confirmationQml.includes('return true'),
+'confirmation menus retain focus, apply their configured default, always cancel on Escape, and swallow keyboard input')
+assert((qml.match(/ConfirmationMenu \{/g) || []).length === 4
+  && !qml.includes('ConfirmDialog {')
+  && confirmationQml.includes('model: control.optionCount()')
+  && confirmationQml.includes('selectedIndex === cancelIndex()'),
+'all confirmations use semantic vertical choices and results use one OK row')

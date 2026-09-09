@@ -52,6 +52,9 @@ jobs:
       - name: Run Quickshell live-query process harness when available
         run: bash tests/live-query-process-integration-test.sh
 
+      - name: Run Quickshell confirmation-menu harness when available
+        run: bash tests/confirmation-menu-integration-test.sh
+
       - name: Run extension loader tests
         run: python tests/extension-loader-test.py
 

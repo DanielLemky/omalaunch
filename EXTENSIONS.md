@@ -173,7 +173,7 @@ Workflow extensions contribute a launcher entry and a bounded tree of host-rende
 }
 ```
 
-Supported node kinds are `menu`, `directoryPicker`, `input`, `action`, and `confirm`. Menus contain `items`; a directory picker requires a `next` node; an input may run `command` and then enter `next`. Action and confirmation nodes run a direct command; confirmation nodes use `confirm` and optional `confirmLabel` text. Directory selection supplies `{path}` and `{basename}`. Input supplies `{input}`. `{extensionDir}` is the contributing extension's source directory. A node's bounded string-only `context` is inherited by its descendants. `default` initializes an input, `maxLength` bounds it, and `allowEmpty` permits submission without text. `emptyCommand` selects a distinct argument array for empty input. `refreshExtensions` reloads dynamic catalogs after a successful action. `nextBackSteps` can collapse transient input/picker history after a successful save.
+Supported node kinds are `menu`, `directoryPicker`, `filePicker`, `input`, `action`, and `confirm`. Menus contain `items`; each picker requires a `next` node; an input may run `command` and then enter `next`. Action and confirmation nodes run a direct command; confirmation nodes use `confirm` and optional `confirmLabel` text. A confirmation can set `confirmActionFirst` to place its action before Cancel, and `confirmDefault` to `cancel` or `action`. These settings are independent. Their safe defaults are `false` and `cancel`. Set `confirmTone` to `neutral`, `accent`, or `danger`, and set `confirmIcon` to a bounded Omarchy-font glyph. The defaults are `neutral` and no action icon. Cancel always uses its standard muted icon, and Escape always cancels. Directory and file selection supply `{path}` and `{basename}`. Input supplies `{input}`. `{extensionDir}` is the contributing extension's source directory. A node's bounded string-only `context` is inherited by its descendants. `default` initializes an input, `maxLength` bounds it, and `allowEmpty` permits submission without text. `emptyCommand` selects a distinct argument array for empty input. `refreshExtensions` reloads dynamic catalogs after a successful action. `nextBackSteps` can collapse transient input/picker history after a successful save.
 
 Commands are executed directly as argument arrays. Placeholder substitution never invokes a shell, so paths, names, and prompts remain literal arguments. Workflow trees are capped at 256 nodes and eight levels. Extensions cannot contribute QML. Escape returns through workflow stages. The directory picker reuses the Files index/browse implementation but selects directories instead of opening them. Contextual workflow Ctrl+K actions are intentionally left as a future extension point; workflow definitions do not opt into the global Files Action Panel.
 
@@ -271,7 +271,29 @@ The detail command uses the row context and writes one structured JSON object:
 
 Omalaunch runs the detail provider only after activation. It receives no stdin, has a five-second timeout, and has a 256 KiB limit on each output stream. Leaving the document, closing the launcher, replacing its session, or changing its provider invalidates the request. Cancellation sends SIGTERM and then sends SIGKILL to the same direct child after a 500 ms grace period. Detail commands run directly as argument arrays and support the row context plus `{extensionDir}` placeholders.
 
-A row can ask for confirmation before dispatch:
+A top-level row, contextual action, or document action can use the Files browser to select one file before a next confirmation or action. Directories navigate; a file selects it. Escape goes to the parent directory, then returns to the source menu at the filesystem root. File open, copy, star, and Action Panel operations are not available while selection is active. The row's bounded string context is retained, and `{path}` and `{basename}` are passed as literal values to the next node:
+
+```json
+{
+  "id": "send-file",
+  "label": "Send file…",
+  "context": { "peerId": "machine-7" },
+  "filePicker": {
+    "next": {
+      "id": "send-confirm",
+      "kind": "confirm",
+      "label": "Send file",
+      "confirm": "Send {basename} to machine-7?",
+      "confirmLabel": "Send",
+      "command": ["helper", "send", "{peerId}", "{path}"]
+    }
+  }
+}
+```
+
+`filePicker` must be an object that contains only `next`. It cannot be combined with `command`, `confirm`, `input`, `submenu`, or `document` on the same row. Its `next` value uses the normal workflow-node schema. A static workflow uses the equivalent node form: `{ "id": "choose", "kind": "filePicker", "label": "Choose file", "next": { ... } }`.
+
+A row can ask for confirmation before dispatch. Dynamic rows and their contextual actions use the same bounded `confirmActionFirst`, `confirmDefault`, `confirmTone`, and `confirmIcon` fields as workflow confirmation nodes:
 
 ```json
 {
@@ -299,7 +321,7 @@ A row can open a host-rendered text input form. The input object supports the wo
 }
 ```
 
-A row can include up to 16 `actions`. Press Ctrl+K on that row to open its contextual action list. Each contextual action has the same direct command, confirmation, input, and refresh fields as a row, but actions cannot contain more nested actions. A row can set `starAction` to the ID of one direct contextual action; Ctrl+S then runs that action through the normal tracked lifecycle. Providers should update the row's `starred` value and the action label/command in the next snapshot. Set `starredLabel` when a starred shortcut needs more context than its menu label. The menu continues to show `label`; the top-level and global-search snapshot uses `starredLabel` only while the row is starred.
+A row can include up to 16 `actions`. Press Ctrl+K on that row to open its contextual action list. Each contextual action has the same direct command, confirmation, input, file-picker, and refresh fields as a row, but actions cannot contain more nested actions. A row can set `starAction` to the ID of one direct contextual action; Ctrl+S then runs that action through the normal tracked lifecycle. Providers should update the row's `starred` value and the action label/command in the next snapshot. Set `starredLabel` when a starred shortcut needs more context than its menu label. The menu continues to show `label`; the top-level and global-search snapshot uses `starredLabel` only while the row is starred.
 
 Menu and action commands use the workflow action lifecycle. A non-terminal direct child runs for at most 30 seconds. Cancellation sends SIGTERM and then sends SIGKILL to the same direct child after one second. Stale generation checks prevent old exits from changing a new session. A successful menu mutation reloads the provider so the visible rows show current state. `refreshExtensions: true` also reloads the extension catalog after success. Failed commands leave the current menu open and do not refresh it.
 
