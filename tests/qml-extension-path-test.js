@@ -199,7 +199,16 @@ assert(qml.includes('var searchCommand = extension.globalSearchCommand && extens
 'global search preload can use a command independent from the visible extension menu')
 assert(qml.includes('var searchNodes = MenuModel.dynamicMenuSearchNodes(workflow)')
   && qml.includes('item: searchItems[i], node: searchNode, items: workflow.items'),
-'dedicated global search actions retain the visible menu as their Back destination')
+'preload keeps its independent search and visible-menu collections')
+const dynamicSearchActivation = qml.slice(qml.indexOf('var dynamicSearchEntry = root.dynamicMenuSearchEntry'),
+  qml.indexOf('var rootExtension = root.extensionForRootId'))
+const workflowBack = qml.slice(qml.indexOf('function workflowBack()'), qml.indexOf('function activateWorkflowChild'))
+assert(dynamicSearchActivation.includes('var dedicatedPreload = dynamicSearchExtension.preloadCommand.length > 0')
+  && dynamicSearchActivation.includes('items: dedicatedPreload ? [] : dynamicSearchEntry.items')
+  && dynamicSearchActivation.includes('preloadedRoot: dedicatedPreload')
+  && workflowBack.includes('previous.node.preloadedRoot === true')
+  && workflowBack.includes('root.enterDynamicMenu(root.workflowExtension, false, false)'),
+'Back from a preloaded search submenu or document loads the authoritative extension root without exposing search rows')
 
 assert(qml.includes('id: dynamicMenuSearchKillTimer')
   && qml.includes('generation !== dynamicMenuSearchProc.stopGeneration')
@@ -246,8 +255,9 @@ assert(qml.includes('var workflowQuery = MenuModel.prepareSearchQuery(root.filte
   && qml.includes('root.workflowNode.items[Number(displayModel.get(root.selectedIndex).action)]'),
 'workflow menus filter provider rows while retaining original activation and action identities')
 assert(qml.includes('if (rootExtension.available && rootExtension.mode !== "menu") usage.record(row.itemId)')
-  && qml.includes('dynamicMenuProc.usageItemId = retainCurrentRows ? "" : MenuModel.extensionRootId(extension)'),
-'dynamic provider roots defer usage until an initial user load succeeds while static extension behavior remains unchanged')
+  && qml.includes('dynamicMenuProc.usageItemId = retainCurrentRows || recordActivation === false')
+  && workflowBack.includes('root.enterDynamicMenu(root.workflowExtension, false, false)'),
+'dynamic provider roots count only user activation; Back and refresh do not publish root usage')
 assert(qml.includes('var dynamicUsageId = dynamicSearchEntry.node.submenuCommand || dynamicSearchEntry.node.documentCommand')
   && qml.includes('? MenuModel.dynamicMenuNavigationUsageItemId(dynamicUsageExtension, dynamicSearchEntry.node)')
   && qml.includes('dynamicSearchRow.usageCount = usage.count(dynamicUsageId)')

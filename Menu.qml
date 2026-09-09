@@ -942,7 +942,7 @@ Item {
     return MenuModel.dynamicMenuNavigationUsageItemId(extension, node)
   }
 
-  function enterDynamicMenu(extension, retainRows) {
+  function enterDynamicMenu(extension, retainRows, recordActivation) {
     if (!extension || !extension.available || extension.mode !== "menu"
         || dynamicMenuProc.running || dynamicMenuProc.stopping) return
     var retainCurrentRows = retainRows === true && root.workflowActive && root.workflowNode
@@ -965,7 +965,8 @@ Item {
     root.dynamicMenuGeneration += 1
     dynamicMenuProc.generation = root.dynamicMenuGeneration
     dynamicMenuProc.extensionCapability = extension.capability
-    dynamicMenuProc.usageItemId = retainCurrentRows ? "" : MenuModel.extensionRootId(extension)
+    dynamicMenuProc.usageItemId = retainCurrentRows || recordActivation === false
+      ? "" : MenuModel.extensionRootId(extension)
     dynamicMenuProc.selectionNodeId = retainCurrentRows && root.selectedWorkflowNode ? root.selectedWorkflowNode.id : ""
     dynamicMenuProc.collected = ""
     dynamicMenuProc.stderrBytes = 0
@@ -1232,9 +1233,14 @@ Item {
     }
     var previous = root.workflowStack[root.workflowStack.length - 1]
     root.workflowStack = root.workflowStack.slice(0, root.workflowStack.length - 1)
-    root.showWorkflowNode(previous.node, previous.context, false)
-    root.selectedIndex = Math.max(0, Math.min(previous.selectedIndex || 0, displayModel.count - 1))
-    root.cursorActive = displayModel.count > 0
+    if (previous.node.preloadedRoot === true && root.workflowExtension
+        && root.workflowExtension.mode === "menu") {
+      root.enterDynamicMenu(root.workflowExtension, false, false)
+    } else {
+      root.showWorkflowNode(previous.node, previous.context, false)
+      root.selectedIndex = Math.max(0, Math.min(previous.selectedIndex || 0, displayModel.count - 1))
+      root.cursorActive = displayModel.count > 0
+    }
     return true
   }
 
@@ -2740,8 +2746,12 @@ Item {
       root.workflowExtension = dynamicSearchExtension
       root.workflowContext = ({ extensionDir: dynamicSearchExtension.sourceDir })
       root.workflowStack = []
+      var dedicatedPreload = dynamicSearchExtension.preloadCommand.length > 0
+        || dynamicSearchExtension.globalSearchCommand.length > 0
       root.workflowNode = { id: "root", kind: "menu", label: dynamicSearchExtension.label,
-        description: dynamicSearchExtension.description, items: dynamicSearchEntry.items }
+        description: dynamicSearchExtension.description,
+        items: dedicatedPreload ? [] : dynamicSearchEntry.items,
+        preloadedRoot: dedicatedPreload }
       if (dynamicSearchEntry.node.submenuCommand && dynamicSearchEntry.node.submenuCommand.length > 0)
         root.enterSubmenu(dynamicSearchEntry.node)
       else if (dynamicSearchEntry.node.documentCommand && dynamicSearchEntry.node.documentCommand.length > 0)
