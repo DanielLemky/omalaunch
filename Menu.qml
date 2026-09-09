@@ -5275,7 +5275,21 @@ Item {
             anchors.centerIn: parent
             width: Math.max(0, Math.min(parent.width - Style.space(32), Style.space(420)))
             spacing: Math.max(Style.space(4), Math.round(Style.space(7) * root.menuItemScale))
-            visible: !root.documentActive && !root.focusedExtension && displayModel.count === 0 && root.mode !== "input" && !root.workflowInputActive && (root.filterText || root.activeMenu !== "root") && !root.isPotentialExtensionQuery(root.filterText)
+            readonly property bool loading: root.workflowActive
+              && (root.dynamicMenuLoading || root.submenuLoading)
+            visible: MenuLayout.emptyStateVisible({
+              documentActive: root.documentActive,
+              focusedExtension: root.focusedExtension,
+              displayCount: displayModel.count,
+              mode: root.mode,
+              workflowInputActive: root.workflowInputActive,
+              actionPanelActive: root.actionPanelActive,
+              dialogOpen: root.workflowConfirmOpen || root.deleteConfirmOpen || root.dependencyConfirmOpen,
+              potentialExtensionQuery: root.isPotentialExtensionQuery(root.filterText),
+              filterText: root.filterText,
+              activeMenu: root.activeMenu,
+              workflowMenuActive: root.workflowActive && root.workflowNode && root.workflowNode.kind === "menu"
+            })
 
             Rectangle {
               anchors.horizontalCenter: parent.horizontalCenter
@@ -5288,7 +5302,7 @@ Item {
 
               Text {
                 anchors.centerIn: parent
-                text: root.filterText ? "󰍉" : "󰅖"
+                text: parent.parent.loading ? "󰔟" : (root.filterText ? "󰍉" : "󰅖")
                 color: root.foreground
                 opacity: 0.56
                 font.family: root.fontFamily
@@ -5298,7 +5312,7 @@ Item {
 
             Text {
               width: parent.width
-              text: root.filterText ? "No results found" : "Nothing here yet"
+              text: parent.loading ? "Loading…" : (root.filterText ? "No results found" : "Nothing here yet")
               color: root.foreground
               opacity: 0.86
               font.family: root.fontFamily
@@ -5309,9 +5323,10 @@ Item {
 
             Text {
               width: parent.width
-              text: root.filterText ? "Try another search, or press Esc to clear"
-                : (root.workflowActive && root.workflowNode && root.workflowNode.description
-                  ? root.workflowNode.description : "Items will appear here when available")
+              text: parent.loading ? "Please wait"
+                : (root.filterText ? "Try another search, or press Esc to clear"
+                  : (root.workflowActive && root.workflowNode && root.workflowNode.description
+                    ? root.workflowNode.description : "Items will appear here when available"))
               color: root.foreground
               opacity: 0.48
               font.family: root.fontFamily
