@@ -11,6 +11,7 @@ import "MenuFiles.js" as MenuFiles
 import "MenuMarkdown.js" as MenuMarkdown
 import "MenuDocumentScroll.js" as MenuDocumentScroll
 import "extensions/currency" as CurrencyExtension
+import "services" as Services
 
 Item {
   id: root
@@ -244,7 +245,10 @@ Item {
 
   // Shared application engine (entries, hidden filters, icons, launch,
   // removal), owned by the shell and also used by the standalone launcher.
-  readonly property var appLibrary: root.shell ? root.shell.appLibrary : null
+  Services.AppLibrary {
+    id: localAppLibrary
+  }
+  readonly property var appLibrary: localAppLibrary
   readonly property int appIconRefreshTtlMs: 30 * 1000
   property double appIconIndexUpdatedAt: 0
   property bool appIconRefreshPending: false
