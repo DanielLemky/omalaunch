@@ -194,9 +194,24 @@ assert(qml.includes('textFormat: Text.PlainText')
   && qml.includes('model: root.activeDocument ? root.activeDocument.sections : []'),
 'detail documents render host-owned structured plain text')
 
-assert(qml.includes('var searchCommand = extension.globalSearchCommand && extension.globalSearchCommand.length > 0')
-  && qml.includes('? extension.globalSearchCommand : extension.command'),
-'global search preload can use a command independent from the visible extension menu')
+assert(qml.includes('var searchCommand = extension.preloadCommand && extension.preloadCommand.length > 0')
+  && qml.includes('? extension.preloadCommand : (extension.globalSearchCommand'),
+'preload can use a command independent from the visible extension menu')
+assert(qml.includes('id: dynamicMenuTopLevelPoll')
+  && qml.includes('interval: root.dynamicMenuTopLevelPollMs')
+  && qml.includes('running: root.opened && !root.dmenuActive')
+  && qml.includes('root.preloadDynamicMenuSearch(true)')
+  && qml.includes('MenuModel.dynamicMenuPreloadExtensions(root.extensions, topLevelOnly)')
+  && qml.includes('!dynamicMenuSearchProc.running && !dynamicMenuSearchProc.stopping'),
+'periodic preload runs only while open, selects top-level providers, and does not overlap')
+assert(qml.includes('MenuModel.retainDynamicMenuSnapshot(root.dynamicMenuSearchSnapshot, queue)'),
+'periodic top-level refresh preserves snapshots from providers that it does not poll')
+assert(qml.includes('root.invalidateDynamicMenuSearch()')
+  && qml.includes('opened = true\n    rebuildDisplay()\n    root.preloadDynamicMenuSearch()'),
+'close cancels preload work and a normal open schedules the complete needed refresh')
+assert(qml.includes('Date.now() - Number(starredDynamicEntry.loadedAt || 0) <= root.dynamicMenuTopLevelStaleMs')
+  && qml.includes('if (!starredDynamicEntry.node.starred && !temporaryTopLevel) continue'),
+'temporary rows expire independently while manual stars remain visible')
 assert(qml.includes('var searchNodes = MenuModel.dynamicMenuSearchNodes(workflow)')
   && qml.includes('item: searchItems[i], node: searchNode, items: workflow.items'),
 'preload keeps its independent search and visible-menu collections')
@@ -244,9 +259,9 @@ assert(qml.includes('else if (root.selectedDynamicStarAction) root.toggleSelecte
   && !qml.slice(qml.indexOf('function toggleSelectedDynamicStar()'), qml.indexOf('function openDynamicSearchActions()')).includes('root.workflowActive = true'),
 'globally searchable dynamic rows use an independent runner without entering visible workflow state')
 assert(qml.includes('workflowRow.starred = workflowChild.starred')
-  && qml.includes('if (!starredDynamicEntry.node.starred) continue')
-  && qml.includes('starredDynamicRow.starred = true'),
-'starred globally searchable dynamic rows appear on the top-level launcher view')
+  && qml.includes('if (!starredDynamicEntry.node.starred && !temporaryTopLevel) continue')
+  && qml.includes('starredDynamicRow.starred = starredDynamicEntry.node.starred'),
+'manual stars and temporary provider rows appear independently on the top-level launcher view')
 assert(qml.includes('var extensionsDirectory = root.item("extensions")')
   && qml.includes('MenuModel.matchesQuery(extensionsDirectory, preparedQuery, true)'),
 'fixed Extensions directory remains explicit in top-level global search during dynamic snapshot rebuilds')

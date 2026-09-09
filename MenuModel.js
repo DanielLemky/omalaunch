@@ -651,6 +651,7 @@ function normalizeWorkflowNode(raw, state, depth) {
     description: boundedWorkflowText(raw.description, 512),
     aliases: aliases,
     starred: raw.starred === true,
+    topLevel: raw.topLevel === true,
     globalSearch: raw.globalSearch !== false,
     icon: boundedWorkflowText(raw.icon, 32),
     iconFont: boundedWorkflowText(raw.iconFont, 128),
@@ -689,6 +690,7 @@ function normalizeWorkflowNode(raw, state, depth) {
       || (raw.document !== undefined && raw.submenu !== undefined)
       || (raw.capture !== undefined && !node.capture)
       || (raw.starred !== undefined && typeof raw.starred !== "boolean")
+      || (raw.topLevel !== undefined && typeof raw.topLevel !== "boolean")
       || (raw.globalSearch !== undefined && typeof raw.globalSearch !== "boolean")
       || (raw.refreshable !== undefined && typeof raw.refreshable !== "boolean")
       || (raw.closeOnDispatch !== undefined && typeof raw.closeOnDispatch !== "boolean")) return null
@@ -1052,10 +1054,34 @@ function workflowClosesOnDispatch(node, command) {
   return executable === "xdg-terminal-exec" || executable === "omarchy-launch-terminal"
 }
 
+function dynamicMenuPreloadExtensions(extensions, topLevelOnly) {
+  var source = Array.isArray(extensions) ? extensions : []
+  return source.filter(function(extension) {
+    return extension && extension.mode === "menu" && extension.available
+      && (topLevelOnly === true ? extension.topLevel
+        : (extension.globalSearch || extension.topLevel))
+  })
+}
+
+function retainDynamicMenuSnapshot(snapshot, replacingExtensions) {
+  var replacing = ({})
+  var extensions = Array.isArray(replacingExtensions) ? replacingExtensions : []
+  for (var i = 0; i < extensions.length; i++) replacing["$" + extensions[i].id] = true
+  return (Array.isArray(snapshot) ? snapshot : []).filter(function(entry) {
+    return entry && !replacing["$" + entry.extensionId]
+  })
+}
+
 function dynamicMenuSearchNodes(workflow) {
   if (!workflow || !Array.isArray(workflow.items)) return []
   return Object.prototype.hasOwnProperty.call(workflow, "globalSearchItems")
     ? workflow.globalSearchItems : workflow.items
+}
+
+function dynamicMenuTopLevelNodes(workflow) {
+  if (!workflow || !Array.isArray(workflow.items)) return []
+  return Object.prototype.hasOwnProperty.call(workflow, "topLevelItems")
+    ? workflow.topLevelItems : workflow.items
 }
 
 function dynamicMenuSearchItems(extension, workflow) {
@@ -1084,10 +1110,38 @@ function dynamicMenuSearchItems(extension, workflow) {
   return result
 }
 
+function dynamicMenuTopLevelItems(extension, workflow) {
+  if (!extension || !extension.topLevel || !workflow) return []
+  var source = dynamicMenuTopLevelNodes(workflow)
+  var result = []
+  for (var i = 0; i < source.length; i++) {
+    var node = source[i]
+    if (!node || !node.topLevel || ["action", "confirm", "input"].indexOf(node.kind) < 0) continue
+    // A provider can use the same row ID for independent search and starting
+    // view contracts. Keep the public row identity stable, but make the host
+    // routing key surface-specific so one contract cannot replace the other.
+    result.push(normalizeItem(dynamicMenuSurfaceItemId(extension.capability, node.id, "topLevel"), {
+      parent: "extensions", icon: node.icon || extension.icon,
+      iconFont: node.iconFont || extension.iconFont, trailingIcon: node.trailingIcon,
+      trailingText: node.trailingText, badge: node.badge, badgeTone: node.badgeTone,
+      label: node.label, description: node.description, aliases: node.aliases,
+      starred: node.starred, action: node.id
+    }))
+  }
+  return result
+}
+
 function dynamicMenuItemId(capability, nodeId) {
+  return dynamicMenuSurfaceItemId(capability, nodeId, "")
+}
+
+function dynamicMenuSurfaceItemId(capability, nodeId, surface) {
   capability = String(capability || "").trim()
   nodeId = String(nodeId || "").trim()
-  return capability && nodeId ? "extension.menu:" + JSON.stringify([capability, nodeId]) : ""
+  surface = String(surface || "").trim()
+  if (!capability || !nodeId) return ""
+  return "extension.menu:" + JSON.stringify(surface
+    ? [capability, nodeId, surface] : [capability, nodeId])
 }
 
 function dynamicMenuSearchIdentity(itemId) {
@@ -1096,8 +1150,10 @@ function dynamicMenuSearchIdentity(itemId) {
   if (value.indexOf(prefix) !== 0) return null
   try {
     var parsed = JSON.parse(value.substring(prefix.length))
-    return Array.isArray(parsed) && parsed.length === 2 && typeof parsed[0] === "string" && typeof parsed[1] === "string"
-      ? { capability: parsed[0], id: parsed[1] } : null
+    return Array.isArray(parsed) && (parsed.length === 2 || parsed.length === 3)
+      && typeof parsed[0] === "string" && typeof parsed[1] === "string"
+      && (parsed.length === 2 || typeof parsed[2] === "string")
+      ? { capability: parsed[0], id: parsed[1], surface: parsed[2] || "" } : null
   } catch (e) { return null }
 }
 
@@ -1146,13 +1202,21 @@ function normalizeDynamicMenuOutput(raw) {
   var parsed
   try { parsed = typeof raw === "string" ? JSON.parse(raw) : raw } catch (e) { return null }
   var rows = Array.isArray(parsed) ? parsed : (parsed && Array.isArray(parsed.items) ? parsed.items : null)
-  var items = normalizeDynamicMenuRows(rows, false)
+  var hasSeparateItems = !Array.isArray(parsed) && parsed
+    && (Object.prototype.hasOwnProperty.call(parsed, "globalSearchItems")
+      || Object.prototype.hasOwnProperty.call(parsed, "topLevelItems"))
+  var items = normalizeDynamicMenuRows(rows, hasSeparateItems)
   if (!items) return null
   var workflow = { items: items }
   if (!Array.isArray(parsed) && Object.prototype.hasOwnProperty.call(parsed, "globalSearchItems")) {
     var globalSearchItems = normalizeDynamicMenuRows(parsed.globalSearchItems, true)
     if (!globalSearchItems) return null
     workflow.globalSearchItems = globalSearchItems
+  }
+  if (!Array.isArray(parsed) && Object.prototype.hasOwnProperty.call(parsed, "topLevelItems")) {
+    var topLevelItems = normalizeDynamicMenuRows(parsed.topLevelItems, true)
+    if (!topLevelItems) return null
+    workflow.topLevelItems = topLevelItems
   }
   return workflow
 }
@@ -1199,6 +1263,8 @@ function normalizeExtension(raw) {
     source: String(raw._source || ""),
     globalSearch: mode === "menu" && raw.globalSearch === true,
     globalSearchCommand: stringArray(raw.globalSearchCommand),
+    topLevel: mode === "menu" && raw.topLevel === true,
+    preloadCommand: stringArray(raw.preloadCommand),
     configurationProvider: configurationProvider,
     refreshable: raw.refreshable === true,
     requires: stringArray(raw.requires),
@@ -1226,6 +1292,13 @@ function normalizeExtension(raw) {
             || extension.globalSearchCommand.length > 32) return null
         for (var searchArg = 0; searchArg < extension.globalSearchCommand.length; searchArg++)
           if (!boundedWorkflowText(extension.globalSearchCommand[searchArg])) return null
+      }
+      if (raw.topLevel !== undefined && typeof raw.topLevel !== "boolean") return null
+      if (raw.preloadCommand !== undefined) {
+        if ((!extension.globalSearch && !extension.topLevel) || !Array.isArray(raw.preloadCommand)
+            || extension.preloadCommand.length === 0 || extension.preloadCommand.length > 32) return null
+        for (var preloadArg = 0; preloadArg < extension.preloadCommand.length; preloadArg++)
+          if (!boundedWorkflowText(extension.preloadCommand[preloadArg])) return null
       }
     } else if (mode === "files") {
       extension.root = String(raw.root || "~")
@@ -1268,7 +1341,8 @@ function normalizeExtension(raw) {
       }
     } catch (e) { return null }
   }
-  if (raw.globalSearchCommand !== undefined && mode !== "menu") return null
+  if ((raw.globalSearchCommand !== undefined || raw.topLevel !== undefined
+      || raw.preloadCommand !== undefined) && mode !== "menu") return null
   extension.available = extension.missingRequires.length === 0
   return extension
 }
@@ -2030,9 +2104,14 @@ if (typeof module !== "undefined") {
     normalizeWorkflow: normalizeWorkflow,
     normalizeDetailDocument: normalizeDetailDocument,
     normalizeDynamicMenuOutput: normalizeDynamicMenuOutput,
+    dynamicMenuPreloadExtensions: dynamicMenuPreloadExtensions,
+    retainDynamicMenuSnapshot: retainDynamicMenuSnapshot,
     dynamicMenuSearchNodes: dynamicMenuSearchNodes,
     dynamicMenuSearchItems: dynamicMenuSearchItems,
+    dynamicMenuTopLevelNodes: dynamicMenuTopLevelNodes,
+    dynamicMenuTopLevelItems: dynamicMenuTopLevelItems,
     dynamicMenuItemId: dynamicMenuItemId,
+    dynamicMenuSurfaceItemId: dynamicMenuSurfaceItemId,
     dynamicMenuSearchIdentity: dynamicMenuSearchIdentity,
     dynamicMenuNavigationUsageItemId: dynamicMenuNavigationUsageItemId,
     dynamicMenuUsageItemId: dynamicMenuUsageItemId,

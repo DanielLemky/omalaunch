@@ -318,18 +318,23 @@ Set the extension field `globalSearch: true` to include provider rows in Omalaun
 
 When `globalSearchItems` is present, only that collection supplies global search rows; its rows do not appear in the opened extension menu. An explicit empty collection disables result contribution while the extension root remains searchable. Each collection has its own 100-row limit and uses the same row schema and validation. Array responses and objects without `globalSearchItems` retain the original shared-collection behavior.
 
-If building global search data is slower than building the visible menu, declare a separate extension-level `globalSearchCommand`:
+Providers can also contribute temporary starting-view rows without changing star state. Set extension `topLevel: true`, set `topLevel: true` on each selected row, and return those rows in `topLevelItems`. Top-level visibility is independent of `globalSearch`, row `globalSearch`, and `starred`. These rows use the normal command, document, submenu, contextual-action, and navigation contracts. Row IDs must be stable and unique inside each collection. A provider can reuse an ID in `globalSearchItems` and `topLevelItems`; Omalaunch keeps the two complete row contracts independent and uses the correct contract for each surface.
+
+Omalaunch reloads top-level snapshots every 60 seconds while it is open. The periodic batch runs only providers that opt in with `topLevel: true`; it does not run search-only providers, and it preserves their cached rows. Requests do not overlap. A failed preload keeps its last complete snapshot for at most two intervals; temporary rows then expire. The shared preload limits remain 16 providers, 1,000 total rows, 1 MiB, and ten seconds. Providers must return no temporary rows when their feature is disabled and should avoid network requests in that state.
+
+If building preloaded data is slower than building the visible menu, declare a separate extension-level `preloadCommand`. It can return an object with independent `globalSearchItems` and `topLevelItems` collections. The older `globalSearchCommand` remains accepted and is used when `preloadCommand` is absent:
 
 ```json
 {
   "mode": "menu",
   "globalSearch": true,
+  "topLevel": true,
   "command": ["provider", "menu"],
-  "globalSearchCommand": ["provider", "global-search"]
+  "preloadCommand": ["provider", "preload"]
 }
 ```
 
-Opening the extension runs only `command`. Global-search preload runs `globalSearchCommand` independently and treats its normal array or `items` output as the search source. This lets a static extension menu open without waiting for network-backed search data. `globalSearchCommand` is accepted only for a global-search-enabled menu extension and has the same 32-argument and bounded-string validation as `command`.
+Opening the extension runs only `command`. Preload runs `preloadCommand` independently. `preloadCommand` is accepted only for a menu extension that enables global search or top-level rows. It has the same 32-argument and bounded-string validation as `command`. `globalSearchCommand` stays compatible with existing global-search-enabled providers.
 
 An opted-in provider can set `globalSearch: false` on an individual row to omit it from general search. Omalaunch preloads opted-in, available providers and searches each row by `label`, `description`, and optional string or string-array `aliases`. A row with `starred: true` also appears on the launcher's top-level starting view; non-starred rows remain search-only. The extension root remains visible as a separate search result. Activating a cached row runs the same primary command, including confirmation or input handling, and honors `closeOnSuccess`. Ctrl+K opens the row's cached contextual actions.
 

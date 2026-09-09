@@ -420,6 +420,60 @@ assert(menu.normalizeDynamicMenuOutput({
   items: [{ id: 'visible', label: 'Visible', command: ['true'] }],
   globalSearchItems: [{ id: 'bad', label: 'Bad', command: 'true' }]
 }) === null, 'dedicated global search rows use strict row normalization')
+const topLevelExtension = menu.normalizeExtension({ schemaVersion: 1, id: 'runs', mode: 'menu',
+  label: 'Runs', prefixes: ['runs'], command: ['menu'], globalSearch: false, topLevel: true,
+  preloadCommand: ['provider', 'preload'] })
+const topLevelWorkflow = menu.normalizeDynamicMenuOutput({ items: [], globalSearchItems: [], topLevelItems: [
+  { id: 'run:repo:7', label: 'repo · CI', topLevel: true, globalSearch: false,
+    document: { command: ['provider', 'run', 'repo', '7'] } },
+  { id: 'not-top', label: 'Other', command: ['true'] }
+] })
+assert(topLevelExtension && !topLevelExtension.globalSearch && topLevelExtension.topLevel,
+  'top-level preload is independent from extension global search')
+const globalOnlyExtension = menu.normalizeExtension({ schemaVersion: 1, id: 'search-only', mode: 'menu',
+  label: 'Search only', prefixes: ['search-only'], command: ['menu'], globalSearch: true })
+const periodicProviders = menu.dynamicMenuPreloadExtensions([topLevelExtension, globalOnlyExtension], true)
+assert(periodicProviders.length === 1 && periodicProviders[0].id === topLevelExtension.id,
+  'periodic preload selects each opted-in top-level provider and skips search-only providers')
+const retainedPartialSnapshot = menu.retainDynamicMenuSnapshot([
+  { extensionId: topLevelExtension.id, item: { id: 'old-top' } },
+  { extensionId: globalOnlyExtension.id, item: { id: 'cached-search' } }
+], periodicProviders)
+assert(retainedPartialSnapshot.length === 1 && retainedPartialSnapshot[0].item.id === 'cached-search',
+  'partial top-level refresh preserves cached rows from providers outside its batch')
+assert(menu.dynamicMenuSearchItems(topLevelExtension, topLevelWorkflow).length === 0,
+  'global search disabled prevents search rows but not top-level rows')
+assert(menu.dynamicMenuTopLevelItems(topLevelExtension, topLevelWorkflow).length === 1,
+  'only explicit top-level rows appear independently from star state')
+assert(menu.dynamicMenuTopLevelItems(topLevelExtension, topLevelWorkflow)[0].action === 'run:repo:7',
+  'temporary top-level rows retain normal detail routing')
+const sharedSurfaceExtension = menu.normalizeExtension({ schemaVersion: 1, id: 'shared-provider',
+  capability: 'shared', mode: 'menu', label: 'Shared', prefixes: ['shared'], command: ['menu'],
+  globalSearch: true, topLevel: true })
+const sharedSurfaceWorkflow = menu.normalizeDynamicMenuOutput({ items: [],
+  globalSearchItems: [{ id: 'same', label: 'Search contract', context: { route: 'search' },
+    command: ['provider', 'search'], actions: [{ id: 'inspect', label: 'Search action', command: ['inspect', 'search'] }] }],
+  topLevelItems: [{ id: 'same', label: 'Starting contract', topLevel: true, context: { route: 'starting' },
+    command: ['provider', 'starting'], actions: [{ id: 'inspect', label: 'Starting action', command: ['inspect', 'starting'] }] }]
+})
+const sharedSearchItem = menu.dynamicMenuSearchItems(sharedSurfaceExtension, sharedSurfaceWorkflow)[0]
+const sharedTopItem = menu.dynamicMenuTopLevelItems(sharedSurfaceExtension, sharedSurfaceWorkflow)[0]
+const sharedSearchNode = menu.dynamicMenuSearchNodes(sharedSurfaceWorkflow)[0]
+const sharedTopNode = menu.dynamicMenuTopLevelNodes(sharedSurfaceWorkflow)[0]
+assert(menu.dynamicMenuPreloadExtensions([topLevelExtension, globalOnlyExtension], false).length === 2,
+  'complete open-time preload includes both global-search and top-level providers')
+assert(sharedSearchItem.id !== sharedTopItem.id
+  && menu.dynamicMenuSearchIdentity(sharedSearchItem.id).surface === ''
+  && menu.dynamicMenuSearchIdentity(sharedTopItem.id).surface === 'topLevel',
+  'shared provider row IDs get independent host routing identities for each surface')
+assert(sharedSearchItem.label === 'Search contract' && sharedTopItem.label === 'Starting contract'
+  && sharedSearchNode.command[1] === 'search' && sharedTopNode.command[1] === 'starting'
+  && sharedSearchNode.context.route === 'search' && sharedTopNode.context.route === 'starting'
+  && sharedSearchNode.actions[0].command[1] === 'search' && sharedTopNode.actions[0].command[1] === 'starting',
+  'shared row IDs retain distinct labels, commands, context, and actions')
+assert(menu.normalizeExtension({ schemaVersion: 1, id: 'bad-preload', mode: 'menu', label: 'Bad',
+  prefixes: ['bad'], command: ['menu'], preloadCommand: ['provider'] }) === null,
+  'preload commands require a top-level or global-search surface')
 const capturedMenu = menu.normalizeDynamicMenuOutput([{ id: 'add', label: 'Add', input: {
   prompt: 'Target', capture: 'target', next: { id: 'name', kind: 'input', label: 'Name', command: ['links', 'add', '{target}', '{input}'] }
 } }])
