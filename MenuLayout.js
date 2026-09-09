@@ -1,7 +1,9 @@
 function emptyStateVisible(state) {
   if (state.documentActive || state.focusedExtension || state.displayCount !== 0
-      || state.mode === "input" || state.workflowInputActive || state.actionPanelActive
+      || state.mode === "input" || state.workflowInputActive
       || state.dialogOpen || state.potentialExtensionQuery) return false
+
+  if (state.actionPanelActive && !state.filterText) return false
 
   return !!state.filterText || state.activeMenu !== "root" || state.workflowMenuActive
 }
