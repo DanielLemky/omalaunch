@@ -7,7 +7,7 @@
   "prefixes": ["add extension"],
   "icon": "󰐕",
   "description": "Add an Omalaunch extension",
-  "requires": ["python", "omarchy-agent", "omarchy-default-agent", "xdg-open"],
+  "requires": ["omarchy", "python", "omarchy-agent", "omarchy-default-agent", "xdg-open"],
   "workflow": {
     "items": [
       {
@@ -18,6 +18,21 @@
         "command": [
           "xdg-open",
           "https://daniellemky.github.io/omalaunch-extensions/"
+        ]
+      },
+      {
+        "id": "add-from-git",
+        "kind": "input",
+        "label": "Add from Git Repository",
+        "prompt": "Git repository URL",
+        "maxLength": 2048,
+        "refreshExtensions": true,
+        "command": [
+          "omarchy",
+          "plugin",
+          "add",
+          "{input}",
+          "--enable"
         ]
       },
       {

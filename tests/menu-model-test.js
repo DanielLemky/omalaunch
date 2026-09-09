@@ -631,15 +631,21 @@ const addExtension = menu.parseExtensions(JSON.stringify({
   _sourceDir: path.join(__dirname, '..', 'extensions', 'add')
 }))
 const browseMarketplace = addExtension[0].workflow.items[0]
-const createWithAgent = addExtension[0].workflow.items[1]
-assert(addExtension.length === 1 && addExtension[0].workflow.items.length === 2
+const addFromGit = addExtension[0].workflow.items[1]
+const createWithAgent = addExtension[0].workflow.items[2]
+assert(addExtension.length === 1 && addExtension[0].workflow.items.length === 3
   && browseMarketplace.kind === 'action'
   && browseMarketplace.label === 'Open Marketplace in Browser'
   && browseMarketplace.command.join('\0') === ['xdg-open', 'https://daniellemky.github.io/omalaunch-extensions/'].join('\0')
   && browseMarketplace.closeOnDispatch === true
+  && addFromGit.kind === 'input'
+  && addFromGit.label === 'Add from Git Repository'
+  && addFromGit.refreshExtensions === true
+  && menu.workflowCommand(addFromGit, 'https://github.com/DanielLemky/quantumfire.omarchy-news', {}).join('\0')
+    === ['omarchy', 'plugin', 'add', 'https://github.com/DanielLemky/quantumfire.omarchy-news', '--enable'].join('\0')
   && createWithAgent.kind === 'input'
   && createWithAgent.closeOnDispatch === true,
-'bundled Add extension exposes marketplace browsing and detached agent creation')
+'bundled Add extension exposes marketplace browsing, Git installation, and detached agent creation')
 const projectsNode = workflowExtensions[0].workflow.items[0]
 assert(projectsNode.label === 'Projects' && projectsNode.items.length === 2, 'workflow navigation data retains Projects and Add Project stages')
 const directoryTransition = menu.workflowDirectoryTransition(projectsNode.items[1], '/tmp/Saved Project/', {})
