@@ -464,16 +464,23 @@ var DEPENDENCY_SETUPS = {
     executable: "qalc",
     packageName: "libqalculate",
     reason: "arithmetic, unit conversion, and currency conversion",
-    installCommand: ["omarchy", "pkg", "add", "libqalculate"]
+    installCommand: ["omarchy", "pkg", "add", "libqalculate"],
+    bundledOnly: true
+  },
+  gh: {
+    executable: "gh",
+    packageName: "github-cli",
+    reason: "GitHub extensions",
+    installCommand: ["omarchy", "pkg", "add", "github-cli"]
   }
 }
 
 function dependencySetup(extension) {
-  if (!extension || !extension.bundled) return null
+  if (!extension) return null
   var missing = Array.isArray(extension.missingRequires) ? extension.missingRequires : []
   for (var i = 0; i < missing.length; i++) {
     var setup = DEPENDENCY_SETUPS[String(missing[i])]
-    if (setup) return setup
+    if (setup && (!setup.bundledOnly || extension.bundled)) return setup
   }
   return null
 }

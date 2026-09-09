@@ -844,9 +844,16 @@ assert(qalcSetup.installCommand.join(' ') === 'omarchy pkg add libqalculate', 'd
 assert(menu.unavailableExtensionDetail(bundledMissingQalc).indexOf('Press Enter to install') >= 0, 'known bundled dependencies are actionable')
 assert(menu.firstSetupExtension([bundledMissingQalc]) === bundledMissingQalc, 'missing bundled dependencies produce a root setup extension')
 assert(menu.firstSetupExtension(bundledExtensions) === null, 'available bundled dependencies do not produce root setup')
-assert(menu.dependencySetup(unavailableCatalog.extensions[0]) === null, 'external extensions cannot authorize package installation')
-assert(menu.firstSetupExtension(unavailableCatalog.extensions) === null, 'external dependencies cannot produce root package setup')
+assert(menu.dependencySetup(unavailableCatalog.extensions[0]) === null, 'unknown external dependencies cannot authorize package installation')
+assert(menu.firstSetupExtension(unavailableCatalog.extensions) === null, 'unknown external dependencies cannot produce root package setup')
 assert(menu.unavailableExtensionDetail(unavailableCatalog.extensions[0]) === 'Missing dependency: missing-tool', 'unknown dependencies retain diagnostic-only messaging')
+const externalMissingGh = Object.assign({}, unavailableCatalog.extensions[0], { missingRequires: ['gh'] })
+const ghSetup = menu.dependencySetup(externalMissingGh)
+assert(ghSetup.packageName === 'github-cli', 'the core allow-list maps external gh requirements to github-cli')
+assert(ghSetup.installCommand.join(' ') === 'omarchy pkg add github-cli', 'external setup cannot control the trusted install command')
+assert(menu.unavailableExtensionDetail(externalMissingGh).indexOf('Press Enter to install') >= 0, 'allow-listed external dependencies are actionable')
+const externalMissingQalc = Object.assign({}, unavailableCatalog.extensions[0], { missingRequires: ['qalc'] })
+assert(menu.dependencySetup(externalMissingQalc) === null, 'bundled-only setup entries remain unavailable to external plugins')
 
 const searchTree = {
   setup: { id: 'setup', parent: 'root' },
