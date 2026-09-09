@@ -5285,7 +5285,7 @@ Item {
               workflowInputActive: root.workflowInputActive,
               actionPanelActive: root.actionPanelActive,
               dialogOpen: root.workflowConfirmOpen || root.deleteConfirmOpen || root.dependencyConfirmOpen,
-              potentialExtensionQuery: root.isPotentialExtensionQuery(root.filterText),
+              potentialExtensionQuery: !root.actionPanelActive && root.isPotentialExtensionQuery(root.filterText),
               filterText: root.filterText,
               activeMenu: root.activeMenu,
               workflowMenuActive: root.workflowActive && root.workflowNode && root.workflowNode.kind === "menu"

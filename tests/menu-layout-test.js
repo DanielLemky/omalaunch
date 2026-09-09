@@ -44,10 +44,12 @@ assertEqual(layout.emptyStateVisible({ ...emptyState, actionPanelActive: true, f
   'a dialog still hides the filtered action-panel empty state')
 assertEqual(layout.emptyStateVisible({ ...emptyState, workflowMenuActive: true, documentActive: true }), false,
   'document loading hides the menu empty state')
-assertEqual(layout.emptyStateVisible({ ...emptyState, workflowMenuActive: true, potentialExtensionQuery: true }), false,
-  'a potential extension query hides the menu empty state')
-assertEqual(layout.emptyStateVisible({ ...emptyState, actionPanelActive: true, filterText: 'missing', potentialExtensionQuery: true }), false,
-  'a potential extension query still hides the filtered action-panel empty state')
+assertEqual(layout.emptyStateVisible({ ...emptyState, workflowMenuActive: true, filterText: '+missing', potentialExtensionQuery: true }), false,
+  'a potential extension query hides the menu empty state outside an action panel')
+assertEqual(layout.emptyStateVisible({ ...emptyState, actionPanelActive: true, filterText: '+missing', potentialExtensionQuery: false }), true,
+  'an extension-prefix-like filter shows no results in a normal action panel')
+assertEqual(layout.emptyStateVisible({ ...emptyState, activeMenu: 'settings', actionPanelActive: true, filterText: '+missing', potentialExtensionQuery: false }), true,
+  'an extension-prefix-like filter shows no results in a settings action panel')
 
 assertEqual(layout.imagePreviewRowsHeight(true, 92, 340, 480), 340,
   'few image rows use the theme-scaled preview minimum')
@@ -65,7 +67,7 @@ if (!qml.includes('readonly property int imagePreviewMinRowsHeight: Style.space(
 }
 console.log('ok - Menu.qml uses the tested image preview layout rule')
 if (!qml.includes('visible: MenuLayout.emptyStateVisible({')
-    || !qml.includes('actionPanelActive: root.actionPanelActive,\n              dialogOpen: root.workflowConfirmOpen || root.deleteConfirmOpen || root.dependencyConfirmOpen,\n              potentialExtensionQuery: root.isPotentialExtensionQuery(root.filterText),\n              filterText: root.filterText,')
+    || !qml.includes('actionPanelActive: root.actionPanelActive,\n              dialogOpen: root.workflowConfirmOpen || root.deleteConfirmOpen || root.dependencyConfirmOpen,\n              potentialExtensionQuery: !root.actionPanelActive && root.isPotentialExtensionQuery(root.filterText),\n              filterText: root.filterText,')
     || !qml.includes('workflowMenuActive: root.workflowActive && root.workflowNode && root.workflowNode.kind === "menu"')
     || !qml.includes('text: parent.loading ? "Loading…" : (root.filterText ? "No results found" : "Nothing here yet")')
     || !qml.includes('root.dynamicMenuLoading || root.submenuLoading')) {
