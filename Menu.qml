@@ -528,10 +528,14 @@ Item {
     return root.foreground
   }
 
-  // Menu rows only surface their detail while a search is narrowing them;
-  // dmenu rows carry caller-supplied subtext that must always be visible.
+  // Static menu rows only surface their detail while a search narrows them.
+  // Dmenu rows and dynamic workflow menu rows use detail as browsing subtext.
+  function rowShowsDetail(detail) {
+    return !!detail && (!!root.filterText || root.dmenuActive || root.workflowFilterMenuActive)
+  }
+
   function rowHeightForDetail(detail) {
-    return (root.filterText || root.dmenuActive) && detail ? root.detailRowHeight : root.baseRowHeight
+    return root.rowShowsDetail(detail) ? root.detailRowHeight : root.baseRowHeight
   }
 
   // Height the card can devote to rows below its pinned top edge.
@@ -4704,7 +4708,8 @@ Item {
                   width: parent.width
                   text: root.isFontSizeSetting(row.itemId) && row.index === root.selectedIndex
                     && root.settingsFeedback ? root.settingsFeedback : row.detail
-                  visible: (root.filterText || row.kind === "dmenu" || row.itemId === "extension.result.pending"
+                  visible: (root.rowShowsDetail(text) || row.kind === "dmenu"
+                    || row.itemId === "extension.result.pending"
                     || (root.isFontSizeSetting(row.itemId) && row.index === root.selectedIndex && root.settingsFeedback))
                     && text.length > 0
                   color: root.foreground
