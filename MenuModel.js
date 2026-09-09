@@ -1054,6 +1054,24 @@ function workflowClosesOnDispatch(node, command) {
   return executable === "xdg-terminal-exec" || executable === "omarchy-launch-terminal"
 }
 
+function dynamicMenuPreloadExtensions(extensions, topLevelOnly) {
+  var source = Array.isArray(extensions) ? extensions : []
+  return source.filter(function(extension) {
+    return extension && extension.mode === "menu" && extension.available
+      && (topLevelOnly === true ? extension.topLevel
+        : (extension.globalSearch || extension.topLevel))
+  })
+}
+
+function retainDynamicMenuSnapshot(snapshot, replacingExtensions) {
+  var replacing = ({})
+  var extensions = Array.isArray(replacingExtensions) ? replacingExtensions : []
+  for (var i = 0; i < extensions.length; i++) replacing["$" + extensions[i].id] = true
+  return (Array.isArray(snapshot) ? snapshot : []).filter(function(entry) {
+    return entry && !replacing["$" + entry.extensionId]
+  })
+}
+
 function dynamicMenuSearchNodes(workflow) {
   if (!workflow || !Array.isArray(workflow.items)) return []
   return Object.prototype.hasOwnProperty.call(workflow, "globalSearchItems")
@@ -1099,7 +1117,10 @@ function dynamicMenuTopLevelItems(extension, workflow) {
   for (var i = 0; i < source.length; i++) {
     var node = source[i]
     if (!node || !node.topLevel || ["action", "confirm", "input"].indexOf(node.kind) < 0) continue
-    result.push(normalizeItem(dynamicMenuItemId(extension.capability, node.id), {
+    // A provider can use the same row ID for independent search and starting
+    // view contracts. Keep the public row identity stable, but make the host
+    // routing key surface-specific so one contract cannot replace the other.
+    result.push(normalizeItem(dynamicMenuSurfaceItemId(extension.capability, node.id, "topLevel"), {
       parent: "extensions", icon: node.icon || extension.icon,
       iconFont: node.iconFont || extension.iconFont, trailingIcon: node.trailingIcon,
       trailingText: node.trailingText, badge: node.badge, badgeTone: node.badgeTone,
@@ -1111,9 +1132,16 @@ function dynamicMenuTopLevelItems(extension, workflow) {
 }
 
 function dynamicMenuItemId(capability, nodeId) {
+  return dynamicMenuSurfaceItemId(capability, nodeId, "")
+}
+
+function dynamicMenuSurfaceItemId(capability, nodeId, surface) {
   capability = String(capability || "").trim()
   nodeId = String(nodeId || "").trim()
-  return capability && nodeId ? "extension.menu:" + JSON.stringify([capability, nodeId]) : ""
+  surface = String(surface || "").trim()
+  if (!capability || !nodeId) return ""
+  return "extension.menu:" + JSON.stringify(surface
+    ? [capability, nodeId, surface] : [capability, nodeId])
 }
 
 function dynamicMenuSearchIdentity(itemId) {
@@ -1122,8 +1150,10 @@ function dynamicMenuSearchIdentity(itemId) {
   if (value.indexOf(prefix) !== 0) return null
   try {
     var parsed = JSON.parse(value.substring(prefix.length))
-    return Array.isArray(parsed) && parsed.length === 2 && typeof parsed[0] === "string" && typeof parsed[1] === "string"
-      ? { capability: parsed[0], id: parsed[1] } : null
+    return Array.isArray(parsed) && (parsed.length === 2 || parsed.length === 3)
+      && typeof parsed[0] === "string" && typeof parsed[1] === "string"
+      && (parsed.length === 2 || typeof parsed[2] === "string")
+      ? { capability: parsed[0], id: parsed[1], surface: parsed[2] || "" } : null
   } catch (e) { return null }
 }
 
@@ -2074,11 +2104,14 @@ if (typeof module !== "undefined") {
     normalizeWorkflow: normalizeWorkflow,
     normalizeDetailDocument: normalizeDetailDocument,
     normalizeDynamicMenuOutput: normalizeDynamicMenuOutput,
+    dynamicMenuPreloadExtensions: dynamicMenuPreloadExtensions,
+    retainDynamicMenuSnapshot: retainDynamicMenuSnapshot,
     dynamicMenuSearchNodes: dynamicMenuSearchNodes,
     dynamicMenuSearchItems: dynamicMenuSearchItems,
     dynamicMenuTopLevelNodes: dynamicMenuTopLevelNodes,
     dynamicMenuTopLevelItems: dynamicMenuTopLevelItems,
     dynamicMenuItemId: dynamicMenuItemId,
+    dynamicMenuSurfaceItemId: dynamicMenuSurfaceItemId,
     dynamicMenuSearchIdentity: dynamicMenuSearchIdentity,
     dynamicMenuNavigationUsageItemId: dynamicMenuNavigationUsageItemId,
     dynamicMenuUsageItemId: dynamicMenuUsageItemId,

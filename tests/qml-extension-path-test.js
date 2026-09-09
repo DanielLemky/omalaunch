@@ -199,8 +199,16 @@ assert(qml.includes('var searchCommand = extension.preloadCommand && extension.p
 'preload can use a command independent from the visible extension menu')
 assert(qml.includes('id: dynamicMenuTopLevelPoll')
   && qml.includes('interval: root.dynamicMenuTopLevelPollMs')
+  && qml.includes('running: root.opened && !root.dmenuActive')
+  && qml.includes('root.preloadDynamicMenuSearch(true)')
+  && qml.includes('MenuModel.dynamicMenuPreloadExtensions(root.extensions, topLevelOnly)')
   && qml.includes('!dynamicMenuSearchProc.running && !dynamicMenuSearchProc.stopping'),
-'temporary top-level snapshots poll without overlapping requests')
+'periodic preload runs only while open, selects top-level providers, and does not overlap')
+assert(qml.includes('MenuModel.retainDynamicMenuSnapshot(root.dynamicMenuSearchSnapshot, queue)'),
+'periodic top-level refresh preserves snapshots from providers that it does not poll')
+assert(qml.includes('root.invalidateDynamicMenuSearch()')
+  && qml.includes('opened = true\n    rebuildDisplay()\n    root.preloadDynamicMenuSearch()'),
+'close cancels preload work and a normal open schedules the complete needed refresh')
 assert(qml.includes('Date.now() - Number(starredDynamicEntry.loadedAt || 0) <= root.dynamicMenuTopLevelStaleMs')
   && qml.includes('if (!starredDynamicEntry.node.starred && !temporaryTopLevel) continue'),
 'temporary rows expire independently while manual stars remain visible')

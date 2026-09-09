@@ -273,6 +273,7 @@ Item {
     root.invalidateSubmenu("launcher closed")
     root.invalidateDocument("launcher closed")
     root.invalidateDynamicMenu()
+    root.invalidateDynamicMenuSearch()
     root.invalidateExtensionQuery("launcher closed")
     deleteConfirmOpen = false
     deleteTarget = null
@@ -888,24 +889,22 @@ Item {
     }
   }
 
-  function preloadDynamicMenuSearch() {
+  function preloadDynamicMenuSearch(topLevelOnly) {
+    if (!root.opened || root.dmenuActive) return
     root.invalidateDynamicMenuSearch()
-    var queue = []
-    for (var i = 0; i < root.extensions.length; i++) {
-      var extension = root.extensions[i]
-      if (extension.mode === "menu" && extension.available
-          && (extension.globalSearch || extension.topLevel)) queue.push(extension)
-    }
+    var queue = MenuModel.dynamicMenuPreloadExtensions(root.extensions, topLevelOnly)
     if (queue.length > root.dynamicMenuSearchMaxProviders) {
       console.warn("Omalaunch: global menu search preload exceeds the provider limit; retained the previous snapshot")
       return
     }
     if (queue.length === 0) {
-      root.dynamicMenuSearchSnapshot = []
+      if (topLevelOnly !== true) root.dynamicMenuSearchSnapshot = []
       root.rebuildDisplay()
       return
     }
     root.dynamicMenuSearchQueue = queue
+    root.dynamicMenuSearchCandidate = topLevelOnly === true
+      ? MenuModel.retainDynamicMenuSnapshot(root.dynamicMenuSearchSnapshot, queue) : []
     root.dynamicMenuSearchOutputBytes = 0
     dynamicMenuSearchTotalTimeout.generation = root.dynamicMenuSearchGeneration
     dynamicMenuSearchTotalTimeout.restart()
@@ -2487,14 +2486,24 @@ Item {
       }
 
       if (active === "root") {
-        for (var starredDynamicIndex = 0; starredDynamicIndex < root.dynamicMenuSearchSnapshot.length; starredDynamicIndex++) {
-          var starredDynamicEntry = root.dynamicMenuSearchSnapshot[starredDynamicIndex]
-          var temporaryTopLevel = starredDynamicEntry.topLevel === true
-            && Date.now() - Number(starredDynamicEntry.loadedAt || 0) <= root.dynamicMenuTopLevelStaleMs
-          if (!starredDynamicEntry.node.starred && !temporaryTopLevel) continue
-          var starredDynamicRow = root.displayRow(starredDynamicEntry.item, starredDynamicEntry.item.description, 0)
-          starredDynamicRow.starred = starredDynamicEntry.node.starred
-          rows.push(starredDynamicRow)
+        // Prefer the starting-view contract when the provider reuses one row
+        // ID across surfaces. A provider-owned star then does not add the
+        // independent search contract as a duplicate starting-view row.
+        var startingDynamicSeen = ({})
+        for (var startingPass = 0; startingPass < 2; startingPass++) {
+          for (var starredDynamicIndex = 0; starredDynamicIndex < root.dynamicMenuSearchSnapshot.length; starredDynamicIndex++) {
+            var starredDynamicEntry = root.dynamicMenuSearchSnapshot[starredDynamicIndex]
+            var temporaryTopLevel = starredDynamicEntry.topLevel === true
+              && Date.now() - Number(starredDynamicEntry.loadedAt || 0) <= root.dynamicMenuTopLevelStaleMs
+            if ((startingPass === 0) !== temporaryTopLevel) continue
+            if (!starredDynamicEntry.node.starred && !temporaryTopLevel) continue
+            var startingIdentity = "$" + starredDynamicEntry.capability + "\n" + starredDynamicEntry.node.id
+            if (startingDynamicSeen[startingIdentity]) continue
+            startingDynamicSeen[startingIdentity] = true
+            var starredDynamicRow = root.displayRow(starredDynamicEntry.item, starredDynamicEntry.item.description, 0)
+            starredDynamicRow.starred = starredDynamicEntry.node.starred
+            rows.push(starredDynamicRow)
+          }
         }
 
         var favoriteIds = Object.keys(favorites.starredIds)
@@ -3038,6 +3047,7 @@ Item {
     root.selectOpeningScreen()
     opened = true
     rebuildDisplay()
+    root.preloadDynamicMenuSearch()
     invalidateVolatileProvider(activeMenu)
     loadProviderForMenu(activeMenu)
     if (activeMenu === "root") root.loadProviderForMenu("apps")
@@ -3490,11 +3500,11 @@ Item {
     id: dynamicMenuTopLevelPoll
     interval: root.dynamicMenuTopLevelPollMs
     repeat: true
-    running: true
+    running: root.opened && !root.dmenuActive
     onTriggered: {
       root.rebuildDisplay()
       if (!dynamicMenuSearchProc.running && !dynamicMenuSearchProc.stopping
-          && root.dynamicMenuSearchQueue.length === 0) root.preloadDynamicMenuSearch()
+          && root.dynamicMenuSearchQueue.length === 0) root.preloadDynamicMenuSearch(true)
     }
   }
 
@@ -3587,16 +3597,7 @@ Item {
           root.rejectDynamicMenuSearch("top-level row lost its normalized provider identity")
           return
         }
-        var merged = false
-        for (var candidateIndex = 0; candidateIndex < candidate.length; candidateIndex++) {
-          if (candidate[candidateIndex].item.id === topLevelItems[topIndex].id) {
-            candidate[candidateIndex].topLevel = true
-            candidate[candidateIndex].loadedAt = Date.now()
-            merged = true
-            break
-          }
-        }
-        if (!merged) candidate.push({
+        candidate.push({
           item: topLevelItems[topIndex], node: topNode, items: workflow.items,
           capability: dynamicMenuSearchProc.extension.capability, extensionId: dynamicMenuSearchProc.extension.id,
           searchable: false, topLevel: true, loadedAt: Date.now()
