@@ -336,7 +336,8 @@ assert(qml.includes('function openWorkflowActions()')
 assert(qml.includes('text: MenuMarkdown.colorizeLinks(modelData.html, root.foreground)')
   && qml.includes('linkColor: root.foreground'),
 'document links use the normal foreground color')
-assert(qml.includes('visible: !root.documentActive && !root.focusedExtension && displayModel.count === 0'),
+assert(qml.includes('visible: MenuLayout.emptyStateVisible({')
+  && qml.includes('documentActive: root.documentActive,'),
 'document pages suppress the empty menu state')
 assert(qml.includes('? Math.max(root.menuItemFontSize, Style.font.heading)')
   && qml.includes('font.weight: root.documentActive ? Font.DemiBold : Font.Normal'),
@@ -424,8 +425,8 @@ assert(qml.includes('readonly property int emptyStateHeight:')
   && qml.includes('if (displayModel.count === 0) return Math.max(0, Math.min(root.emptyStateHeight, available))')
   && qml.includes('height: root.visibleRowsHeight\n          clip: true')
   && qml.includes('width: Math.max(0, Math.min(parent.width - Style.space(32), Style.space(420)))')
-  && qml.includes('text: root.filterText ? "No results found" : "Nothing here yet"')
-  && qml.includes('text: root.filterText ? "Try another search, or press Esc to clear"'),
+  && qml.includes('root.filterText ? "No results found" : "Nothing here yet"')
+  && qml.includes('root.filterText ? "Try another search, or press Esc to clear"'),
 'empty results use a clear, bounded, helpful state')
 assert(qml.includes('font.pixelSize: row.starred ? root.menuSecondaryFontSize : root.menuItemFontSize'),
 'trailing menu glyphs scale with the configured item font size')
