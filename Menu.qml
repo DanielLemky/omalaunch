@@ -9,6 +9,7 @@ import "MenuModel.js" as MenuModel
 import "MenuLayout.js" as MenuLayout
 import "MenuFiles.js" as MenuFiles
 import "MenuMarkdown.js" as MenuMarkdown
+import "MenuDocumentScroll.js" as MenuDocumentScroll
 import "extensions/currency" as CurrencyExtension
 
 Item {
@@ -4359,14 +4360,15 @@ Item {
             event.accepted = true
           } else if (root.documentActive && (event.key === Qt.Key_Up || event.key === Qt.Key_PageUp
               || (event.key === Qt.Key_K && event.modifiers === Qt.NoModifier))) {
-            documentFlick.contentY = Math.max(documentFlick.originY,
-              documentFlick.contentY - (event.key === Qt.Key_PageUp ? documentFlick.height * 0.8 : Style.space(48)))
+            documentFlick.contentY = MenuDocumentScroll.nextContentY(documentFlick.contentY,
+              documentFlick.originY, documentFlick.contentHeight, documentFlick.height,
+              -(event.key === Qt.Key_PageUp ? documentFlick.height * 0.8 : Style.space(48)))
             event.accepted = true
           } else if (root.documentActive && (event.key === Qt.Key_Down || event.key === Qt.Key_PageDown
               || (event.key === Qt.Key_J && event.modifiers === Qt.NoModifier))) {
-            documentFlick.contentY = Math.min(Math.max(documentFlick.originY,
-              documentFlick.originY + documentFlick.contentHeight - documentFlick.height),
-              documentFlick.contentY + (event.key === Qt.Key_PageDown ? documentFlick.height * 0.8 : Style.space(48)))
+            documentFlick.contentY = MenuDocumentScroll.nextContentY(documentFlick.contentY,
+              documentFlick.originY, documentFlick.contentHeight, documentFlick.height,
+              event.key === Qt.Key_PageDown ? documentFlick.height * 0.8 : Style.space(48))
             event.accepted = true
           } else if (!root.documentActive && Util.editsFilter(event, root.filterText)) {
             root.setFilter(Util.editedFilter(event, root.filterText))
