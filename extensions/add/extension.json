@@ -13,11 +13,11 @@
       {
         "id": "browse-marketplace",
         "kind": "action",
-        "label": "Browse Marketplace",
+        "label": "Open Marketplace in Browser",
         "closeOnDispatch": true,
         "command": [
           "xdg-open",
-          "https://github.com/DanielLemky/omalaunch-extensions"
+          "https://daniellemky.github.io/omalaunch-extensions/"
         ]
       },
       {

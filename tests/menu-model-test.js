@@ -634,8 +634,8 @@ const browseMarketplace = addExtension[0].workflow.items[0]
 const createWithAgent = addExtension[0].workflow.items[1]
 assert(addExtension.length === 1 && addExtension[0].workflow.items.length === 2
   && browseMarketplace.kind === 'action'
-  && browseMarketplace.label === 'Browse Marketplace'
-  && browseMarketplace.command.join('\0') === ['xdg-open', 'https://github.com/DanielLemky/omalaunch-extensions'].join('\0')
+  && browseMarketplace.label === 'Open Marketplace in Browser'
+  && browseMarketplace.command.join('\0') === ['xdg-open', 'https://daniellemky.github.io/omalaunch-extensions/'].join('\0')
   && browseMarketplace.closeOnDispatch === true
   && createWithAgent.kind === 'input'
   && createWithAgent.closeOnDispatch === true,
