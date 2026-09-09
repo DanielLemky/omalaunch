@@ -975,6 +975,14 @@ function extensionRootId(extensionOrCapability) {
   return capability ? EXTENSION_ROOT_PREFIX + JSON.stringify(capability) : ""
 }
 
+function extensionRootUsageItemId(extension) {
+  if (!extension) return ""
+  if (extension.mode !== "menu") return extensionRootId(extension)
+  if (!dynamicMenuUsageRankingEnabled(extension)) return ""
+  var providerId = String(extension.id || "").trim()
+  return providerId ? "extension.menu-root:" + JSON.stringify(providerId) : ""
+}
+
 function extensionRootCapability(itemId) {
   var value = String(itemId || "")
   if (value.indexOf(EXTENSION_ROOT_PREFIX) !== 0) return ""
@@ -1093,13 +1101,21 @@ function dynamicMenuSearchIdentity(itemId) {
   } catch (e) { return null }
 }
 
+function dynamicMenuUsageRankingEnabled(extension) {
+  return !!extension && extension.mode === "menu"
+    && !((extension.id === "omalaunch.quicklinks" || extension.id === "omalaunch.web-search")
+      && extension.config && extension.config.rankByUsage === false)
+}
+
+function dynamicMenuNavigationUsageItemId(extension, node) {
+  if (!dynamicMenuUsageRankingEnabled(extension) || !node || !node.id) return ""
+  // Navigation usage belongs to the exact provider, independent of whether a
+  // global-search snapshot currently includes the node.
+  return dynamicMenuItemId(extension.id, node.id)
+}
+
 function dynamicMenuUsageItemId(extension, node) {
-  if (!extension || extension.mode !== "menu" || !node || !node.usageItemId) return ""
-  if ((extension.id === "omalaunch.quicklinks" || extension.id === "omalaunch.web-search")
-      && extension.config && extension.config.rankByUsage === false) return ""
-  // Usage belongs to the exact provider. The search/routing identity uses the
-  // capability so replacement remains safe, but replacements must not inherit
-  // another provider's learned ranking.
+  if (!dynamicMenuUsageRankingEnabled(extension) || !node || !node.usageItemId) return ""
   return dynamicMenuItemId(extension.id, node.usageItemId)
 }
 
@@ -1441,7 +1457,7 @@ var SEARCH_MATCH_TIER = {
   MANAGEMENT: 5,
   METADATA: 10,
   ALIAS_PREFIX: 20,
-  EXACT_ALIAS: 30,
+  EXACT_ALIAS: 40,
   TITLE_CONTAINS: 40,
   TITLE_PREFIX: 50,
   EXACT_TITLE: 60,
@@ -2018,6 +2034,7 @@ if (typeof module !== "undefined") {
     dynamicMenuSearchItems: dynamicMenuSearchItems,
     dynamicMenuItemId: dynamicMenuItemId,
     dynamicMenuSearchIdentity: dynamicMenuSearchIdentity,
+    dynamicMenuNavigationUsageItemId: dynamicMenuNavigationUsageItemId,
     dynamicMenuUsageItemId: dynamicMenuUsageItemId,
     workflowInterpolate: workflowInterpolate,
     workflowInitialInput: workflowInitialInput,
@@ -2030,6 +2047,7 @@ if (typeof module !== "undefined") {
     backgroundActionIsCurrent: backgroundActionIsCurrent,
     workflowClosesOnDispatch: workflowClosesOnDispatch,
     extensionRootId: extensionRootId,
+    extensionRootUsageItemId: extensionRootUsageItemId,
     extensionRootCapability: extensionRootCapability,
     extensionRootItem: extensionRootItem,
     sortExtensionRootRows: sortExtensionRootRows,

@@ -111,7 +111,7 @@ assert(qml.includes('id: dynamicMenuKillTimer')
   && qml.includes('root.invalidateDynamicMenu()'),
 'dynamic menu timeout and output cancellation escalate SIGTERM only for the same provider child')
 const submenuProviderBody = qml.slice(qml.indexOf('id: submenuProc'), qml.indexOf('id: documentTimeout'))
-assert(qml.includes('function refreshWorkflowSurface()')
+assert(qml.includes('function refreshWorkflowSurface(liveRefresh)')
   && qml.includes('MenuModel.footerActionIdForShortcut(key, modifiers)')
   && qml.includes('if (id === "refresh") root.refreshWorkflowSurface()')
   && qml.includes('root.workflowNode.refreshable === true')
@@ -120,6 +120,14 @@ assert(qml.includes('function refreshWorkflowSurface()')
   && qml.includes('documentProc.command = command.slice()')
   && qml.includes('submenuProc.command = command.slice()'),
 'Ctrl+R refreshes only opted-in dynamic lists and detail documents through their saved direct commands')
+assert(qml.includes('normalCommand: initialCommand, reloadCommand: reloadCommand')
+  && qml.includes('liveRefresh === false ? root.workflowNode.normalCommand : root.workflowNode.reloadCommand')
+  && qml.includes('root.refreshWorkflowSurface(false)'),
+'background star actions refresh the current surface without leaving its navigation level')
+assert(qml.includes('submenuProc.selectionNodeId = root.selectedWorkflowNode ? root.selectedWorkflowNode.id : ""')
+  && qml.includes('workflow.items[selectedWorkflowIndex].id === submenuProc.selectionNodeId')
+  && qml.includes('Number(displayModel.get(selectedDisplayIndex).action) === selectedWorkflowNodeIndex'),
+'submenu refresh restores the selected row by stable provider id')
 assert(qml.includes('function enterSubmenu(node)')
   && qml.includes('MenuModel.normalizeDynamicMenuOutput(submenuProc.collected)')
   && qml.includes('root.enterSubmenu(dynamicSearchEntry.node)'),
@@ -191,7 +199,16 @@ assert(qml.includes('var searchCommand = extension.globalSearchCommand && extens
 'global search preload can use a command independent from the visible extension menu')
 assert(qml.includes('var searchNodes = MenuModel.dynamicMenuSearchNodes(workflow)')
   && qml.includes('item: searchItems[i], node: searchNode, items: workflow.items'),
-'dedicated global search actions retain the visible menu as their Back destination')
+'preload keeps its independent search and visible-menu collections')
+const dynamicSearchActivation = qml.slice(qml.indexOf('var dynamicSearchEntry = root.dynamicMenuSearchEntry'),
+  qml.indexOf('var rootExtension = root.extensionForRootId'))
+const workflowBack = qml.slice(qml.indexOf('function workflowBack()'), qml.indexOf('function activateWorkflowChild'))
+assert(dynamicSearchActivation.includes('var dedicatedPreload = dynamicSearchExtension.preloadCommand.length > 0')
+  && dynamicSearchActivation.includes('items: dedicatedPreload ? [] : dynamicSearchEntry.items')
+  && dynamicSearchActivation.includes('preloadedRoot: dedicatedPreload')
+  && workflowBack.includes('previous.node.preloadedRoot === true')
+  && workflowBack.includes('root.enterDynamicMenu(root.workflowExtension, false, false)'),
+'Back from a preloaded search submenu or document loads the authoritative extension root without exposing search rows')
 
 assert(qml.includes('id: dynamicMenuSearchKillTimer')
   && qml.includes('generation !== dynamicMenuSearchProc.stopGeneration')
@@ -237,12 +254,39 @@ assert(qml.includes('var workflowQuery = MenuModel.prepareSearchQuery(root.filte
   && qml.includes('MenuModel.matchesQuery(workflowItem, workflowQuery, true)')
   && qml.includes('root.workflowNode.items[Number(displayModel.get(root.selectedIndex).action)]'),
 'workflow menus filter provider rows while retaining original activation and action identities')
-assert(qml.includes('if (rootExtension.available && rootExtension.mode !== "menu") usage.record(row.itemId)'),
-'dynamic provider roots do not record usage while static extension behavior remains unchanged')
-assert(qml.includes('var dynamicUsageId = MenuModel.dynamicMenuUsageItemId(')
+assert(qml.includes('if (rootExtension.available && rootExtension.mode !== "menu") usage.record(row.itemId)')
+  && qml.includes('dynamicMenuProc.usageItemId = retainCurrentRows || recordActivation === false')
+  && qml.includes('? "" : MenuModel.extensionRootUsageItemId(extension)')
+  && workflowBack.includes('root.enterDynamicMenu(root.workflowExtension, false, false)'),
+'dynamic provider roots count only successful user activation with the provider-owned ranking identity; Back and refresh do not publish root usage')
+assert(qml.includes('var searchExtensionUsageId = MenuModel.extensionRootUsageItemId(searchExtension)')
+  && qml.includes('searchExtensionRow.usageCount = usage.count(searchExtensionUsageId)')
+  && qml.includes('searchExtensionRow.lastUsedAt = usage.lastUsedAt(searchExtensionUsageId)'),
+'extension root ranking reads the same provider-owned or ordinary identity that activation records')
+assert(qml.includes('var dynamicUsageId = dynamicSearchEntry.node.submenuCommand || dynamicSearchEntry.node.documentCommand')
+  && qml.includes('? MenuModel.dynamicMenuNavigationUsageItemId(dynamicUsageExtension, dynamicSearchEntry.node)')
   && qml.includes('dynamicSearchRow.usageCount = usage.count(dynamicUsageId)')
   && qml.includes('dynamicSearchRow.lastUsedAt = usage.lastUsedAt(dynamicUsageId)'),
-'dynamic search ranking reads the same provider-owned identity that successful Open records')
+'dynamic search ranking reads the same provider-owned identity that successful action or navigation records')
+const dynamicNavigationUsageBody = qml.slice(qml.indexOf('function dynamicNavigationUsageItemId(extension, node)'),
+  qml.indexOf('function enterDynamicMenu('))
+assert(dynamicNavigationUsageBody.includes('MenuModel.dynamicMenuNavigationUsageItemId(extension, node)')
+  && !dynamicNavigationUsageBody.includes('dynamicMenuSearchEntry')
+  && !dynamicNavigationUsageBody.includes('workflowNode'),
+'navigation usage identity does not depend on global-search inclusion or snapshot availability')
+const submenuExit = qml.slice(qml.indexOf('id: submenuProc'), qml.indexOf('id: documentTimeout'))
+const documentExit = qml.slice(qml.indexOf('id: documentProc'), qml.indexOf('id: dynamicMenuTimeout'))
+const dynamicRootExit = qml.slice(qml.indexOf('id: dynamicMenuProc'), qml.indexOf('id: workflowActionTimeout'))
+assert(qml.includes('submenuProc.usageItemId = root.dynamicNavigationUsageItemId(root.workflowExtension, node)')
+  && qml.includes('documentProc.usageItemId = root.dynamicNavigationUsageItemId(root.workflowExtension, node)')
+  && submenuExit.indexOf('if (!workflow)') < submenuExit.indexOf('usage.record(submenuUsageItemId)')
+  && documentExit.indexOf('if (!document)') < documentExit.indexOf('usage.record(documentUsageItemId)')
+  && dynamicRootExit.indexOf('if (!workflow)') < dynamicRootExit.indexOf('usage.record(rootUsageItemId)'),
+'navigation records only after a valid current provider result is installed')
+assert(qml.includes('documentProc.usageItemId = ""')
+  && qml.includes('submenuProc.usageItemId = ""')
+  && qml.includes('dynamicMenuProc.usageItemId = ""'),
+'refresh and invalidation paths clear pending navigation usage')
 assert(qml.includes('function dispatchWorkflowNode(node, input, returnToRoot, backgroundRequested)')
   && qml.includes('workflowActionProc.refreshDynamicMenu = root.workflowExtension.mode === "menu"')
   && qml.includes('workflowActionProc.closeAfter = node.closeOnSuccess')

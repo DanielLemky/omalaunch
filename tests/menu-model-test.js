@@ -80,7 +80,7 @@ const partialFilesSuggestion = menu.suggestExtensions(filesExtension, 'fil')[0]
 const exactFilesSuggestion = menu.suggestExtensions(filesExtension, 'files')[0]
 assert(partialFilesSuggestion.extension.id === 'files', 'file browser extensions appear in prefix suggestions')
 assert(menu.extensionSuggestionPriority(partialFilesSuggestion, 'fil') === 20, 'partial extension suggestions receive alias-prefix priority')
-assert(menu.extensionSuggestionPriority(exactFilesSuggestion, ' FILES ') === 30, 'exact extension prefixes receive exact-alias priority')
+assert(menu.extensionSuggestionPriority(exactFilesSuggestion, ' FILES ') === 40, 'exact extension prefixes receive exact-alias priority')
 assert(menu.extensionSuggestionPriority({ extension: { available: false }, prefix: 'files' }, 'files') === 0, 'unavailable extension suggestions receive no priority boost')
 assert(menu.extensionMatchPriority(filesExtension[0]) === 100, 'explicit available extension invocations receive top priority')
 assert(menu.extensionMatchPriority({ available: false }) === 0, 'unavailable extension invocations receive no priority boost')
@@ -190,6 +190,15 @@ const replacementRootId = menu.extensionRootId(replacementFixture)
 assert(bundledRootId === replacementRootId, 'extension root ids remain stable across capability provider replacement')
 assert(menu.extensionRootCapability(bundledRootId) === 'calculator', 'extension root ids recover their capability')
 assert(menu.extensionRootCapability('extension.root:not-json') === '', 'malformed extension root ids are ignored')
+assert(menu.extensionRootUsageItemId(replacementFixture) === replacementRootId, 'ordinary extension roots keep their capability-owned usage identity')
+const bundledQuicklinksRoot = { id: 'omalaunch.quicklinks', capability: 'quicklinks', mode: 'menu', config: { rankByUsage: true } }
+const replacementQuicklinksRoot = { ...bundledQuicklinksRoot, id: 'example.quicklinks' }
+const bundledQuicklinksUsageId = menu.extensionRootUsageItemId(bundledQuicklinksRoot)
+assert(bundledQuicklinksUsageId === 'extension.menu-root:"omalaunch.quicklinks"', 'dynamic menu roots use a provider-owned usage identity')
+assert(menu.extensionRootUsageItemId(replacementQuicklinksRoot) !== bundledQuicklinksUsageId, 'replacement providers do not inherit dynamic root usage')
+assert(menu.extensionRootUsageItemId({ ...bundledQuicklinksRoot, config: { rankByUsage: false } }) === '', 'bundled Quicklinks root usage honors its ranking opt-out')
+assert(menu.extensionRootUsageItemId({ id: 'omalaunch.web-search', capability: 'web-search', mode: 'menu', config: { rankByUsage: false } }) === '', 'bundled Web Search root usage honors its ranking opt-out')
+assert(menu.extensionRootUsageItemId({ ...replacementQuicklinksRoot, config: { rankByUsage: false } }) !== '', 'bundled root ranking configuration does not control replacement providers')
 const replacementRootItem = menu.extensionRootItem(menu.parseExtensions(JSON.stringify([replacementFixture]))[0])
 assert(replacementRootItem.id === replacementRootId && replacementRootItem.parent === 'extensions', 'extension roots are children of the fixed Extensions directory')
 assert(replacementRootItem.description === 'Open fixture calculator', 'extension roots can describe activation separately from result actions')
@@ -321,6 +330,19 @@ assert(!menu.matchesQuery(dynamicSearchItems[0], menu.prepareSearchQuery('quickl
 assert(menu.matchesQuery(dynamicSearchItems[1], menu.prepareSearchQuery('quicklink'), true), 'dynamic rows still match provider words in visible labels')
 assert(menu.dynamicMenuSearchIdentity(dynamicSearchItems[0].id).capability === 'quicklinks', 'dynamic search identities retain stable extension capability')
 assert(menu.dynamicMenuItemId('quicklinks', 'open') === dynamicSearchItems[0].id, 'dynamic usage uses the stable synthetic search identity')
+const quicklinksNavigationUsageId = menu.dynamicMenuItemId(dynamicMenuExtensions[0].id, dynamicMenu.items[0].id)
+assert(menu.dynamicMenuNavigationUsageItemId(dynamicMenuExtensions[0], dynamicMenu.items[0]) === quicklinksNavigationUsageId,
+  'searchable navigation uses a provider-owned identity instead of its capability routing identity')
+assert(menu.dynamicMenuNavigationUsageItemId(dynamicMenuExtensions[0], { id: 'nested' }) === menu.dynamicMenuItemId(dynamicMenuExtensions[0].id, 'nested'),
+  'nested navigation uses the same provider-owned identity without a search snapshot')
+assert(menu.dynamicMenuNavigationUsageItemId(null, dynamicMenu.items[0]) === '', 'navigation usage rejects missing providers')
+assert(menu.dynamicMenuNavigationUsageItemId({ ...dynamicMenuExtensions[0], id: 'replacement.quicklinks', capability: 'quicklinks' }, dynamicMenu.items[0])
+  === menu.dynamicMenuItemId('replacement.quicklinks', 'open'),
+  'replacement navigation does not inherit the replaced provider usage history')
+assert(menu.dynamicMenuNavigationUsageItemId({ ...dynamicMenuExtensions[0], id: 'omalaunch.quicklinks', config: { rankByUsage: false } }, dynamicMenu.items[0]) === '',
+  'bundled Quicklinks disables submenu and document navigation ranking')
+assert(menu.dynamicMenuNavigationUsageItemId({ ...dynamicMenuExtensions[0], id: 'omalaunch.web-search', config: { rankByUsage: false } }, dynamicMenu.items[0]) === '',
+  'bundled Web Search disables submenu and document navigation ranking')
 const quicklinksUsageId = menu.dynamicMenuItemId(dynamicMenuExtensions[0].id, dynamicMenu.items[0].id)
 assert(menu.dynamicMenuUsageItemId(dynamicMenuExtensions[0], dynamicMenu.items[0]) === quicklinksUsageId, 'provider-menu primary launches map to a provider-owned usage identity')
 assert(menu.dynamicMenuUsageItemId(dynamicMenuExtensions[0], dynamicMenu.items[0].actions.find(action => action.id === 'open')) === quicklinksUsageId, 'contextual Open maps to its primary provider-owned usage identity')
@@ -853,7 +875,7 @@ assert(menu.searchMatchPriority({ kind: 'app', label: 'Delfin', aliases: [] }, '
 assert(menu.searchMatchPriority({ kind: 'app', label: 'LibreOffice Calc', aliases: [] }, 'calc') === menu.searchMatchPriority({ kind: 'app', label: 'Omacalc', aliases: [] }, 'calc'), 'title words and in-word substrings have equal match tiers')
 assert(menu.searchMatchPriority({ kind: 'app', parent: 'apps', label: 'Chromium', aliases: ['Web Browser'] }, 'browser') === 10, 'app metadata uses the same metadata tier as other result types')
 assert(menu.searchMatchPriority({ kind: 'app', parent: 'apps', label: 'Chromium', aliases: ['Web Browser'] }, 'calculator') === 0, 'unmatched items receive no priority')
-assert(menu.searchMatchPriority({ kind: 'menu', parent: 'apps', label: 'Other', aliases: ['Browser'] }, 'browser') === 30, 'exact aliases receive exact-alias priority')
+assert(menu.searchMatchPriority({ kind: 'menu', parent: 'apps', label: 'Other', aliases: ['Browser'] }, 'browser') === 40, 'exact aliases share title-contains priority')
 assert(menu.searchMatchPriority({ kind: 'menu', label: 'Browser', aliases: [] }, 'browser') === 60, 'item type does not change exact-title priority')
 assert(menu.searchMatchPriority({ label: 'Apps', aliases: ['app', 'applications'] }, 'ap') === 50, 'title prefixes outrank aliases')
 assert(menu.searchMatchPriority({ label: 'Utilities', aliases: ['applications'] }, 'ap') === 20, 'alias prefixes are recognized')
@@ -879,6 +901,30 @@ assert(menu.compareSearchRows(
   { matchPriority: 40, starred: false, usageCount: 1, lastUsedAt: 100, score: 0, path: 'LibreOffice Calc' },
   { matchPriority: 40, starred: false, usageCount: 3, lastUsedAt: 200, score: 10, path: 'Omacalc' }
 ) > 0, 'usage ranks Omacalc above LibreOffice Calc within the shared title-contains tier')
+
+const pullRequests = { id: 'github.pull-requests', kind: 'link', parent: 'root', label: 'GitHub · Pull Requests', aliases: ['prs'], order: 1 }
+const hyprsunset = { id: 'apps.hyprsunset', kind: 'app', parent: 'apps', label: 'Hyprsunset', aliases: [], order: 2 }
+const pullRequestsPriority = menu.searchMatchPriority(pullRequests, 'prs')
+const hyprsunsetPriority = menu.searchMatchPriority(hyprsunset, 'prs')
+assert(pullRequestsPriority === hyprsunsetPriority && pullRequestsPriority === 40, 'exact prs alias and Hyprsunset title substring share one match tier')
+const pullRequestsScore = menu.searchScore({ [pullRequests.id]: pullRequests, [hyprsunset.id]: hyprsunset }, pullRequests, 'prs')
+const hyprsunsetScore = menu.searchScore({ [pullRequests.id]: pullRequests, [hyprsunset.id]: hyprsunset }, hyprsunset, 'prs')
+assert(menu.compareSearchRows(
+  { matchPriority: pullRequestsPriority, starred: false, usageCount: 1, lastUsedAt: 100, score: pullRequestsScore, path: pullRequests.label },
+  { matchPriority: hyprsunsetPriority, starred: false, usageCount: 0, lastUsedAt: 0, score: hyprsunsetScore, path: hyprsunset.label }
+) < 0, 'used GitHub Pull Requests beats unused Hyprsunset for prs')
+assert(menu.compareSearchRows(
+  { matchPriority: pullRequestsPriority, starred: false, usageCount: 1, lastUsedAt: 100, score: pullRequestsScore, path: pullRequests.label },
+  { matchPriority: hyprsunsetPriority, starred: false, usageCount: 1, lastUsedAt: 200, score: hyprsunsetScore, path: hyprsunset.label }
+) > 0, 'recency decides equal positive counts within the shared exact-alias and title-contains tier')
+assert(menu.compareSearchRows(
+  { matchPriority: pullRequestsPriority, starred: false, usageCount: 100, lastUsedAt: 200, score: pullRequestsScore, path: pullRequests.label },
+  { matchPriority: 50, starred: false, usageCount: 0, lastUsedAt: 0, score: 10, path: 'Prs Tool' }
+) > 0, 'title prefixes keep precedence over heavily used exact aliases')
+assert(menu.compareSearchRows(
+  { matchPriority: pullRequestsPriority, starred: false, usageCount: 100, lastUsedAt: 200, score: pullRequestsScore, path: pullRequests.label },
+  { matchPriority: 60, starred: false, usageCount: 0, lastUsedAt: 0, score: 0, path: 'Prs' }
+) > 0, 'exact titles keep precedence over heavily used exact aliases')
 
 assert(menu.compareSearchRows(
   { matchPriority: 0, starred: false, usageCount: 2, lastUsedAt: 200, score: 20, path: 'A' },

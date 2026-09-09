@@ -9,6 +9,7 @@ import "MenuModel.js" as MenuModel
 import "MenuLayout.js" as MenuLayout
 import "MenuFiles.js" as MenuFiles
 import "MenuMarkdown.js" as MenuMarkdown
+import "MenuDocumentScroll.js" as MenuDocumentScroll
 import "extensions/currency" as CurrencyExtension
 
 Item {
@@ -528,10 +529,14 @@ Item {
     return root.foreground
   }
 
-  // Menu rows only surface their detail while a search is narrowing them;
-  // dmenu rows carry caller-supplied subtext that must always be visible.
+  // Static menu rows only surface their detail while a search narrows them.
+  // Dmenu rows and dynamic workflow menu rows use detail as browsing subtext.
+  function rowShowsDetail(detail) {
+    return !!detail && (!!root.filterText || root.dmenuActive || root.workflowFilterMenuActive)
+  }
+
   function rowHeightForDetail(detail) {
-    return (root.filterText || root.dmenuActive) && detail ? root.detailRowHeight : root.baseRowHeight
+    return root.rowShowsDetail(detail) ? root.detailRowHeight : root.baseRowHeight
   }
 
   // Height the card can devote to rows below its pinned top edge.
@@ -863,6 +868,7 @@ Item {
       dynamicMenuKillTimer.restart()
     }
     root.dynamicMenuLoading = false
+    dynamicMenuProc.usageItemId = ""
   }
 
   function invalidateDynamicMenuSearch() {
@@ -933,7 +939,11 @@ Item {
     return null
   }
 
-  function enterDynamicMenu(extension, retainRows) {
+  function dynamicNavigationUsageItemId(extension, node) {
+    return MenuModel.dynamicMenuNavigationUsageItemId(extension, node)
+  }
+
+  function enterDynamicMenu(extension, retainRows, recordActivation) {
     if (!extension || !extension.available || extension.mode !== "menu"
         || dynamicMenuProc.running || dynamicMenuProc.stopping) return
     var retainCurrentRows = retainRows === true && root.workflowActive && root.workflowNode
@@ -956,6 +966,8 @@ Item {
     root.dynamicMenuGeneration += 1
     dynamicMenuProc.generation = root.dynamicMenuGeneration
     dynamicMenuProc.extensionCapability = extension.capability
+    dynamicMenuProc.usageItemId = retainCurrentRows || recordActivation === false
+      ? "" : MenuModel.extensionRootUsageItemId(extension)
     dynamicMenuProc.selectionNodeId = retainCurrentRows && root.selectedWorkflowNode ? root.selectedWorkflowNode.id : ""
     dynamicMenuProc.collected = ""
     dynamicMenuProc.stderrBytes = 0
@@ -980,6 +992,7 @@ Item {
       submenuKillTimer.restart()
     }
     root.submenuLoading = false
+    submenuProc.usageItemId = ""
   }
 
   function openExtensionConfiguration() {
@@ -1015,7 +1028,8 @@ Item {
       return MenuModel.workflowInterpolate(argument, root.workflowValues())
     })
     root.workflowNode = { id: node.id + ".submenu", kind: "menu", label: node.label,
-      description: "Loading…", items: [], reloadCommand: reloadCommand, refreshable: node.refreshable }
+      description: "Loading…", items: [], normalCommand: initialCommand, reloadCommand: reloadCommand,
+      refreshable: node.refreshable }
     root.filterText = ""
     root.selectedIndex = 0
     root.cursorActive = false
@@ -1024,6 +1038,8 @@ Item {
     submenuProc.generation = root.submenuGeneration
     submenuProc.extensionCapability = root.workflowExtension.capability
     submenuProc.submenuNodeId = root.workflowNode.id
+    submenuProc.usageItemId = root.dynamicNavigationUsageItemId(root.workflowExtension, node)
+    submenuProc.selectionNodeId = ""
     submenuProc.collected = ""
     submenuProc.stderrBytes = 0
     submenuProc.outputOverflow = false
@@ -1045,6 +1061,7 @@ Item {
       documentKillTimer.restart()
     }
     root.documentLoading = false
+    documentProc.usageItemId = ""
   }
 
   function enterDocument(node) {
@@ -1068,7 +1085,8 @@ Item {
       return MenuModel.workflowInterpolate(argument, root.workflowValues())
     })
     root.workflowNode = { id: node.id + ".document", kind: "document", label: node.label,
-      document: null, reloadCommand: reloadCommand, refreshable: node.refreshable }
+      document: null, normalCommand: initialCommand, reloadCommand: reloadCommand,
+      refreshable: node.refreshable }
     root.filterText = ""
     root.selectedIndex = 0
     root.cursorActive = false
@@ -1078,6 +1096,7 @@ Item {
     documentProc.generation = root.documentGeneration
     documentProc.extensionCapability = root.workflowExtension.capability
     documentProc.documentNodeId = root.workflowNode.id
+    documentProc.usageItemId = root.dynamicNavigationUsageItemId(root.workflowExtension, node)
     documentProc.collected = ""
     documentProc.stderrBytes = 0
     documentProc.outputOverflow = false
@@ -1087,14 +1106,14 @@ Item {
     root.rebuildDisplay()
   }
 
-  function refreshWorkflowSurface() {
+  function refreshWorkflowSurface(liveRefresh) {
     if (!root.workflowActive || !root.workflowExtension || root.workflowExtension.mode !== "menu"
         || !root.workflowNode) return
     if (root.workflowNode.id === "root") {
       root.enterDynamicMenu(root.workflowExtension, true)
       return
     }
-    var command = root.workflowNode.reloadCommand
+    var command = liveRefresh === false ? root.workflowNode.normalCommand : root.workflowNode.reloadCommand
     if (!command || command.length === 0) return
     if (root.documentActive) {
       if (documentProc.running || documentProc.stopping) return
@@ -1104,6 +1123,7 @@ Item {
       documentProc.generation = root.documentGeneration
       documentProc.extensionCapability = root.workflowExtension.capability
       documentProc.documentNodeId = root.workflowNode.id
+      documentProc.usageItemId = ""
       documentProc.collected = ""
       documentProc.stderrBytes = 0
       documentProc.outputOverflow = false
@@ -1118,6 +1138,8 @@ Item {
     submenuProc.generation = root.submenuGeneration
     submenuProc.extensionCapability = root.workflowExtension.capability
     submenuProc.submenuNodeId = root.workflowNode.id
+    submenuProc.usageItemId = ""
+    submenuProc.selectionNodeId = root.selectedWorkflowNode ? root.selectedWorkflowNode.id : ""
     submenuProc.collected = ""
     submenuProc.stderrBytes = 0
     submenuProc.outputOverflow = false
@@ -1212,9 +1234,14 @@ Item {
     }
     var previous = root.workflowStack[root.workflowStack.length - 1]
     root.workflowStack = root.workflowStack.slice(0, root.workflowStack.length - 1)
-    root.showWorkflowNode(previous.node, previous.context, false)
-    root.selectedIndex = Math.max(0, Math.min(previous.selectedIndex || 0, displayModel.count - 1))
-    root.cursorActive = displayModel.count > 0
+    if (previous.node.preloadedRoot === true && root.workflowExtension
+        && root.workflowExtension.mode === "menu") {
+      root.enterDynamicMenu(root.workflowExtension, false, false)
+    } else {
+      root.showWorkflowNode(previous.node, previous.context, false)
+      root.selectedIndex = Math.max(0, Math.min(previous.selectedIndex || 0, displayModel.count - 1))
+      root.cursorActive = displayModel.count > 0
+    }
     return true
   }
 
@@ -2299,8 +2326,10 @@ Item {
           var dynamicSearchRow = root.displayRow(dynamicSearchEntry.item, dynamicSearchEntry.item.description, 0)
           dynamicSearchRow.starred = dynamicSearchEntry.node.starred
           dynamicSearchRow.matchPriority = MenuModel.searchMatchPriority(dynamicSearchEntry.item, preparedQuery)
-          var dynamicUsageId = MenuModel.dynamicMenuUsageItemId(
-            root.extensionById(dynamicSearchEntry.extensionId), dynamicSearchEntry.node)
+          var dynamicUsageExtension = root.extensionById(dynamicSearchEntry.extensionId)
+          var dynamicUsageId = dynamicSearchEntry.node.submenuCommand || dynamicSearchEntry.node.documentCommand
+            ? MenuModel.dynamicMenuNavigationUsageItemId(dynamicUsageExtension, dynamicSearchEntry.node)
+            : MenuModel.dynamicMenuUsageItemId(dynamicUsageExtension, dynamicSearchEntry.node)
           dynamicSearchRow.usageCount = usage.count(dynamicUsageId)
           dynamicSearchRow.lastUsedAt = usage.lastUsedAt(dynamicUsageId)
           rows.push(dynamicSearchRow)
@@ -2317,8 +2346,9 @@ Item {
             MenuModel.searchScore(({ extensions: root.item("extensions") }), searchExtensionItem, preparedQuery))
           searchExtensionRow.starred = favorites.isStarred(searchExtensionRow.itemId)
           searchExtensionRow.matchPriority = MenuModel.searchMatchPriority(searchExtensionItem, preparedQuery)
-          searchExtensionRow.usageCount = usage.count(searchExtensionRow.itemId)
-          searchExtensionRow.lastUsedAt = usage.lastUsedAt(searchExtensionRow.itemId)
+          var searchExtensionUsageId = MenuModel.extensionRootUsageItemId(searchExtension)
+          searchExtensionRow.usageCount = usage.count(searchExtensionUsageId)
+          searchExtensionRow.lastUsedAt = usage.lastUsedAt(searchExtensionUsageId)
           matchedExtensionRoots["$" + searchExtension.capability] = true
           rows.push(searchExtensionRow)
         }
@@ -2718,8 +2748,12 @@ Item {
       root.workflowExtension = dynamicSearchExtension
       root.workflowContext = ({ extensionDir: dynamicSearchExtension.sourceDir })
       root.workflowStack = []
+      var dedicatedPreload = dynamicSearchExtension.preloadCommand.length > 0
+        || dynamicSearchExtension.globalSearchCommand.length > 0
       root.workflowNode = { id: "root", kind: "menu", label: dynamicSearchExtension.label,
-        description: dynamicSearchExtension.description, items: dynamicSearchEntry.items }
+        description: dynamicSearchExtension.description,
+        items: dedicatedPreload ? [] : dynamicSearchEntry.items,
+        preloadedRoot: dedicatedPreload }
       if (dynamicSearchEntry.node.submenuCommand && dynamicSearchEntry.node.submenuCommand.length > 0)
         root.enterSubmenu(dynamicSearchEntry.node)
       else if (dynamicSearchEntry.node.documentCommand && dynamicSearchEntry.node.documentCommand.length > 0)
@@ -3567,6 +3601,8 @@ Item {
     property bool stopping: false
     property string extensionCapability: ""
     property string submenuNodeId: ""
+    property string usageItemId: ""
+    property string selectionNodeId: ""
     property string collected: ""
     property int stderrBytes: 0
     property bool outputOverflow: false
@@ -3610,14 +3646,29 @@ Item {
       var workflow = exitCode === 0 && !submenuProc.outputOverflow
         ? MenuModel.normalizeDynamicMenuOutput(submenuProc.collected) : null
       if (!workflow) {
+        submenuProc.usageItemId = ""
         console.warn("Omalaunch: submenu provider returned invalid or failed output")
         root.workflowNode = Object.assign({}, root.workflowNode,
           { description: "Provider failed", items: [] })
-      } else root.workflowNode = Object.assign({}, root.workflowNode,
-        { description: "", items: workflow.items })
+      } else {
+        root.workflowNode = Object.assign({}, root.workflowNode, { description: "", items: workflow.items })
+        var submenuUsageItemId = submenuProc.usageItemId
+        submenuProc.usageItemId = ""
+        if (submenuUsageItemId) usage.record(submenuUsageItemId)
+      }
+      var selectedWorkflowNodeIndex = -1
+      if (workflow && submenuProc.selectionNodeId) {
+        for (var selectedWorkflowIndex = 0; selectedWorkflowIndex < workflow.items.length; selectedWorkflowIndex++)
+          if (workflow.items[selectedWorkflowIndex].id === submenuProc.selectionNodeId) { selectedWorkflowNodeIndex = selectedWorkflowIndex; break }
+      }
+      submenuProc.selectionNodeId = ""
       root.selectedIndex = 0
       root.cursorActive = workflow && workflow.items.length > 0
       root.rebuildDisplay()
+      if (selectedWorkflowNodeIndex >= 0) {
+        for (var selectedDisplayIndex = 0; selectedDisplayIndex < displayModel.count; selectedDisplayIndex++)
+          if (Number(displayModel.get(selectedDisplayIndex).action) === selectedWorkflowNodeIndex) { root.selectedIndex = selectedDisplayIndex; break }
+      }
     }
   }
 
@@ -3653,6 +3704,7 @@ Item {
     property bool stopping: false
     property string extensionCapability: ""
     property string documentNodeId: ""
+    property string usageItemId: ""
     property string collected: ""
     property int stderrBytes: 0
     property bool outputOverflow: false
@@ -3694,11 +3746,15 @@ Item {
       var document = exitCode === 0 && !documentProc.outputOverflow
         ? MenuModel.normalizeDetailDocument(documentProc.collected) : null
       if (!document) {
+        documentProc.usageItemId = ""
         root.documentError = "Could not load details"
         console.warn("Omalaunch: detail provider returned invalid or failed output")
       } else {
         root.documentError = ""
         root.workflowNode = Object.assign({}, root.workflowNode, { document: document })
+        var documentUsageItemId = documentProc.usageItemId
+        documentProc.usageItemId = ""
+        if (documentUsageItemId) usage.record(documentUsageItemId)
       }
       root.rebuildDisplay()
     }
@@ -3734,6 +3790,7 @@ Item {
     property int stopGeneration: 0
     property bool stopping: false
     property string extensionCapability: ""
+    property string usageItemId: ""
     property string selectionNodeId: ""
     property string collected: ""
     property bool outputOverflow: false
@@ -3771,11 +3828,17 @@ Item {
       var workflow = exitCode === 0 && !dynamicMenuProc.outputOverflow
         ? MenuModel.normalizeDynamicMenuOutput(dynamicMenuProc.collected) : null
       if (!workflow) {
+        dynamicMenuProc.usageItemId = ""
         console.warn("Omalaunch: dynamic menu provider returned invalid or failed output")
         root.workflowNode = { id: "root", kind: "menu", label: root.workflowExtension.label,
           description: "Provider failed", items: [] }
-      } else root.workflowNode = { id: "root", kind: "menu", label: root.workflowExtension.label,
-        description: root.workflowExtension.description, items: workflow.items }
+      } else {
+        root.workflowNode = { id: "root", kind: "menu", label: root.workflowExtension.label,
+          description: root.workflowExtension.description, items: workflow.items }
+        var rootUsageItemId = dynamicMenuProc.usageItemId
+        dynamicMenuProc.usageItemId = ""
+        if (rootUsageItemId) usage.record(rootUsageItemId)
+      }
       var selectedWorkflowNodeIndex = -1
       if (workflow && dynamicMenuProc.selectionNodeId) {
         for (var selectedWorkflowIndex = 0; selectedWorkflowIndex < workflow.items.length; selectedWorkflowIndex++)
@@ -3923,7 +3986,7 @@ Item {
       root.preloadDynamicMenuSearch()
       if (root.workflowActive && root.workflowExtension
           && root.workflowExtension.capability === extension.capability)
-        root.enterDynamicMenu(extension, true)
+        root.refreshWorkflowSurface(false)
       if (backgroundActionProc.closeAfter) root.cancel()
     }
   }
@@ -4298,14 +4361,15 @@ Item {
             event.accepted = true
           } else if (root.documentActive && (event.key === Qt.Key_Up || event.key === Qt.Key_PageUp
               || (event.key === Qt.Key_K && event.modifiers === Qt.NoModifier))) {
-            documentFlick.contentY = Math.max(documentFlick.originY,
-              documentFlick.contentY - (event.key === Qt.Key_PageUp ? documentFlick.height * 0.8 : Style.space(48)))
+            documentFlick.contentY = MenuDocumentScroll.nextContentY(documentFlick.contentY,
+              documentFlick.originY, documentFlick.contentHeight, documentFlick.height,
+              -(event.key === Qt.Key_PageUp ? documentFlick.height * 0.8 : Style.space(48)))
             event.accepted = true
           } else if (root.documentActive && (event.key === Qt.Key_Down || event.key === Qt.Key_PageDown
               || (event.key === Qt.Key_J && event.modifiers === Qt.NoModifier))) {
-            documentFlick.contentY = Math.min(Math.max(documentFlick.originY,
-              documentFlick.originY + documentFlick.contentHeight - documentFlick.height),
-              documentFlick.contentY + (event.key === Qt.Key_PageDown ? documentFlick.height * 0.8 : Style.space(48)))
+            documentFlick.contentY = MenuDocumentScroll.nextContentY(documentFlick.contentY,
+              documentFlick.originY, documentFlick.contentHeight, documentFlick.height,
+              event.key === Qt.Key_PageDown ? documentFlick.height * 0.8 : Style.space(48))
             event.accepted = true
           } else if (!root.documentActive && Util.editsFilter(event, root.filterText)) {
             root.setFilter(Util.editedFilter(event, root.filterText))
@@ -4657,7 +4721,8 @@ Item {
                   width: parent.width
                   text: root.isFontSizeSetting(row.itemId) && row.index === root.selectedIndex
                     && root.settingsFeedback ? root.settingsFeedback : row.detail
-                  visible: (root.filterText || row.kind === "dmenu" || row.itemId === "extension.result.pending"
+                  visible: (root.rowShowsDetail(text) || row.kind === "dmenu"
+                    || row.itemId === "extension.result.pending"
                     || (root.isFontSizeSetting(row.itemId) && row.index === root.selectedIndex && root.settingsFeedback))
                     && text.length > 0
                   color: root.foreground
