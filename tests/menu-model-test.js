@@ -880,7 +880,9 @@ assert(menu.compactActionBarHints(starredActionHints).map(hint => hint.label).jo
 
 const resetOpenState = menu.openStateReset({ workflowActive: true, fileBrowserActive: true })
 assert(resetOpenState.workflowActive === false && resetOpenState.workflowNode === null && resetOpenState.workflowStack.length === 0, 'new opens reset workflow state')
-assert(resetOpenState.fileBrowserActive === false && resetOpenState.directoryPickerActive === false && resetOpenState.fileBrowserExtension === null, 'new opens reset file browser and directory picker state')
+assert(resetOpenState.fileBrowserActive === false && resetOpenState.directoryPickerActive === false
+  && resetOpenState.filePickerActive === false && resetOpenState.fileBrowserExtension === null,
+  'new opens reset file browser and workflow picker state')
 assert(menu.fileEscapeAction({ actionPanelActive: true, hasFilter: true, path: '/home/test/docs', home: '/home/test' }) === 'close-actions',
   'Escape closes Files actions before it changes their saved search')
 assert(menu.fileEscapeAction({ hasFilter: true, path: '/home/test/docs', home: '/home/test' }) === 'clear-search',
@@ -892,8 +894,9 @@ assert(menu.fileEscapeAction({ path: '/home/test', home: '/home/test' }) === 'le
   'Escape leaves Files at home and at the filesystem root')
 assert(menu.fileEscapeAction({ path: '/home', home: '/home/test' }) === 'parent',
   'Escape continues parent navigation above home')
-assert(menu.fileEscapeAction({ path: '/', home: '/home/test', directoryPickerActive: true }) === 'leave-picker',
-  'Escape at the directory-picker root returns to its workflow')
+assert(menu.fileEscapeAction({ path: '/', home: '/home/test', directoryPickerActive: true }) === 'leave-picker'
+  && menu.fileEscapeAction({ path: '/home/test', home: '/home/test', directoryPickerActive: true }) === 'leave-picker',
+  'Escape at the directory-picker home or root returns to its workflow')
 assert(menu.isHomeOrAncestorPath('/home/test', '/home/test')
   && menu.isHomeOrAncestorPath('/home', '/home/test')
   && !menu.isHomeOrAncestorPath('/home/test/docs', '/home/test')

@@ -594,6 +594,7 @@ function openStateReset() {
     actionPanelFile: null,
     fileBrowserActive: false,
     directoryPickerActive: false,
+    filePickerActive: false,
     fileBrowserExtension: null,
     fileBrowserPath: "",
     fileEntries: [],

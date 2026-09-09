@@ -4490,7 +4490,7 @@ Item {
                 hasFilter: !!root.filterText,
                 path: root.fileBrowserPath,
                 home: Quickshell.env("HOME"),
-                directoryPickerActive: root.directoryPickerActive
+                directoryPickerActive: root.workflowPickerActive
               })
               if (fileEscape === "close-actions") root.closeActionPanel()
               else if (fileEscape === "clear-search") root.setFilter("")

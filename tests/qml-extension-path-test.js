@@ -91,8 +91,9 @@ assert(qml.includes('root.invalidateExtensionQuery("launcher closed")')
   && qml.includes('root.invalidateExtensionQuery("new launcher session")')
   && qml.includes('root.scheduleExtensionQuery()'),
 'close/open and catalog/query context changes invalidate live-query generations')
-assert(qml.includes('if (root.workflowPickerActive) root.workflowBack()'),
-'workflow pickers return through workflow history at the filesystem root')
+assert(qml.includes('if (root.workflowPickerActive) root.workflowBack()')
+  && qml.includes('directoryPickerActive: root.workflowPickerActive'),
+'file and directory pickers return through workflow history at home and the filesystem root')
 assert(qml.includes('event.key === Qt.Key_H && (event.modifiers & Qt.ControlModifier)')
   && qml.includes('root.toggleHiddenFiles()')
   && qml.includes('root.fileBrowserShowHidden ? ["--hidden"] : []'),
