@@ -643,9 +643,11 @@ assert(addExtension.length === 1 && addExtension[0].workflow.items.length === 3
   && browseMarketplace.closeOnDispatch === true
   && addFromGit.kind === 'input'
   && addFromGit.label === 'Install from Git Repository'
-  && addFromGit.refreshExtensions === true
+  && addFromGit.closeOnDispatch === true
+  && !addFromGit.allowEmpty
+  && menu.workflowInputTransition(addFromGit, '', {}) === null
   && menu.workflowCommand(addFromGit, 'https://github.com/DanielLemky/quantumfire.omarchy-news', {}).join('\0')
-    === ['omarchy', 'plugin', 'add', 'https://github.com/DanielLemky/quantumfire.omarchy-news', '--enable'].join('\0')
+    === ['xdg-terminal-exec', '--hold', '--', 'omarchy', 'plugin', 'add', 'https://github.com/DanielLemky/quantumfire.omarchy-news', '--enable'].join('\0')
   && createWithAgent.kind === 'input'
   && createWithAgent.closeOnDispatch === true,
 'bundled Add extension exposes marketplace browsing, Git installation, and detached agent creation')
