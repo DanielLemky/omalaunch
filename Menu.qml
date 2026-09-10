@@ -251,25 +251,31 @@ Item {
   readonly property int previewPaneWidth: Math.round((root.cardWidth
     - card.contentLeftInset - card.contentRightInset - root.contentSpacing) / 2)
 
-  // Shared application engine (entries, hidden filters, icons, launch,
-  // removal), owned by the shell and also used by the standalone launcher.
-  readonly property var appLibrary: root.shell ? root.shell.appLibrary : null
+  // Prefer the host's shared application engine. Omarchy 4.0.3 can inject a
+  // null menu capability; use an independently owned copy of its installed
+  // app service only in that case, without accessing the host's private state.
+  readonly property var sharedAppLibrary: root.shell ? root.shell.appLibrary : null
+  readonly property var appLibrary: appLibraryAccess.library
+
+  LauncherAppLibrary {
+    id: appLibraryAccess
+    sharedLibrary: root.sharedAppLibrary
+    fallbackEnabled: root.shell !== null
+    omarchyPath: root.omarchyPath
+    fallbackSource: root.omarchyPath.charAt(0) === "/"
+      ? Util.fileUrl(root.omarchyPath + "/shell/services/AppLibrary.qml") : ""
+  }
   readonly property int appIconRefreshTtlMs: 30 * 1000
   property double appIconIndexUpdatedAt: 0
   property bool appIconRefreshPending: false
   onAppLibraryChanged: {
     root.appIconIndexUpdatedAt = 0
     root.appIconRefreshPending = false
-    // A provider request can race shell injection. Reconcile loaded app rows
-    // after attachment or detachment; mergeAppRows() also clears stale rows
-    // when no library is attached.
-    if (root.providersLoaded["apps"]) {
-      var revision = root.providerRevision
-      Qt.callLater(function() {
-        if (revision === root.providerRevision && root.providersLoaded["apps"])
-          root.mergeAppRows()
-      })
-    }
+    // A provider request can race app-library attachment. Use the owned
+    // timer so queued reconciliation cannot outlive this menu on
+    // plugin reload. An empty replacement also clears stale detached rows.
+    if (root.providersLoaded["apps"] && appRowsMergeDebounce)
+      appRowsMergeDebounce.restart()
   }
   property bool deleteConfirmOpen: false
   property bool dependencyConfirmOpen: false
