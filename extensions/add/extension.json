@@ -14,6 +14,7 @@
         "id": "browse-marketplace",
         "kind": "action",
         "label": "Open Marketplace in Browser",
+        "icon": "󰖟",
         "closeOnDispatch": true,
         "command": [
           "xdg-open",
@@ -24,6 +25,7 @@
         "id": "add-from-git",
         "kind": "input",
         "label": "Install from Git Repository",
+        "icon": "󰊢",
         "prompt": "Git repository URL",
         "maxLength": 2048,
         "closeOnDispatch": true,
@@ -42,6 +44,7 @@
         "id": "create-with-agent",
         "kind": "input",
         "label": "Create with Agent",
+        "icon": "󰚩",
         "prompt": "Extension name",
         "maxLength": 120,
         "closeOnDispatch": true,
