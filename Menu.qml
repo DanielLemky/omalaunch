@@ -240,8 +240,8 @@ Item {
     && root.workflowNode && root.workflowNode.kind === "menu" && root.cursorActive
     && root.selectedIndex >= 0 && root.selectedIndex < displayModel.count
     ? root.workflowNode.items[Number(displayModel.get(root.selectedIndex).action)] : null
-  readonly property bool selectedWorkflowHasActions: root.selectedWorkflowNode
-    && root.selectedWorkflowNode.actions && root.selectedWorkflowNode.actions.length > 0
+  readonly property bool selectedWorkflowHasActions: !!(root.selectedWorkflowNode
+    && root.selectedWorkflowNode.actions && root.selectedWorkflowNode.actions.length > 0)
   readonly property var selectedWorkflowStarAction: root.workflowStarAction(root.selectedWorkflowNode)
   readonly property var selectedDynamicSearchEntry: !root.workflowActive && root.cursorActive
     && root.selectedIndex >= 0 && root.selectedIndex < displayModel.count
@@ -1050,20 +1050,22 @@ Item {
     root.workflowExtension = extension
     root.workflowContext = ({ extensionDir: extension.sourceDir })
     root.workflowStack = []
+    var workflow = MenuModel.normalizeWorkflow({ items: [{
+      id: "remove-extension",
+      kind: "confirm",
+      label: "Remove Extension",
+      confirm: "Remove " + extension.label + "?",
+      confirmLabel: "Remove",
+      command: ["omarchy", "plugin", "remove", extension.pluginId, "--yes"],
+      refreshExtensions: true,
+      closeOnSuccess: true
+    }] })
+    if (!workflow) return
     root.workflowNode = {
       id: "root",
       kind: "menu",
       label: extension.label,
-      items: [{
-        id: "remove-extension",
-        kind: "confirm",
-        label: "Remove Extension",
-        confirm: "Remove " + extension.label + "?",
-        confirmLabel: "Remove",
-        command: ["omarchy", "plugin", "remove", extension.pluginId, "--yes"],
-        refreshExtensions: true,
-        closeOnSuccess: true
-      }]
+      items: workflow.items
     }
     root.filterText = ""
     root.selectedIndex = 0
