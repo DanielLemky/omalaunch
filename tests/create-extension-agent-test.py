@@ -115,6 +115,19 @@ with tempfile.TemporaryDirectory() as temporary:
 
 with tempfile.TemporaryDirectory() as temporary:
     base = Path(temporary)
+    home = base / "home"
+    bin_dir = base / "bin"
+    home.mkdir(); bin_dir.mkdir()
+    env = dict(os.environ, HOME=str(home), PATH=str(bin_dir))
+    result = subprocess.run(["/usr/bin/python", str(SCRIPT), "Missing Tools"], env=env,
+                            capture_output=True, text=True)
+    check(result.returncode != 0
+          and "missing required tools: omarchy-agent, omarchy-default-agent" in result.stderr
+          and not (home / ".config/omarchy/plugins").exists(),
+          "agent creation reports its own missing tools before it creates a workspace")
+
+with tempfile.TemporaryDirectory() as temporary:
+    base = Path(temporary)
     bin_dir = base / "bin"
     workspace = base / "workspace"
     record = base / "agent.json"

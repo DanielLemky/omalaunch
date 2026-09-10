@@ -240,14 +240,19 @@ Item {
     && root.workflowNode && root.workflowNode.kind === "menu" && root.cursorActive
     && root.selectedIndex >= 0 && root.selectedIndex < displayModel.count
     ? root.workflowNode.items[Number(displayModel.get(root.selectedIndex).action)] : null
-  readonly property bool selectedWorkflowHasActions: root.selectedWorkflowNode
-    && root.selectedWorkflowNode.actions && root.selectedWorkflowNode.actions.length > 0
+  readonly property bool selectedWorkflowHasActions: !!(root.selectedWorkflowNode
+    && root.selectedWorkflowNode.actions && root.selectedWorkflowNode.actions.length > 0)
   readonly property var selectedWorkflowStarAction: root.workflowStarAction(root.selectedWorkflowNode)
   readonly property var selectedDynamicSearchEntry: !root.workflowActive && root.cursorActive
     && root.selectedIndex >= 0 && root.selectedIndex < displayModel.count
     ? root.dynamicMenuSearchEntry(displayModel.get(root.selectedIndex).itemId) : null
   readonly property var selectedDynamicStarAction: root.selectedDynamicSearchEntry
     ? root.workflowStarAction(root.selectedDynamicSearchEntry.node) : null
+  readonly property var selectedExtensionRoot: !root.workflowActive && root.activeMenu === "extensions"
+    && root.cursorActive && root.selectedIndex >= 0 && root.selectedIndex < displayModel.count
+    ? root.extensionForRootId(displayModel.get(root.selectedIndex).itemId) : null
+  readonly property bool canRemoveSelectedExtension: root.selectedExtensionRoot
+    && !root.selectedExtensionRoot.bundled && !!root.selectedExtensionRoot.pluginId
   readonly property int previewPaneWidth: Math.round((root.cardWidth
     - card.contentLeftInset - card.contentRightInset - root.contentSpacing) / 2)
 
@@ -407,7 +412,7 @@ Item {
     canConfigure: root.canConfigureExtension,
     canSettings: !root.dmenuActive && !root.workflowActive && !root.fileBrowserActive
       && root.activeMenu === "root",
-    canContextActions: root.selectedWorkflowHasActions
+    canContextActions: root.canRemoveSelectedExtension || root.selectedWorkflowHasActions
       || (root.documentActive && root.activeDocument && root.activeDocument.actions.length > 0)
       || (root.selectedDynamicSearchEntry && root.selectedDynamicSearchEntry.node.actions.length > 0),
     focusedExtension: !!root.focusedExtension,
@@ -506,7 +511,8 @@ Item {
       else root.openSettings()
     }
     else if (id === "actions") {
-      if (!root.workflowActive && root.selectedDynamicSearchEntry) root.openDynamicSearchActions()
+      if (root.canRemoveSelectedExtension) root.openExtensionActions()
+      else if (!root.workflowActive && root.selectedDynamicSearchEntry) root.openDynamicSearchActions()
       else if (root.workflowActive && !root.fileBrowserActive) root.openWorkflowActions()
       else if (root.fileBrowserActive) root.openActionPanel()
     } else if (id === "copy") root.copySelectedFile()
@@ -1035,6 +1041,38 @@ Item {
     }
     root.submenuLoading = false
     submenuProc.usageItemId = ""
+  }
+
+  function openExtensionActions() {
+    var extension = root.selectedExtensionRoot
+    if (!extension || extension.bundled || !extension.pluginId) return
+    var siblingLabels = MenuModel.pluginExtensionLabels(root.extensions, extension.pluginId)
+    var affected = siblingLabels.length > 0 ? siblingLabels.join(", ") : extension.label
+    root.workflowActive = true
+    root.workflowExtension = extension
+    root.workflowContext = ({ extensionDir: extension.sourceDir })
+    root.workflowStack = []
+    var workflow = MenuModel.normalizeWorkflow({ items: [{
+      id: "remove-extension",
+      kind: "confirm",
+      label: "Remove Extension",
+      confirm: "Remove plugin " + extension.pluginId + "? All its extensions will be removed: " + affected + ".",
+      confirmLabel: "Remove",
+      command: ["omarchy", "plugin", "remove", extension.pluginId, "--yes"],
+      refreshExtensions: true,
+      closeOnSuccess: true
+    }] })
+    if (!workflow) return
+    root.workflowNode = {
+      id: "root",
+      kind: "menu",
+      label: extension.label,
+      items: workflow.items
+    }
+    root.filterText = ""
+    root.selectedIndex = 0
+    root.cursorActive = true
+    root.rebuildDisplay()
   }
 
   function openExtensionConfiguration() {

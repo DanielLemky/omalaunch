@@ -216,6 +216,15 @@ assert(replacementRootItem.description === 'Open fixture calculator', 'extension
 assert(menu.extensionRootActivation(menu.parseExtensions(JSON.stringify([replacementFixture]))[0]) === 'input', 'query-only extension roots select focused input')
 assert(menu.extensionRootInput(menu.parseExtensions(JSON.stringify([replacementFixture]))[0]) === '', 'query-only extension roots start with empty functional input')
 assert(replacementRootItem.aliases.includes('calculator') && replacementRootItem.aliases.includes('fixture-calculator'), 'extension roots are globally searchable by stable capability and provider id')
+const removableExtension = menu.normalizeExtension({ ...replacementFixture, _pluginId: 'example.fixture-plugin' })
+assert(removableExtension.pluginId === 'example.fixture-plugin' && !removableExtension.bundled,
+  'external extensions retain their owning plugin identity for removal')
+assert(menu.pluginExtensionLabels([
+  removableExtension,
+  menu.normalizeExtension({ ...replacementFixture, id: 'fixture.second', label: 'Second Tool', _pluginId: 'example.fixture-plugin' }),
+  menu.normalizeExtension({ ...replacementFixture, id: 'fixture.other', label: 'Other Tool', _pluginId: 'example.other-plugin' })
+], 'example.fixture-plugin').join('|') === 'Fixture|Second Tool',
+  'multi-extension plugin removal resolves and sorts only sibling extension names')
 assert(menu.matchesQuery(replacementRootItem, menu.prepareSearchQuery('calculator'), true), 'extension roots participate in global search')
 const unavailableRootExtension = menu.parseExtensions(JSON.stringify([{ ...replacementFixture, _missingRequires: ['fixture-calc'] }]))[0]
 const unavailableRootItem = menu.extensionRootItem(unavailableRootExtension)
@@ -630,10 +639,24 @@ const addExtension = menu.parseExtensions(JSON.stringify({
   _bundled: true,
   _sourceDir: path.join(__dirname, '..', 'extensions', 'add')
 }))
-assert(addExtension.length === 1 && addExtension[0].workflow.items.length === 1
-  && addExtension[0].workflow.items[0].kind === 'input'
-  && addExtension[0].workflow.items[0].closeOnDispatch === true,
-'bundled Add extension exposes its detached agent creation workflow')
+const addFromGit = addExtension[0].workflow.items[0]
+const createWithAgent = addExtension[0].workflow.items[1]
+const browseMarketplace = addExtension[0].workflow.items[2]
+assert(addExtension.length === 1 && addExtension[0].workflow.items.length === 3
+  && browseMarketplace.kind === 'action'
+  && browseMarketplace.label === 'Open Marketplace in Browser'
+  && browseMarketplace.command.join('\0') === ['python', '{extensionDir}/add-extension-action.py', 'marketplace'].join('\0')
+  && browseMarketplace.closeOnDispatch === true
+  && addFromGit.kind === 'input'
+  && addFromGit.label === 'Install from Git Repository'
+  && addFromGit.closeOnDispatch === true
+  && !addFromGit.allowEmpty
+  && menu.workflowInputTransition(addFromGit, '', {}) === null
+  && menu.workflowCommand(addFromGit, 'https://github.com/DanielLemky/quantumfire.omarchy-news', {}).join('\0')
+    === ['python', '{extensionDir}/add-extension-action.py', 'git', 'https://github.com/DanielLemky/quantumfire.omarchy-news'].join('\0')
+  && createWithAgent.kind === 'input'
+  && createWithAgent.closeOnDispatch === true,
+'bundled Add extension exposes Git installation, detached agent creation, and marketplace browsing in order')
 const projectsNode = workflowExtensions[0].workflow.items[0]
 assert(projectsNode.label === 'Projects' && projectsNode.items.length === 2, 'workflow navigation data retains Projects and Add Project stages')
 const directoryTransition = menu.workflowDirectoryTransition(projectsNode.items[1], '/tmp/Saved Project/', {})

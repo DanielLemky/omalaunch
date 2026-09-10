@@ -162,6 +162,9 @@ def is_starter_scaffold(target: Path, plugin_id: str) -> bool:
 def main() -> int:
     if len(sys.argv) != 2 or not sys.argv[1].strip():
         fail("an extension name is required")
+    missing = [tool for tool in ("omarchy-agent", "omarchy-default-agent") if shutil.which(tool) is None]
+    if missing:
+        fail("missing required tool" + ("s" if len(missing) != 1 else "") + ": " + ", ".join(missing))
     name = sys.argv[1].strip()
     home = Path.home()
     extension_slug = slug(name)

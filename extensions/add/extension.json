@@ -7,13 +7,29 @@
   "prefixes": ["add extension"],
   "icon": "󰐕",
   "description": "Add an Omalaunch extension",
-  "requires": ["python", "omarchy-agent", "omarchy-default-agent"],
+  "requires": ["python"],
   "workflow": {
     "items": [
+      {
+        "id": "add-from-git",
+        "kind": "input",
+        "label": "Install from Git Repository",
+        "icon": "󰊢",
+        "prompt": "Git repository URL",
+        "maxLength": 2048,
+        "closeOnDispatch": true,
+        "command": [
+          "python",
+          "{extensionDir}/add-extension-action.py",
+          "git",
+          "{input}"
+        ]
+      },
       {
         "id": "create-with-agent",
         "kind": "input",
         "label": "Create with Agent",
+        "icon": "󰚩",
         "prompt": "Extension name",
         "maxLength": 120,
         "closeOnDispatch": true,
@@ -21,6 +37,18 @@
           "python",
           "{extensionDir}/create-with-agent.py",
           "{input}"
+        ]
+      },
+      {
+        "id": "browse-marketplace",
+        "kind": "action",
+        "label": "Open Marketplace in Browser",
+        "icon": "󰖟",
+        "closeOnDispatch": true,
+        "command": [
+          "python",
+          "{extensionDir}/add-extension-action.py",
+          "marketplace"
         ]
       }
     ]

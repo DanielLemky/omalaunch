@@ -168,6 +168,11 @@ elif mode == 'integer-overflow':
     messages = "\n".join(catalog["diagnostics"])
     check(ids == ["bundled", "static", "dynamic", "argument"],
           "bundled, static, and successful dynamic definitions coexist")
+    extensions_by_id = {item.get("id"): item for item in catalog["extensions"]}
+    check(extensions_by_id["bundled"].get("_pluginId") == ""
+          and extensions_by_id["static"].get("_pluginId") == "example.dynamic"
+          and extensions_by_id["dynamic"].get("_pluginId") == "example.dynamic",
+          "external static and dynamic definitions retain their owning plugin identity")
     check(not marker.exists() and next(item for item in catalog["extensions"] if item.get("id") == "argument")["label"] == hostile_argument,
           "provider arguments are passed literally without shell interpretation")
 
