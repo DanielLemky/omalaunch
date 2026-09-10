@@ -61,6 +61,9 @@ jobs:
       - name: Run app library fallback lifecycle harness when available
         run: bash tests/app-library-fallback-integration-test.sh
 
+      - name: Run app icon refresh compatibility tests
+        run: node tests/app-icon-refresh-compat-test.js
+
       - name: Run Quickshell live-query process harness when available
         run: bash tests/live-query-process-integration-test.sh
 
