@@ -49,6 +49,12 @@ jobs:
       - name: Run workflow row detail tests
         run: node tests/workflow-row-detail-test.js
 
+      - name: Run app library fallback contract tests
+        run: node tests/app-library-fallback-contract-test.js
+
+      - name: Run app library fallback lifecycle harness when available
+        run: bash tests/app-library-fallback-integration-test.sh
+
       - name: Run Quickshell live-query process harness when available
         run: bash tests/live-query-process-integration-test.sh
 
