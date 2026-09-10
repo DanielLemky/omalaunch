@@ -5,6 +5,7 @@ import "app-library-fallback-state.js" as State
 ShellRoot {
   id: root
   property var access: null
+  property var reconciliationFixture: null
   property var lastRows: []
   property int stage: 0
   property double stageStarted: Date.now()
@@ -39,6 +40,10 @@ ShellRoot {
       fallbackSource: Qt.resolvedUrl("app-library-fallback-fixture.qml")
       onLibraryChanged: root.reconcile()
     }
+  }
+  Component {
+    id: reconciliationComponent
+    AppLibraryReconciliationFixture { }
   }
   Connections {
     target: root.access ? root.access.library : null
@@ -151,6 +156,27 @@ ShellRoot {
           root.check(State.destroyed === 4 && State.osdCloses === 2, "wrapper destruction must close owned feedback")
           root.check(State.unsafeDestructions === 0, "all owned launch state must be stopped before destruction")
           root.check(State.cleanups === 4, "each owned instance must be cleaned up exactly once")
+          root.reconciliationFixture = reconciliationComponent.createObject(root)
+          root.reconciliationFixture.appLibrary = ({ first: true })
+          root.reconciliationFixture.appLibrary = ({ second: true })
+          root.next()
+          break
+        case 11:
+          if (elapsed < 200) return
+          root.check(State.reconciliations === 1, "library handoff must coalesce reconciliation")
+          root.reconciliationFixture.appLibrary = null
+          root.next()
+          break
+        case 12:
+          if (elapsed < 200) return
+          root.check(State.reconciliations === 2 && State.lastLibraryWasNull, "live detachment must reconcile an empty library")
+          root.reconciliationFixture.appLibrary = ({ pending: true })
+          root.reconciliationFixture.destroy()
+          root.next()
+          break
+        case 13:
+          if (elapsed < 200) return
+          root.check(State.reconciliations === 2, "queued reconciliation must not outlive the menu")
           if (!root.failed) console.log("HARNESS_OK app library fallback lifecycle")
           Qt.quit()
           break

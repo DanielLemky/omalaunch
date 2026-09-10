@@ -105,6 +105,10 @@ If it is missing, the launcher’s starting view shows **Enable Calculator & Cur
 
 Omalaunch never installs system packages silently. Package installation is offered only for dependencies allow-listed by Omalaunch itself; external extensions cannot supply installation commands.
 
+### Application library compatibility
+
+Omalaunch uses Omarchy's shared application library when it is available. If the shell omits that library, as can occur on Omarchy 4.0.3, Omalaunch uses a separate instance of the installed application service. This preserves Omarchy's application filtering, icons, and launch behavior without changing system files. The separate instance is released when the shared library becomes available. If the installed service is missing or cannot load, application results remain unavailable; other menu commands still work.
+
 ## Usage
 
 Start typing to search commands and applications. Use the arrow keys or Tab and Shift+Tab to move, Enter to activate, and Escape to go back or close the launcher.
