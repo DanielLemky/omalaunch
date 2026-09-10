@@ -1,6 +1,9 @@
 import QtQuick
 
 // Temporary compatibility path for hosts that omit the menu app-library API.
+// Upstream fix: https://github.com/omacom/omarchy/pull/11075
+// Remove when our minimum supported Omarchy version includes that fix.
+// See APP-LIBRARY-COMPATIBILITY.md for the removal checklist.
 // The fallback is an independent instance of the installed Omarchy service,
 // not a reference to the host's private object tree.
 Item {

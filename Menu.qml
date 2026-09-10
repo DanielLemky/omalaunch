@@ -271,8 +271,8 @@ Item {
   onAppLibraryChanged: {
     root.appIconIndexUpdatedAt = 0
     root.appIconRefreshPending = false
-    // A provider request can race shell injection or fallback loading. Use
-    // the owned timer so queued reconciliation cannot outlive this menu on
+    // A provider request can race app-library attachment. Use the owned
+    // timer so queued reconciliation cannot outlive this menu on
     // plugin reload. An empty replacement also clears stale detached rows.
     if (root.providersLoaded["apps"] && appRowsMergeDebounce)
       appRowsMergeDebounce.restart()
