@@ -11,18 +11,6 @@
   "workflow": {
     "items": [
       {
-        "id": "browse-marketplace",
-        "kind": "action",
-        "label": "Open Marketplace in Browser",
-        "icon": "󰖟",
-        "closeOnDispatch": true,
-        "command": [
-          "python",
-          "{extensionDir}/add-extension-action.py",
-          "marketplace"
-        ]
-      },
-      {
         "id": "add-from-git",
         "kind": "input",
         "label": "Install from Git Repository",
@@ -49,6 +37,18 @@
           "python",
           "{extensionDir}/create-with-agent.py",
           "{input}"
+        ]
+      },
+      {
+        "id": "browse-marketplace",
+        "kind": "action",
+        "label": "Open Marketplace in Browser",
+        "icon": "󰖟",
+        "closeOnDispatch": true,
+        "command": [
+          "python",
+          "{extensionDir}/add-extension-action.py",
+          "marketplace"
         ]
       }
     ]

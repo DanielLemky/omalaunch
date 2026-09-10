@@ -639,9 +639,9 @@ const addExtension = menu.parseExtensions(JSON.stringify({
   _bundled: true,
   _sourceDir: path.join(__dirname, '..', 'extensions', 'add')
 }))
-const browseMarketplace = addExtension[0].workflow.items[0]
-const addFromGit = addExtension[0].workflow.items[1]
-const createWithAgent = addExtension[0].workflow.items[2]
+const addFromGit = addExtension[0].workflow.items[0]
+const createWithAgent = addExtension[0].workflow.items[1]
+const browseMarketplace = addExtension[0].workflow.items[2]
 assert(addExtension.length === 1 && addExtension[0].workflow.items.length === 3
   && browseMarketplace.kind === 'action'
   && browseMarketplace.label === 'Open Marketplace in Browser'
@@ -656,7 +656,7 @@ assert(addExtension.length === 1 && addExtension[0].workflow.items.length === 3
     === ['python', '{extensionDir}/add-extension-action.py', 'git', 'https://github.com/DanielLemky/quantumfire.omarchy-news'].join('\0')
   && createWithAgent.kind === 'input'
   && createWithAgent.closeOnDispatch === true,
-'bundled Add extension exposes marketplace browsing, Git installation, and detached agent creation')
+'bundled Add extension exposes Git installation, detached agent creation, and marketplace browsing in order')
 const projectsNode = workflowExtensions[0].workflow.items[0]
 assert(projectsNode.label === 'Projects' && projectsNode.items.length === 2, 'workflow navigation data retains Projects and Add Project stages')
 const directoryTransition = menu.workflowDirectoryTransition(projectsNode.items[1], '/tmp/Saved Project/', {})
