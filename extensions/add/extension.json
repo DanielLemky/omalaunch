@@ -7,7 +7,7 @@
   "prefixes": ["add extension"],
   "icon": "󰐕",
   "description": "Add an Omalaunch extension",
-  "requires": ["omarchy", "python", "omarchy-agent", "omarchy-default-agent", "xdg-open", "xdg-terminal-exec"],
+  "requires": ["python"],
   "workflow": {
     "items": [
       {
@@ -17,8 +17,9 @@
         "icon": "󰖟",
         "closeOnDispatch": true,
         "command": [
-          "xdg-open",
-          "https://daniellemky.github.io/omalaunch-extensions/"
+          "python",
+          "{extensionDir}/add-extension-action.py",
+          "marketplace"
         ]
       },
       {
@@ -30,14 +31,10 @@
         "maxLength": 2048,
         "closeOnDispatch": true,
         "command": [
-          "xdg-terminal-exec",
-          "--hold",
-          "--",
-          "omarchy",
-          "plugin",
-          "add",
-          "{input}",
-          "--enable"
+          "python",
+          "{extensionDir}/add-extension-action.py",
+          "git",
+          "{input}"
         ]
       },
       {

@@ -477,6 +477,16 @@ var DEPENDENCY_SETUPS = {
   }
 }
 
+function pluginExtensionLabels(extensions, pluginId) {
+  var labels = []
+  var values = Array.isArray(extensions) ? extensions : []
+  for (var i = 0; i < values.length; i++) {
+    if (values[i].pluginId === pluginId && labels.indexOf(values[i].label) < 0) labels.push(values[i].label)
+  }
+  labels.sort()
+  return labels
+}
+
 function dependencySetup(extension) {
   if (!extension) return null
   var missing = Array.isArray(extension.missingRequires) ? extension.missingRequires : []
@@ -2183,6 +2193,7 @@ if (typeof module !== "undefined") {
     nameSearchText: nameSearchText,
     termInSearchWords: termInSearchWords,
     descriptionTextMatches: descriptionTextMatches,
+    pluginExtensionLabels: pluginExtensionLabels,
     dependencySetup: dependencySetup,
     unavailableExtensionDetail: unavailableExtensionDetail,
     firstSetupExtension: firstSetupExtension,

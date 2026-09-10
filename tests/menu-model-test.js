@@ -219,6 +219,12 @@ assert(replacementRootItem.aliases.includes('calculator') && replacementRootItem
 const removableExtension = menu.normalizeExtension({ ...replacementFixture, _pluginId: 'example.fixture-plugin' })
 assert(removableExtension.pluginId === 'example.fixture-plugin' && !removableExtension.bundled,
   'external extensions retain their owning plugin identity for removal')
+assert(menu.pluginExtensionLabels([
+  removableExtension,
+  menu.normalizeExtension({ ...replacementFixture, id: 'fixture.second', label: 'Second Tool', _pluginId: 'example.fixture-plugin' }),
+  menu.normalizeExtension({ ...replacementFixture, id: 'fixture.other', label: 'Other Tool', _pluginId: 'example.other-plugin' })
+], 'example.fixture-plugin').join('|') === 'Fixture|Second Tool',
+  'multi-extension plugin removal resolves and sorts only sibling extension names')
 assert(menu.matchesQuery(replacementRootItem, menu.prepareSearchQuery('calculator'), true), 'extension roots participate in global search')
 const unavailableRootExtension = menu.parseExtensions(JSON.stringify([{ ...replacementFixture, _missingRequires: ['fixture-calc'] }]))[0]
 const unavailableRootItem = menu.extensionRootItem(unavailableRootExtension)
@@ -639,7 +645,7 @@ const createWithAgent = addExtension[0].workflow.items[2]
 assert(addExtension.length === 1 && addExtension[0].workflow.items.length === 3
   && browseMarketplace.kind === 'action'
   && browseMarketplace.label === 'Open Marketplace in Browser'
-  && browseMarketplace.command.join('\0') === ['xdg-open', 'https://daniellemky.github.io/omalaunch-extensions/'].join('\0')
+  && browseMarketplace.command.join('\0') === ['python', '{extensionDir}/add-extension-action.py', 'marketplace'].join('\0')
   && browseMarketplace.closeOnDispatch === true
   && addFromGit.kind === 'input'
   && addFromGit.label === 'Install from Git Repository'
@@ -647,7 +653,7 @@ assert(addExtension.length === 1 && addExtension[0].workflow.items.length === 3
   && !addFromGit.allowEmpty
   && menu.workflowInputTransition(addFromGit, '', {}) === null
   && menu.workflowCommand(addFromGit, 'https://github.com/DanielLemky/quantumfire.omarchy-news', {}).join('\0')
-    === ['xdg-terminal-exec', '--hold', '--', 'omarchy', 'plugin', 'add', 'https://github.com/DanielLemky/quantumfire.omarchy-news', '--enable'].join('\0')
+    === ['python', '{extensionDir}/add-extension-action.py', 'git', 'https://github.com/DanielLemky/quantumfire.omarchy-news'].join('\0')
   && createWithAgent.kind === 'input'
   && createWithAgent.closeOnDispatch === true,
 'bundled Add extension exposes marketplace browsing, Git installation, and detached agent creation')

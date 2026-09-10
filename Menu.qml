@@ -1046,6 +1046,8 @@ Item {
   function openExtensionActions() {
     var extension = root.selectedExtensionRoot
     if (!extension || extension.bundled || !extension.pluginId) return
+    var siblingLabels = MenuModel.pluginExtensionLabels(root.extensions, extension.pluginId)
+    var affected = siblingLabels.length > 0 ? siblingLabels.join(", ") : extension.label
     root.workflowActive = true
     root.workflowExtension = extension
     root.workflowContext = ({ extensionDir: extension.sourceDir })
@@ -1054,7 +1056,7 @@ Item {
       id: "remove-extension",
       kind: "confirm",
       label: "Remove Extension",
-      confirm: "Remove " + extension.label + "?",
+      confirm: "Remove plugin " + extension.pluginId + "? All its extensions will be removed: " + affected + ".",
       confirmLabel: "Remove",
       command: ["omarchy", "plugin", "remove", extension.pluginId, "--yes"],
       refreshExtensions: true,
