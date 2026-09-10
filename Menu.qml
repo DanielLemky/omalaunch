@@ -271,16 +271,11 @@ Item {
   onAppLibraryChanged: {
     root.appIconIndexUpdatedAt = 0
     root.appIconRefreshPending = false
-    // A provider request can race shell injection. Reconcile loaded app rows
-    // after attachment or detachment; mergeAppRows() also clears stale rows
-    // when no library is attached.
-    if (root.providersLoaded["apps"]) {
-      var revision = root.providerRevision
-      Qt.callLater(function() {
-        if (revision === root.providerRevision && root.providersLoaded["apps"])
-          root.mergeAppRows()
-      })
-    }
+    // A provider request can race shell injection or fallback loading. Use
+    // the owned timer so queued reconciliation cannot outlive this menu on
+    // plugin reload. An empty replacement also clears stale detached rows.
+    if (root.providersLoaded["apps"] && appRowsMergeDebounce)
+      appRowsMergeDebounce.restart()
   }
   property bool deleteConfirmOpen: false
   property bool dependencyConfirmOpen: false

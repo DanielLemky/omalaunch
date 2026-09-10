@@ -19,6 +19,9 @@ assert(access.includes('var wanted = root.fallbackEnabled && !root.sharedLibrary
   'fallback activation must not depend on the effective library')
 assert(access.includes('fallbackLoader.setSource(root.fallbackSource, { omarchyPath: root.omarchyPath })'),
   'service scans must use the injected installation path from construction')
-const reconcile = menu.slice(menu.indexOf('  onAppLibraryChanged:'), menu.indexOf('  onAppLibraryChanged:') + 800)
-assert(reconcile.includes('root.mergeAppRows()'), 'library changes must reconcile existing application rows')
+const reconcile = menu.slice(menu.indexOf('  onAppLibraryChanged:'), menu.indexOf('  property bool deleteConfirmOpen:'))
+assert(reconcile.includes('appRowsMergeDebounce.restart()'), 'library changes must schedule the owned reconciliation timer')
+assert(!reconcile.includes('Qt.callLater'), 'library teardown must not queue callbacks that outlive the menu')
+assert(menu.includes('onTriggered: if (root.providersLoaded["apps"]) root.mergeAppRows()'),
+  'the owned timer must reconcile only the current loaded provider')
 console.log('App library fallback contract tests passed')
