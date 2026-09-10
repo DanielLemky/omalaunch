@@ -10,7 +10,8 @@ fi
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 cp "$root/tests/app-library-reconciliation-harness.qml" "$tmp/"
-# Extract only the permanent handler and timer. No fallback file is needed.
+# Extract the permanent handler, its optional reset helper, and the timer.
+# No fallback file is needed.
 python - "$root/Menu.qml" "$tmp/AppLibraryReconciliationFixture.qml" <<'PY'
 import re
 import sys
@@ -21,6 +22,10 @@ start = source.index('  onAppLibraryChanged: {')
 end = source.index('  property bool deleteConfirmOpen:', start)
 timer = re.search(r'  Timer \{\n    id: appRowsMergeDebounce\b.*?\n  \}', source, re.S)
 assert timer is not None
+# The icon-refresh fix moves the reset into a helper. Use its real code when
+# present, while keeping this test runnable before that separate fix is merged.
+reset = re.search(r'  function resetAppIconRefreshState\(\) \{.*?\n  \}', source, re.S)
+reset_source = reset.group(0) + '\n' if reset else ''
 Path(sys.argv[2]).write_text('''import QtQuick
 Item {
   id: root
@@ -31,7 +36,7 @@ Item {
   property bool appIconRefreshPending: false
   signal merged(bool emptyLibrary)
   function mergeAppRows() { root.merged(root.appLibrary === null) }
-''' + source[start:end] + timer.group(0) + '\n}\n')
+''' + reset_source + source[start:end] + timer.group(0) + '\n}\n')
 PY
 output="$(QT_QPA_PLATFORM=offscreen timeout 10 quickshell --no-color -p "$tmp/app-library-reconciliation-harness.qml" 2>&1)"
 printf '%s\n' "$output"
