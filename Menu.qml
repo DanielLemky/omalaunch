@@ -269,8 +269,7 @@ Item {
   property double appIconIndexUpdatedAt: 0
   property bool appIconRefreshPending: false
   onAppLibraryChanged: {
-    root.appIconIndexUpdatedAt = 0
-    root.appIconRefreshPending = false
+    root.resetAppIconRefreshState()
     // A provider request can race app-library attachment. Use the owned
     // timer so queued reconciliation cannot outlive this menu on
     // plugin reload. An empty replacement also clears stale detached rows.
@@ -534,12 +533,34 @@ Item {
     return false
   }
 
+  function resetAppIconRefreshState() {
+    root.appIconIndexUpdatedAt = 0
+    root.appIconRefreshPending = false
+  }
+
+  function completeAppIconRefresh() {
+    root.appIconIndexUpdatedAt = Date.now()
+    root.appIconRefreshPending = false
+  }
+
+  function appIconRefreshHasCompletionSignal(library) {
+    // The raw AppLibrary exposes iconIndex and its change signal. The detached
+    // PluginAppLibraryApi proxy intentionally exposes neither.
+    return library && library.iconIndex !== undefined
+  }
+
   function refreshAppIconsIfStale() {
-    if (!root.appLibrary || root.appIconRefreshPending) return
+    var library = root.appLibrary
+    if (!library || root.appIconRefreshPending) return
     if (root.appIconIndexUpdatedAt > 0
         && Date.now() - root.appIconIndexUpdatedAt < root.appIconRefreshTtlMs) return
-    root.appIconRefreshPending = true
-    root.appLibrary.refreshIcons()
+    var waitsForCompletion = root.appIconRefreshHasCompletionSignal(library)
+    root.appIconRefreshPending = waitsForCompletion
+    library.refreshIcons()
+    // The proxy cannot report scan completion. Treat dispatch as the freshness
+    // point so repeated menu opens stay bounded by the same TTL.
+    if (!waitsForCompletion && root.appLibrary === library)
+      root.appIconIndexUpdatedAt = Date.now()
   }
 
   function badgeToneColor(tone) {
@@ -4166,11 +4187,12 @@ Item {
 
   Connections {
     target: root.appLibrary
+    // PluginAppLibraryApi does not expose the raw iconIndex property or signal.
+    ignoreUnknownSignals: true
     function onIconIndexChanged() {
       // iconIndex is swapped only when AppLibrary's asynchronous scan exits.
       // Start the freshness window from completion, not from the request.
-      root.appIconIndexUpdatedAt = Date.now()
-      root.appIconRefreshPending = false
+      root.completeAppIconRefresh()
     }
     function onAppsChanged() {
       // AppLibrary owns app-change icon rescans; this signal can also mean only
