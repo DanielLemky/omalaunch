@@ -10,6 +10,17 @@ fi
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 cp "$root/LauncherAppLibrary.qml" "$root"/tests/app-library-fallback-{fixture.qml,state.js,harness.qml} "$tmp/"
+python3 - "$root/Menu.qml" "$tmp/app-library-fallback-harness.qml" <<'PY'
+import pathlib
+import re
+import sys
+
+menu = pathlib.Path(sys.argv[1]).read_text()
+block = re.search(r'  LauncherAppLibrary \{.*?\n  \}', menu, re.S).group()
+binding = re.search(r'^    fallbackEnabled: (.+)$', block, re.M).group(1)
+harness = pathlib.Path(sys.argv[2])
+harness.write_text(harness.read_text().replace('/* MENU_FALLBACK_ENABLED */ false', binding))
+PY
 output="$(QT_QPA_PLATFORM=offscreen timeout 10 quickshell --no-color -p "$tmp/app-library-fallback-harness.qml" 2>&1)"
 printf '%s\n' "$output"
 if grep -F 'HARNESS_FAIL' <<<"$output" >/dev/null; then exit 1; fi

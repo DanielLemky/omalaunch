@@ -9,7 +9,8 @@ assert(menu.includes('readonly property var sharedAppLibrary: root.shell ? root.
 assert(menu.includes('readonly property var appLibrary: appLibraryAccess.library'))
 const integration = menu.match(/  LauncherAppLibrary \{[\s\S]*?\n  \}/)[0]
 assert(integration.includes('sharedLibrary: root.sharedAppLibrary'))
-assert(integration.includes('fallbackEnabled: root.shell !== null'))
+assert(integration.includes('fallbackEnabled: true'),
+  'fallback availability must survive destruction of the injected shell API')
 assert(integration.includes('root.omarchyPath.charAt(0) === "/"'))
 assert(integration.includes('Util.fileUrl(root.omarchyPath + "/shell/services/AppLibrary.qml")'))
 assert(!integration.includes('providersLoaded'), 'in-place var map mutations must not gate the loader')

@@ -1,10 +1,10 @@
 # Temporary app-library fallback
 
-Tracking issue: [#68](https://github.com/DanielLemky/omalaunch/issues/68).
+Tracking issues: [#68](https://github.com/DanielLemky/omalaunch/issues/68) and [#75](https://github.com/DanielLemky/omalaunch/issues/75).
 
 Upstream correction: [Omarchy PR #11075](https://github.com/omacom/omarchy/pull/11075).
 
-`LauncherAppLibrary.qml` is a temporary compatibility component. It uses the host's shared library when available and loads an independent installed app service only when the attached shell supplies no library. A fixed host does not load the fallback. No version check or configuration switch is required.
+`LauncherAppLibrary.qml` is a temporary compatibility component. It uses the host's shared library when available and loads an independent installed app service when no shared library is available and the installed service path is valid. The fallback remains available if the host destroys the injected shell API while the menu stays loaded. A shared library takes priority and releases the fallback. Menu destruction also releases the fallback. No version check or configuration switch is required.
 
 ## Removal condition
 
