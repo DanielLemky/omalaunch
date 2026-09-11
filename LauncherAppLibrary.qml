@@ -10,11 +10,9 @@ Item {
   id: root
 
   property var sharedLibrary: null
-  property bool fallbackEnabled: false
   property url fallbackSource: ""
   property string omarchyPath: ""
-  readonly property var library: root.sharedLibrary
-    || (root.fallbackEnabled ? fallbackLoader.item : null)
+  readonly property var library: root.sharedLibrary || fallbackLoader.item
   readonly property int fallbackStatus: fallbackLoader.status
   property bool componentReady: false
   property string loadedOmarchyPath: ""
@@ -37,7 +35,7 @@ Item {
 
   function syncFallback() {
     if (!root.componentReady) return
-    var wanted = root.fallbackEnabled && !root.sharedLibrary
+    var wanted = !root.sharedLibrary
       && String(root.fallbackSource).length > 0
     if (wanted && fallbackLoader.active
         && String(fallbackLoader.source) === String(root.fallbackSource)
@@ -51,7 +49,6 @@ Item {
   }
 
   onSharedLibraryChanged: root.syncFallback()
-  onFallbackEnabledChanged: root.syncFallback()
   onFallbackSourceChanged: root.syncFallback()
   onOmarchyPathChanged: root.syncFallback()
 

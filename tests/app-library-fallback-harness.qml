@@ -5,6 +5,13 @@ import "app-library-fallback-state.js" as State
 ShellRoot {
   id: root
   property var access: null
+  property QtObject shell: null
+  property var retainedFallback: null
+
+  Component {
+    id: shellComponent
+    QtObject { property var appLibrary: null }
+  }
   property var lastRows: []
   property int stage: 0
   property double stageStarted: Date.now()
@@ -35,6 +42,7 @@ ShellRoot {
   Component {
     id: accessComponent
     LauncherAppLibrary {
+      sharedLibrary: root.shell ? root.shell.appLibrary : null
       omarchyPath: "/fixture/omarchy"
       fallbackSource: Qt.resolvedUrl("app-library-fallback-fixture.qml")
       onLibraryChanged: root.reconcile()
@@ -46,11 +54,8 @@ ShellRoot {
   }
 
   Component.onCompleted: {
+    root.shell = shellComponent.createObject(root, { appLibrary: shared })
     root.access = accessComponent.createObject(root)
-    root.check(root.access.library === null, "detached library must be null")
-    root.check(root.access.fallbackStatus === Loader.Null, "detached fallback must be inactive")
-    root.access.sharedLibrary = shared
-    root.access.fallbackEnabled = true
   }
 
   Timer {
@@ -70,7 +75,7 @@ ShellRoot {
           root.access.fallbackSource = Qt.resolvedUrl("missing-while-shared.qml")
           root.check(root.access.fallbackStatus === Loader.Null, "a shared host must not attempt fallback sources")
           root.access.fallbackSource = Qt.resolvedUrl("app-library-fallback-fixture.qml")
-          root.access.sharedLibrary = null
+          root.shell.appLibrary = null
           root.next()
           break
         case 1:
@@ -79,19 +84,35 @@ ShellRoot {
           root.check(State.initializedPath === "/fixture/omarchy", "path must be set before service startup")
           root.check(root.lastRows.length === 1 && root.lastRows[0].entry.id === "fallback", "late library arrival must reconcile rows")
           root.check(root.access.library.iconSource("app") === "fixture:app", "icon method must come from selected library")
+          root.retainedFallback = root.access.library
+          root.shell.destroy()
+          root.stage = 11
+          root.stageStarted = Date.now()
+          break
+        case 11:
+          if (elapsed < 100) return
+          root.check(root.shell === null, "destroyed shell must clear the QML object reference")
+          root.check(root.ready() && root.access.library === root.retainedFallback,
+            "shell destruction must retain the ready fallback")
+          root.check(State.created === 1 && State.destroyed === 0,
+            "shell destruction must not replace or release the fallback")
+          root.check(root.lastRows.length === 1 && root.lastRows[0].entry.id === "fallback",
+            "shell destruction must retain application rows")
+          if (root.failed) return
           root.access.library.changeRows()
           root.check(root.lastRows[0].entry.id === "changed", "active app changes must reconcile rows")
           root.access.library.launch("app", "App")
-          root.access.sharedLibrary = shared
+          root.shell = shellComponent.createObject(root, { appLibrary: shared })
           root.check(root.access.library === shared, "shared library must take priority on handoff")
-          root.next()
+          root.stage = 2
+          root.stageStarted = Date.now()
           break
         case 2:
           if (elapsed < 100) return
           root.check(State.destroyed === 1 && State.cleanups === 1, "handoff must clean up before destruction")
           root.check(State.osdShows === 0, "teardown before launch delay must cancel feedback")
           root.check(root.lastRows.length === 1 && root.lastRows[0].entry.id === "shared", "no fallback rows may survive handoff")
-          root.access.sharedLibrary = null
+          root.shell.appLibrary = null
           root.next()
           break
         case 3:
@@ -103,20 +124,20 @@ ShellRoot {
         case 4:
           if (elapsed < 100) return
           root.check(State.osdShows === 1, "launch fixture must show feedback")
-          root.access.fallbackEnabled = false
-          root.check(root.access.library === null, "detachment must clear the effective library")
-          root.check(root.lastRows.length === 0, "detachment must clear stale rows")
+          root.access.fallbackSource = ""
+          root.check(root.access.library === null, "missing source must clear the effective library")
+          root.check(root.lastRows.length === 0, "missing source must clear stale rows")
           root.next()
           break
         case 5:
           if (elapsed < 30) return
-          root.check(State.destroyed === 2 && State.osdCloses === 1, "detachment must close an open OSD")
-          root.access.fallbackEnabled = true
+          root.check(State.destroyed === 2 && State.osdCloses === 1, "missing source must close an open OSD")
+          root.access.fallbackSource = Qt.resolvedUrl("app-library-fallback-fixture.qml")
           root.next()
           break
         case 6:
           if (!root.ready()) return
-          root.check(State.created === 3, "reattachment must load fallback")
+          root.check(State.created === 3, "restored source must load fallback")
           root.access.fallbackSource = Qt.resolvedUrl("missing-app-library.qml")
           root.next()
           break
@@ -126,12 +147,10 @@ ShellRoot {
           root.check(root.access.library === null && root.lastRows.length === 0, "load errors must not retain stale rows")
           root.access.syncFallback()
           root.access.syncFallback()
-          root.access.sharedLibrary = shared
+          root.shell.appLibrary = shared
           root.check(root.access.library === shared, "shared capability must recover from fallback error")
-          root.access.fallbackEnabled = false
-          root.access.sharedLibrary = null
           root.access.fallbackSource = Qt.resolvedUrl("app-library-fallback-fixture.qml")
-          root.access.fallbackEnabled = true
+          root.shell.appLibrary = null
           root.next()
           break
         case 8:

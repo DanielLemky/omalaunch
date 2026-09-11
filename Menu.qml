@@ -265,7 +265,6 @@ Item {
   LauncherAppLibrary {
     id: appLibraryAccess
     sharedLibrary: root.sharedAppLibrary
-    fallbackEnabled: root.shell !== null
     omarchyPath: root.omarchyPath
     fallbackSource: root.omarchyPath.charAt(0) === "/"
       ? Util.fileUrl(root.omarchyPath + "/shell/services/AppLibrary.qml") : ""
