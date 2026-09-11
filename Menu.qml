@@ -265,8 +265,6 @@ Item {
   LauncherAppLibrary {
     id: appLibraryAccess
     sharedLibrary: root.sharedAppLibrary
-    // Some hosts destroy the injected shell API while the menu remains loaded.
-    fallbackEnabled: true
     omarchyPath: root.omarchyPath
     fallbackSource: root.omarchyPath.charAt(0) === "/"
       ? Util.fileUrl(root.omarchyPath + "/shell/services/AppLibrary.qml") : ""
