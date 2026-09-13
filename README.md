@@ -46,6 +46,7 @@ This workaround can be removed once Omarchy supports setting a widget’s sectio
 - Look up current times and convert times across DST-aware timezones
 - Search with Google, DuckDuckGo, Bing, Brave Search, or Ecosia
 - Accept dmenu-style select and input requests
+- Close the launcher by clicking outside it on any monitor
 - Load extensions contributed by enabled Omarchy plugins
 - Launch agent prompts such as Pi and Codex through optional extensions
 
