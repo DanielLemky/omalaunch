@@ -4482,7 +4482,7 @@ Item {
     color: "transparent"
     WlrLayershell.namespace: "omarchy-menu"
     WlrLayershell.layer: WlrLayer.Overlay
-    WlrLayershell.keyboardFocus: WlrKeyboardFocus.Exclusive
+    WlrLayershell.keyboardFocus: WlrKeyboardFocus.OnDemand
     exclusionMode: ExclusionMode.Ignore
 
     // Keep the top edge fixed while result and submenu heights change.
@@ -4496,6 +4496,16 @@ Item {
     MouseArea {
       anchors.fill: parent
       onClicked: root.cancel()
+    }
+
+    // Exclusive keyboard focus makes Hyprland hold a seat grab for this surface,
+    // which silently discards pointer events on every other monitor -- the scrim
+    // above only covers the opening one. With OnDemand focus this grab routes
+    // input compositor-wide instead, so clicking away works from any monitor.
+    HyprlandFocusGrab {
+      active: panel.visible
+      windows: [panel]
+      onCleared: root.cancel()
     }
 
     BorderSurface {
