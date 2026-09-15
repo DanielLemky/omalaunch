@@ -58,7 +58,7 @@ Star frequently used applications, commands, files, directories, and extension s
 
 ## Calculator
 
-Evaluate arithmetic, units, and currency conversions without leaving the launcher. Press Enter to copy the result.
+Evaluate arithmetic, units, and currency conversions without leaving the launcher. Press Enter to copy the result. With NumLock on, you can use the numeric keypad to enter digits, operators, and decimal points.
 
 ![Calculator result in Omalaunch](assets/calculator.png)
 
